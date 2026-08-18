@@ -1,0 +1,2 @@
+[console_scripts]
+topology-scanner = topology_scanner.cli:main

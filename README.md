@@ -1,0 +1,91 @@
+# Network Topology Scanner
+
+Escanea un rango de red, detecta hosts activos, sus puertos/servicios, fabricante
+(vía MAC) y tipo de dispositivo, y genera un grafo de topología interactivo en
+HTML con iconos por categoría (router, PC, NAS, impresora, etc.).
+
+## ⚠️ Aviso legal
+Usa esta herramienta **solo en redes propias o con autorización explícita**
+(tu homelab, o la red del trabajo si tienes permiso). Escanear redes ajenas
+sin consentimiento es ilegal en España y en la mayoría de países.
+
+## Estructura del proyecto
+
+```
+network-topology-scanner/
+├── src/topology_scanner/
+│   ├── scanner.py        # Escaneo con nmap (descubrimiento + puertos)
+│   ├── classifier.py      # Clasificación de dispositivo por MAC/vendor
+│   ├── graph.py            # Construcción del grafo (networkx)
+│   ├── export.py           # Exportación a HTML (pyvis) y texto
+│   └── cli.py               # Interfaz de línea de comandos
+├── tests/                   # pytest, con mocks de nmap (sin red real)
+├── pyproject.toml
+└── requirements.txt
+```
+
+## Instalación
+
+```bash
+# Dependencia del sistema
+sudo apt install nmap        # Linux
+# En Windows: descarga el instalador desde nmap.org
+
+# Entorno virtual
+python3 -m venv venv
+source venv/bin/activate      # Linux/Mac
+# venv\Scripts\Activate.ps1   # Windows PowerShell
+
+# Instalación del paquete (modo editable, incluye dependencias de dev)
+pip install -e ".[dev]"
+```
+
+## Uso
+
+```bash
+sudo topology-scanner 192.168.1.0/24
+sudo topology-scanner 192.168.1.0/24 --rapido
+sudo topology-scanner 192.168.1.0/24 --con-so --output mi_red.html
+
+# Alternativa sin entry point instalado:
+sudo python3 -m topology_scanner 192.168.1.0/24
+```
+
+| Flag            | Descripción                                               | Por defecto     |
+|-----------------|-------------------------------------------------------------|-----------------|
+| `rango`         | Rango CIDR a escanear                                       | (obligatorio)   |
+| `--ports`       | Puertos a escanear (formato nmap)                             | puertos comunes |
+| `--nmap-args`   | Argumentos extra para nmap                                    | `-sV -T4`       |
+| `--output`      | Nombre del HTML de salida                                      | `topologia_red.html` |
+| `--con-so`      | Activa detección de SO (-O), la opción más lenta                 | desactivado     |
+| `--sin-2-fases` | Desactiva el ping scan previo, escanea el rango completo directo | desactivado     |
+| `--rapido`      | Preset de máxima velocidad, solo puertos                          | desactivado     |
+
+## Clasificación de dispositivos
+
+La MAC de cada host permite identificar el fabricante (vía la base de datos
+interna de nmap), que se traduce heurísticamente a una categoría con icono
+propio: router, firewall, VM, NAS, impresora, cámara, IoT, móvil, Apple, PC.
+
+**Limitación**: la resolución de MAC solo funciona si el equipo que escanea
+está en el **mismo segmento L2** que el host objetivo (ARP no cruza routers/VLANs).
+Hosts en otras subredes aparecerán como categoría "desconocido".
+
+## Tests
+
+```bash
+pytest tests/ -v
+pytest tests/ --cov=topology_scanner   # con cobertura
+```
+
+Los tests de `scanner.py` usan `unittest.mock` para simular las respuestas
+de nmap, así que se ejecutan sin red real ni el binario nmap instalado.
+
+## Próximos pasos
+
+- [ ] Historial de escaneos en SQLite (detectar hosts nuevos/caídos)
+- [ ] Topología real vía SNMP contra switches/routers (en vez de estrella aproximada)
+- [ ] Exportar también a CSV para auditorías/inventario
+- [ ] Alertas visuales por puertos sensibles (RDP, Telnet, SMB expuesto)
+- [ ] Interfaz web con Streamlit
+- [ ] GitHub Actions: ejecutar tests + ruff en cada push

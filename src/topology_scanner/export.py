@@ -1,0 +1,86 @@
+"""
+export.py
+---------
+Convierte el grafo/resultados en salidas visibles: HTML interactivo (pyvis)
+o informe de texto plano por consola.
+"""
+
+import logging
+from datetime import datetime
+
+import networkx as nx
+
+try:
+    from pyvis.network import Network
+except ImportError:
+    import sys
+    sys.exit("Falta pyvis. Instala con: pip install pyvis")
+
+from .classifier import icono_para_categoria
+
+log = logging.getLogger("topology_scanner")
+
+CDN_FONTAWESOME = (
+    '<link rel="stylesheet" '
+    'href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">'
+)
+
+
+def exportar_html(grafo: nx.Graph, archivo_salida: str):
+    """Genera un HTML interactivo (pyvis) a partir del grafo, usando un icono
+    distinto por categoría de dispositivo (deducida de la MAC/vendor)."""
+    red_visual = Network(height="800px", width="100%", bgcolor="#1e1e1e", font_color="white")
+    red_visual.barnes_hut()
+
+    for nodo, atributos in grafo.nodes(data=True):
+        if atributos.get("tipo") == "red":
+            red_visual.add_node(
+                nodo,
+                label=nodo,
+                shape="icon",
+                icon={"face": "'Font Awesome 5 Free'", "code": "\uf6ff", "size": 60,
+                      "color": "#e74c3c", "weight": "900"},
+                title=atributos.get("titulo", ""),
+            )
+        else:
+            categoria = atributos.get("categoria", "desconocido")
+            icono = icono_para_categoria(categoria)
+            etiqueta = atributos.get("hostname") or nodo
+            red_visual.add_node(
+                nodo,
+                label=f"{etiqueta}\n({nodo})",
+                shape="icon",
+                icon={"face": "'Font Awesome 5 Free'", "code": icono["code"], "size": 40,
+                      "color": icono["color"], "weight": "900"},
+                title=atributos.get("titulo", ""),
+            )
+
+    for origen, destino in grafo.edges():
+        red_visual.add_edge(origen, destino)
+
+    html = red_visual.generate_html(archivo_salida, notebook=False)
+    html = html.replace("</head>", f"{CDN_FONTAWESOME}</head>")
+
+    with open(archivo_salida, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    log.info(f"Topología exportada a: {archivo_salida}")
+
+
+def exportar_texto(resultados: dict):
+    """Resumen en texto plano por si no se quiere abrir el HTML."""
+    print("\n" + "=" * 60)
+    print(f"INFORME DE RED - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print("=" * 60)
+    for ip, datos in sorted(resultados.items()):
+        print(f"\n[{ip}] {datos['hostname'] or ''}")
+        print(f"  SO estimado : {datos['so']}")
+        print(f"  MAC         : {datos.get('mac') or 'N/D'}")
+        print(f"  Fabricante  : {datos.get('vendor') or 'N/D'} ({datos.get('categoria', 'desconocido')})")
+        if datos["puertos"]:
+            for p in datos["puertos"]:
+                extra = f" ({p['producto']})" if p["producto"] else ""
+                print(f"  - {p['puerto']}/tcp  {p['servicio']}{extra}")
+        else:
+            print("  - Sin puertos abiertos detectados")
+    print("\n" + "=" * 60 + "\n")

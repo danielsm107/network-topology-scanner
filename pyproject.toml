@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "topology-scanner"
+version = "0.2.0"
+description = "Escáner de topología de red (nmap + networkx + pyvis) con clasificación de dispositivos por MAC"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "python-nmap>=0.7.1",
+    "networkx>=3.0",
+    "pyvis>=0.3.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+topology-scanner = "topology_scanner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
