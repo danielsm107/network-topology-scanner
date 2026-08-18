@@ -23,6 +23,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("topology_scanner")
 
+DEFAULT_NMAP_ARGS = "-sV -T4"
+
 
 def construir_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -35,8 +37,9 @@ def construir_parser() -> argparse.ArgumentParser:
         help="Puertos a escanear (formato nmap, ej: '22,80,443' o '1-1000')"
     )
     parser.add_argument(
-        "--nmap-args", default="-sV -T4",
-        help="Argumentos extra para nmap (por defecto: -sV -T4, sin detección de SO por velocidad)"
+        "--nmap-args", default=None,
+        help=f"Argumentos extra para nmap (por defecto: '{DEFAULT_NMAP_ARGS}', sin detección de "
+             "SO por velocidad). Incompatible con --rapido"
     )
     parser.add_argument(
         "--output", default="topologia_red.html",
@@ -44,7 +47,8 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--con-so", action="store_true",
-        help="Activa detección de SO (-O --osscan-guess). Es la opción más lenta de nmap"
+        help="Activa detección de SO (-O --osscan-guess). Es la opción más lenta de nmap. "
+             "Incompatible con --rapido"
     )
     parser.add_argument(
         "--sin-2-fases", action="store_true",
@@ -52,20 +56,33 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--rapido", action="store_true",
-        help="Preset rápido: sin detección de SO, sin versión de servicio, solo puertos comunes"
+        help="Preset rápido: sin detección de SO, sin versión de servicio, solo puertos comunes. "
+             "Incompatible con --con-so y --nmap-args"
     )
     return parser
+
+
+def _resolver_argumentos_nmap(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
+    """Decide qué argumentos de nmap usar según los flags combinados.
+    --rapido es un preset cerrado: combinarlo con --con-so o --nmap-args
+    antes se ignoraba en silencio (el último `if` pisaba a los anteriores),
+    así que aquí se corta con un error claro en vez de sorprender al usuario."""
+    if args.rapido:
+        if args.con_so or args.nmap_args is not None:
+            parser.error("--rapido no se puede combinar con --con-so ni --nmap-args.")
+        return "-T4"
+
+    argumentos_nmap = args.nmap_args if args.nmap_args is not None else DEFAULT_NMAP_ARGS
+    if args.con_so:
+        argumentos_nmap += " -O --osscan-guess"
+    return argumentos_nmap
 
 
 def main():
     parser = construir_parser()
     args = parser.parse_args()
 
-    argumentos_nmap = args.nmap_args
-    if args.con_so:
-        argumentos_nmap += " -O --osscan-guess"
-    if args.rapido:
-        argumentos_nmap = "-T4"
+    argumentos_nmap = _resolver_argumentos_nmap(args, parser)
 
     try:
         resultados = escanear_red(args.rango, args.ports, argumentos_nmap, dos_fases=not args.sin_2_fases)

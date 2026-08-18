@@ -1,15 +1,14 @@
 """
-Tests de cli.py: solo la orquestación de errores (que main() convierta
-las excepciones de scanner/export en sys.exit con mensaje claro).
-El parseo de argumentos y el resto de lógica vive en scanner/graph/export
-y ya está cubierto en sus propios tests.
+Tests de cli.py: la orquestación de errores (que main() convierta las
+excepciones de scanner/export en sys.exit con mensaje claro) y la
+combinación de flags de construir_parser()/_resolver_argumentos_nmap().
 """
 
 from unittest.mock import patch
 
 import pytest
 
-from topology_scanner.cli import main
+from topology_scanner.cli import main, construir_parser, _resolver_argumentos_nmap
 from topology_scanner.scanner import ScannerError
 from topology_scanner.export import ExportError
 
@@ -43,3 +42,45 @@ def test_main_sale_con_mensaje_claro_si_falla_la_exportacion(
         _run_main_con_argv(["192.168.1.0/24"])
 
     assert "pyvis" in str(excinfo.value)
+
+
+def _parsear(argv):
+    return construir_parser().parse_args(argv)
+
+
+def test_nmap_args_por_defecto_es_sv_t4():
+    parser = construir_parser()
+    args = _parsear(["192.168.1.0/24"])
+    assert _resolver_argumentos_nmap(args, parser) == "-sV -T4"
+
+
+def test_con_so_añade_flags_de_deteccion_de_so():
+    parser = construir_parser()
+    args = _parsear(["192.168.1.0/24", "--con-so"])
+    assert _resolver_argumentos_nmap(args, parser) == "-sV -T4 -O --osscan-guess"
+
+
+def test_nmap_args_personalizado_se_respeta():
+    parser = construir_parser()
+    args = _parsear(["192.168.1.0/24", "--nmap-args", "-p 22"])
+    assert _resolver_argumentos_nmap(args, parser) == "-p 22"
+
+
+def test_rapido_usa_preset_t4():
+    parser = construir_parser()
+    args = _parsear(["192.168.1.0/24", "--rapido"])
+    assert _resolver_argumentos_nmap(args, parser) == "-T4"
+
+
+def test_rapido_con_con_so_es_un_error_no_un_override_silencioso():
+    parser = construir_parser()
+    args = _parsear(["192.168.1.0/24", "--rapido", "--con-so"])
+    with pytest.raises(SystemExit):
+        _resolver_argumentos_nmap(args, parser)
+
+
+def test_rapido_con_nmap_args_es_un_error_no_un_override_silencioso():
+    parser = construir_parser()
+    args = _parsear(["192.168.1.0/24", "--rapido", "--nmap-args", "-p 22"])
+    with pytest.raises(SystemExit):
+        _resolver_argumentos_nmap(args, parser)
