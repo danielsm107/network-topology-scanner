@@ -4,6 +4,8 @@ es un módulo de exportación puro, más simple y fiable comprobar el HTML
 generado de verdad que simular toda la API de pyvis.
 """
 
+import io
+
 from topology_scanner.export import exportar_html, exportar_texto, exportar_diff_texto, COLOR_ALERTA
 from topology_scanner.graph import construir_grafo
 
@@ -149,6 +151,30 @@ def test_exportar_diff_texto_destaca_puertos_nuevos_sensibles(capsys):
     assert "23" in salida
     assert "Telnet" in salida
     assert "sensible" in salida.lower()
+
+
+def test_exportar_diff_texto_no_revienta_en_consolas_no_utf8(monkeypatch):
+    """La consola por defecto de Windows usa cp1252, no UTF-8: print() con
+    un carácter fuera de esa tabla (p.ej. el emoji ⚠) lanza
+    UnicodeEncodeError y tira el programa. Se reproduce sin depender de
+    estar en Windows, sustituyendo sys.stdout por uno codificado en cp1252."""
+    consola_cp1252 = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr("sys.stdout", consola_cp1252)
+
+    diff = {
+        "primera_vez": False,
+        "hosts_nuevos": [],
+        "hosts_caidos": [],
+        "puertos_cambiados": {
+            "192.168.1.10": {
+                "nuevos": [23],
+                "cerrados": [],
+                "nuevos_sensibles": [{"puerto": 23, "motivo": "Telnet (sin cifrar)"}],
+            }
+        },
+    }
+
+    exportar_diff_texto(diff)  # no debe lanzar UnicodeEncodeError
 
 
 def test_exportar_diff_texto_sin_cambios_lo_indica(capsys):

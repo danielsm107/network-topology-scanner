@@ -139,7 +139,11 @@ def exportar_diff_texto(diff: dict):
         if cambios["nuevos"]:
             print(f"  [{ip}] puertos nuevos: {', '.join(map(str, cambios['nuevos']))}")
         for sensible in cambios.get("nuevos_sensibles", []):
-            print(f"  [{ip}] ⚠ puerto nuevo Y sensible: {sensible['puerto']} ({sensible['motivo']})")
+            # Marcador ASCII, no el emoji ⚠: en Windows con la consola en
+            # cp1252 (el caso por defecto, no UTF-8) print() lo revienta con
+            # UnicodeEncodeError. El HTML sí puede llevar el emoji porque se
+            # escribe a archivo con encoding="utf-8" explícito.
+            print(f"  [{ip}] [!] puerto nuevo Y sensible: {sensible['puerto']} ({sensible['motivo']})")
         if cambios["cerrados"]:
             print(f"  [{ip}] puertos cerrados: {', '.join(map(str, cambios['cerrados']))}")
     print("-" * 60 + "\n")
