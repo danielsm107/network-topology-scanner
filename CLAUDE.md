@@ -27,8 +27,9 @@ src/topology_scanner/
 ├── scanner.py      # Todo lo de nmap: descubrimiento (fase 1, ping scan) + escaneo completo (fase 2)
 ├── classifier.py   # clasificar_dispositivo(vendor) -> categoría, iconos por categoría
 ├── graph.py        # construir_grafo(resultados, rango) -> networkx.Graph (topología en estrella)
-├── export.py       # exportar_html (pyvis + iconos Font Awesome vía CDN), exportar_texto
-└── cli.py          # argparse, orquesta scanner -> graph -> export
+├── export.py       # exportar_html (pyvis + iconos Font Awesome vía CDN), exportar_texto, exportar_diff_texto
+├── history.py      # registrar_y_comparar(resultados, rango, db_path) -> guarda en SQLite y compara con el escaneo anterior
+└── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
 tests/               # un test_<modulo>.py por módulo
 ```
 
@@ -55,16 +56,22 @@ de escribir código.
   con `--con-so`.
 - El HTML usa `height: 100vh` + CSS inyectado a mano (no confiar solo en lo
   que genera pyvis) para que el grafo ocupe toda la ventana del navegador.
+  Ojo: pyvis también mete un `<center><h1></h1></center>` vacío en el body
+  que hay que ocultar (`display: none`), si no deja una franja en blanco.
+- Los puertos "sensibles" (`PUERTOS_SENSIBLES` en `classifier.py`: FTP 21,
+  Telnet 23, SMB 445, RDP 3389, VNC 5900) son una primera señal visual, no
+  una lista exhaustiva de auditoría. El host se marca en rojo (icono +
+  prefijo ⚠ en la etiqueta) y el motivo se detalla en el tooltip.
+- `history.py` guarda cada escaneo completo en SQLite (no solo el diff) y
+  compara contra el escaneo más reciente **del mismo rango** — rangos
+  distintos no se mezclan. Un fallo de SQLite (`HistoryError`) no aborta el
+  programa: se avisa por log y se sigue con el grafo/export normal, porque
+  el escaneo en sí ya ha funcionado.
 
 ## Roadmap (por orden de prioridad hablado)
 
-1. **Alertas por puertos sensibles** — marcar visualmente (icono/color de
-   aviso) hosts con RDP (3389), Telnet (23), SMB (445) u otros puertos
-   sensibles abiertos. Aporta valor de seguridad, conecta con certificación
-   ISO 27001 del mantenedor.
-2. **Historial en SQLite** — guardar cada escaneo con fecha y comparar contra
-   el anterior: hosts nuevos, hosts caídos, puertos que han cambiado de
-   estado. Módulo nuevo, probablemente `history.py`.
+1. ~~**Alertas por puertos sensibles**~~ — hecho.
+2. ~~**Historial en SQLite**~~ — hecho (`history.py` + flags `--history-db`/`--sin-historial`).
 3. **Exportar a CSV** — IP, hostname, MAC, vendor, SO, puertos — para
    inventario/auditoría.
 4. **Leyenda visual en el HTML** — panel fijo explicando qué icono/color es

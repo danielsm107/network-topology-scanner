@@ -10,3 +10,4 @@ venv/
 
 # Salida generada por el escáner
 topologia_red.html
+*.db

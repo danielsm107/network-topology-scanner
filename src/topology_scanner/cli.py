@@ -12,7 +12,8 @@ import sys
 try:
     from .scanner import escanear_red, ScannerError
     from .graph import construir_grafo
-    from .export import exportar_html, exportar_texto, ExportError
+    from .export import exportar_html, exportar_texto, exportar_diff_texto, ExportError
+    from .history import registrar_y_comparar, HistoryError, DB_POR_DEFECTO
 except RuntimeError as e:
     sys.exit(str(e))
 
@@ -59,6 +60,14 @@ def construir_parser() -> argparse.ArgumentParser:
         help="Preset rápido: sin detección de SO, sin versión de servicio, solo puertos comunes. "
              "Incompatible con --con-so y --nmap-args"
     )
+    parser.add_argument(
+        "--history-db", default=DB_POR_DEFECTO,
+        help=f"Archivo SQLite donde guardar el historial de escaneos (por defecto: {DB_POR_DEFECTO})"
+    )
+    parser.add_argument(
+        "--sin-historial", action="store_true",
+        help="No guarda este escaneo en el historial ni compara con el anterior"
+    )
     return parser
 
 
@@ -94,6 +103,15 @@ def main():
         return
 
     exportar_texto(resultados)
+
+    if not args.sin_historial:
+        try:
+            diff = registrar_y_comparar(resultados, args.rango, db_path=args.history_db)
+            exportar_diff_texto(diff)
+        except HistoryError as e:
+            # Perder el historial no es motivo para tirar un escaneo que sí
+            # ha funcionado: se avisa y se sigue con el grafo/export normal.
+            log.warning(str(e))
 
     grafo = construir_grafo(resultados, args.rango)
     try:

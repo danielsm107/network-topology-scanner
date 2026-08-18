@@ -4,7 +4,7 @@ es un módulo de exportación puro, más simple y fiable comprobar el HTML
 generado de verdad que simular toda la API de pyvis.
 """
 
-from topology_scanner.export import exportar_html, exportar_texto, COLOR_ALERTA
+from topology_scanner.export import exportar_html, exportar_texto, exportar_diff_texto, COLOR_ALERTA
 from topology_scanner.graph import construir_grafo
 
 
@@ -87,6 +87,53 @@ def test_exportar_texto_host_sin_puertos_lo_indica(capsys):
 
     salida = capsys.readouterr().out
     assert "Sin puertos abiertos detectados" in salida
+
+
+def test_exportar_diff_texto_primera_vez(capsys):
+    diff = {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
+
+    exportar_diff_texto(diff)
+
+    assert "primer escaneo" in capsys.readouterr().out.lower()
+
+
+def test_exportar_diff_texto_muestra_hosts_nuevos_y_caidos(capsys):
+    diff = {
+        "primera_vez": False,
+        "hosts_nuevos": ["192.168.1.20"],
+        "hosts_caidos": ["192.168.1.99"],
+        "puertos_cambiados": {},
+    }
+
+    exportar_diff_texto(diff)
+
+    salida = capsys.readouterr().out
+    assert "192.168.1.20" in salida
+    assert "192.168.1.99" in salida
+
+
+def test_exportar_diff_texto_muestra_puertos_cambiados(capsys):
+    diff = {
+        "primera_vez": False,
+        "hosts_nuevos": [],
+        "hosts_caidos": [],
+        "puertos_cambiados": {"192.168.1.10": {"nuevos": [80], "cerrados": [22]}},
+    }
+
+    exportar_diff_texto(diff)
+
+    salida = capsys.readouterr().out
+    assert "192.168.1.10" in salida
+    assert "80" in salida
+    assert "22" in salida
+
+
+def test_exportar_diff_texto_sin_cambios_lo_indica(capsys):
+    diff = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
+
+    exportar_diff_texto(diff)
+
+    assert "sin cambios" in capsys.readouterr().out.lower()
 
 
 def test_exportar_html_marca_con_color_de_alerta_si_hay_puertos_sensibles(tmp_path):

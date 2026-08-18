@@ -111,3 +111,33 @@ def exportar_texto(resultados: dict):
         else:
             print("  - Sin puertos abiertos detectados")
     print("\n" + "=" * 60 + "\n")
+
+
+def exportar_diff_texto(diff: dict):
+    """Resumen en texto plano de los cambios respecto al escaneo anterior
+    del mismo rango (ver history.registrar_y_comparar)."""
+    print("-" * 60)
+    print("HISTORIAL")
+    print("-" * 60)
+
+    if diff["primera_vez"]:
+        print("Primer escaneo de este rango, nada con qué comparar todavía.")
+        print("-" * 60 + "\n")
+        return
+
+    hay_cambios = diff["hosts_nuevos"] or diff["hosts_caidos"] or diff["puertos_cambiados"]
+    if not hay_cambios:
+        print("Sin cambios respecto al escaneo anterior.")
+        print("-" * 60 + "\n")
+        return
+
+    if diff["hosts_nuevos"]:
+        print(f"  + Hosts nuevos: {', '.join(diff['hosts_nuevos'])}")
+    if diff["hosts_caidos"]:
+        print(f"  - Hosts caídos: {', '.join(diff['hosts_caidos'])}")
+    for ip, cambios in diff["puertos_cambiados"].items():
+        if cambios["nuevos"]:
+            print(f"  [{ip}] puertos nuevos: {', '.join(map(str, cambios['nuevos']))}")
+        if cambios["cerrados"]:
+            print(f"  [{ip}] puertos cerrados: {', '.join(map(str, cambios['cerrados']))}")
+    print("-" * 60 + "\n")
