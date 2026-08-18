@@ -20,9 +20,13 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6",
 ]
+web = [
+    "streamlit>=1.28",
+]
 
 [project.scripts]
 topology-scanner = "topology_scanner.cli:main"
+topology-scanner-web = "topology_scanner.webapp:lanzar"
 
 [tool.setuptools.packages.find]
 where = ["src"]

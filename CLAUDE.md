@@ -17,7 +17,10 @@ historial de commits (features pequeñas, un commit por feature).
 
 - Python 3.9+, paquete instalable (`pyproject.toml`, layout `src/`)
 - `python-nmap` (wrapper de nmap), `networkx` (grafo), `pyvis` (export HTML interactivo)
-- Tests con `pytest` + `unittest.mock` (mockean `nmap.PortScanner`, no requieren red real ni nmap instalado)
+- `streamlit` (extra opcional `[web]`) para la interfaz web, `webapp.py`
+- Tests con `pytest` + `unittest.mock` (mockean `nmap.PortScanner`, no requieren red real ni nmap instalado).
+  Los de `webapp.py` usan además `streamlit.testing.v1.AppTest` (ejecuta el
+  script sin navegador) y se saltan solos si `streamlit` no está instalado.
 - Entorno de trabajo: Windows + VS Code + Git Bash
 
 ## Estructura
@@ -29,7 +32,8 @@ src/topology_scanner/
 ├── graph.py        # construir_grafo(resultados, rango) -> networkx.Graph (topología en estrella)
 ├── export.py       # exportar_html (pyvis + iconos Font Awesome vía CDN), exportar_texto, exportar_diff_texto, exportar_csv
 ├── history.py      # registrar_y_comparar(resultados, rango, db_path) -> guarda en SQLite y compara con el escaneo anterior
-└── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
+├── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
+└── webapp.py       # interfaz Streamlit (opcional): mismo pipeline, con escaneo cancelable
 tests/               # un test_<modulo>.py por módulo
 ```
 
@@ -76,6 +80,30 @@ de escribir código.
   nombres de archivo por defecto) porque cualquier `--output`/`--history-db`
   personalizado puede contener datos reales de red (IPs, MACs, puertos
   abiertos) y no debe poder colarse en un commit.
+- `webapp.py` usa imports **absolutos** (`from topology_scanner.scanner
+  import ...`), no relativos: `streamlit run webapp.py` ejecuta el archivo
+  como script suelto sin contexto de paquete, y un import relativo revienta
+  con `ImportError: attempted relative import with no known parent package`.
+- El escaneo cancelable de `webapp.py` **no** usa `scanner.escanear_red()`
+  ni `nmap.PortScannerAsync` — lanza `nmap` a mano como `subprocess.Popen`
+  dentro de un `threading.Thread`, guardando la referencia al proceso para
+  poder matarlo con `.terminate()` si se pulsa "Parar escaneo".
+  `PortScannerAsync` (la clase async de python-nmap) usa
+  `multiprocessing.Process`, no hilos, lo que en Windows complica mucho
+  recuperar el resultado en el proceso de Streamlit. Parar un escaneo no
+  conserva resultados parciales (el XML de nmap no queda bien formado si se
+  mata a mitad). `scanner.parsear_host` se hizo pública (antes
+  `_parsear_host`) para que `webapp.py` pueda reutilizarla.
+- La UI de progreso usa `st.fragment(run_every="1s")`, no un bucle
+  `time.sleep()+st.rerun()`: ese patrón redibujaba la página **entera** cada
+  segundo (parpadeo) y el clic en "Parar escaneo" competía por turno de
+  ejecución contra el propio temporizador, así que a veces no se registraba.
+  Con el fragmento, solo se refresca el trocito de progreso; el botón de
+  Parar vive fuera del fragmento y se procesa como un clic normal.
+- Un mensaje puesto justo antes de un `st.rerun()` no llega a verse (el
+  rerun tira el render a medias). Los mensajes que tienen que sobrevivir a
+  un rerun se guardan en `st.session_state["mensaje"]` y se muestran al
+  principio de la siguiente pasada de `main()` (con `.pop()`, una sola vez).
 
 ## Roadmap (por orden de prioridad hablado)
 
@@ -97,8 +125,11 @@ de escribir código.
 6. **Topología real vía SNMP** — consultar tablas ARP/CDP/LLDP de los
    MikroTik/Fortinet del mantenedor para topología real en vez de estrella
    aproximada. La feature más compleja, dejar para el final.
-7. **Interfaz web con Streamlit** — envolver el CLI en una web local con
-   botón de escaneo y el grafo embebido.
+7. ~~**Interfaz web con Streamlit**~~ — hecho (`webapp.py`, extra opcional
+   `[web]`, entry point `topology-scanner-web`). Formulario con detección
+   automática del rango local (botón "📍 Detectar mi red", truco de socket
+   UDP sin admin/sudo), escaneo cancelable de verdad (mata el proceso nmap,
+   no solo la UI), tabla de resultados, descarga de CSV y el grafo embebido.
 8. **CI con GitHub Actions** — ejecutar pytest + ruff en cada push, badge en
    el README.
 

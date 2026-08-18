@@ -5,7 +5,8 @@ Escanea un rango de red, detecta hosts activos, sus puertos/servicios, fabricant
 HTML con iconos por categoría (router, PC, NAS, impresora, etc.). Marca en rojo
 los hosts con puertos sensibles abiertos (Telnet, SMB, RDP, FTP, VNC), guarda
 cada escaneo en SQLite para comparar con el anterior (hosts nuevos/caídos,
-puertos que cambian), y puede exportar el inventario a CSV.
+puertos que cambian), y puede exportar el inventario a CSV. Disponible como
+CLI o como interfaz web local (Streamlit, opcional).
 
 ## ⚠️ Aviso legal
 Usa esta herramienta **solo en redes propias o con autorización explícita**
@@ -22,7 +23,8 @@ network-topology-scanner/
 │   ├── graph.py            # Construcción del grafo (networkx)
 │   ├── export.py           # Exportación a HTML (pyvis), texto y CSV
 │   ├── history.py          # Historial de escaneos en SQLite (diff vs. el anterior)
-│   └── cli.py               # Interfaz de línea de comandos
+│   ├── cli.py               # Interfaz de línea de comandos
+│   └── webapp.py            # Interfaz web (Streamlit, opcional)
 ├── tests/                   # pytest, con mocks de nmap (sin red real)
 ├── pyproject.toml
 └── requirements.txt
@@ -42,6 +44,9 @@ source venv/bin/activate      # Linux/Mac
 
 # Instalación del paquete (modo editable, incluye dependencias de dev)
 pip install -e ".[dev]"
+
+# Opcional, solo si quieres la interfaz web
+pip install -e ".[web]"
 ```
 
 ## Uso
@@ -68,6 +73,19 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 | `--history-db`  | Archivo SQLite donde guardar el historial de escaneos          | `historial.db`  |
 | `--sin-historial` | No guarda el escaneo en el historial ni compara con el anterior | desactivado   |
 
+## Interfaz web
+
+Requiere el extra `[web]` (ver Instalación). Formulario con detección
+automática de tu red local, escaneo cancelable de verdad (mata el proceso
+nmap, no solo la interfaz), tabla de resultados, descarga de CSV y el grafo
+embebido.
+
+```bash
+topology-scanner-web
+# o, sin el entry point instalado:
+streamlit run src/topology_scanner/webapp.py
+```
+
 ## Clasificación de dispositivos
 
 La MAC de cada host permite identificar el fabricante (vía la base de datos
@@ -90,9 +108,10 @@ de nmap, así que se ejecutan sin red real ni el binario nmap instalado.
 
 ## Próximos pasos
 
-- [ ] Historial de escaneos en SQLite (detectar hosts nuevos/caídos)
+- [x] Alertas visuales por puertos sensibles (RDP, Telnet, SMB, FTP, VNC expuesto)
+- [x] Historial de escaneos en SQLite (hosts nuevos/caídos, puertos que cambian)
+- [x] Exportar también a CSV para auditorías/inventario
+- [x] Leyenda visual de iconos/colores en el HTML
+- [x] Interfaz web con Streamlit
 - [ ] Topología real vía SNMP contra switches/routers (en vez de estrella aproximada)
-- [ ] Exportar también a CSV para auditorías/inventario
-- [ ] Alertas visuales por puertos sensibles (RDP, Telnet, SMB expuesto)
-- [ ] Interfaz web con Streamlit
 - [ ] GitHub Actions: ejecutar tests + ruff en cada push
