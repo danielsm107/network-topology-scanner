@@ -138,6 +138,8 @@ def exportar_diff_texto(diff: dict):
     for ip, cambios in diff["puertos_cambiados"].items():
         if cambios["nuevos"]:
             print(f"  [{ip}] puertos nuevos: {', '.join(map(str, cambios['nuevos']))}")
+        for sensible in cambios.get("nuevos_sensibles", []):
+            print(f"  [{ip}] ⚠ puerto nuevo Y sensible: {sensible['puerto']} ({sensible['motivo']})")
         if cambios["cerrados"]:
             print(f"  [{ip}] puertos cerrados: {', '.join(map(str, cambios['cerrados']))}")
     print("-" * 60 + "\n")

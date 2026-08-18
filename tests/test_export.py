@@ -128,6 +128,29 @@ def test_exportar_diff_texto_muestra_puertos_cambiados(capsys):
     assert "22" in salida
 
 
+def test_exportar_diff_texto_destaca_puertos_nuevos_sensibles(capsys):
+    diff = {
+        "primera_vez": False,
+        "hosts_nuevos": [],
+        "hosts_caidos": [],
+        "puertos_cambiados": {
+            "192.168.1.10": {
+                "nuevos": [23],
+                "cerrados": [],
+                "nuevos_sensibles": [{"puerto": 23, "motivo": "Telnet (sin cifrar)"}],
+            }
+        },
+    }
+
+    exportar_diff_texto(diff)
+
+    salida = capsys.readouterr().out
+    assert "192.168.1.10" in salida
+    assert "23" in salida
+    assert "Telnet" in salida
+    assert "sensible" in salida.lower()
+
+
 def test_exportar_diff_texto_sin_cambios_lo_indica(capsys):
     diff = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
 

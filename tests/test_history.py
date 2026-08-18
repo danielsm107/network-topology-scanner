@@ -75,6 +75,39 @@ def test_detecta_puertos_nuevos_y_cerrados(tmp_path):
     assert cambios["cerrados"] == [22]
 
 
+def test_puerto_nuevo_sensible_se_marca_como_tal(tmp_path):
+    db = str(tmp_path / "historial.db")
+    puertos_antes = [{"puerto": 22, "servicio": "ssh", "producto": ""}]
+    registrar_y_comparar(
+        {"192.168.1.10": _resultado_fake(puertos=puertos_antes)}, "192.168.1.0/24", db_path=db
+    )
+
+    puertos_ahora = [
+        {"puerto": 22, "servicio": "ssh", "producto": ""},
+        {"puerto": 23, "servicio": "telnet", "producto": ""},
+    ]
+    diff = registrar_y_comparar(
+        {"192.168.1.10": _resultado_fake(puertos=puertos_ahora)}, "192.168.1.0/24", db_path=db
+    )
+
+    sensibles = diff["puertos_cambiados"]["192.168.1.10"]["nuevos_sensibles"]
+    assert len(sensibles) == 1
+    assert sensibles[0]["puerto"] == 23
+    assert sensibles[0]["motivo"]
+
+
+def test_puerto_nuevo_no_sensible_no_aparece_en_nuevos_sensibles(tmp_path):
+    db = str(tmp_path / "historial.db")
+    registrar_y_comparar({"192.168.1.10": _resultado_fake(puertos=[])}, "192.168.1.0/24", db_path=db)
+
+    puertos_ahora = [{"puerto": 80, "servicio": "http", "producto": ""}]
+    diff = registrar_y_comparar(
+        {"192.168.1.10": _resultado_fake(puertos=puertos_ahora)}, "192.168.1.0/24", db_path=db
+    )
+
+    assert diff["puertos_cambiados"]["192.168.1.10"]["nuevos_sensibles"] == []
+
+
 def test_sin_cambios_no_aparece_en_puertos_cambiados(tmp_path):
     db = str(tmp_path / "historial.db")
     puertos = [{"puerto": 22, "servicio": "ssh", "producto": ""}]

@@ -15,6 +15,8 @@ from contextlib import closing
 from datetime import datetime
 from typing import Optional
 
+from .classifier import PUERTOS_SENSIBLES
+
 DB_POR_DEFECTO = "historial.db"
 
 
@@ -107,7 +109,16 @@ def _comparar(resultados: dict, anterior: Optional[dict]) -> dict:
         nuevos = sorted(puertos_actuales - puertos_antes)
         cerrados = sorted(puertos_antes - puertos_actuales)
         if nuevos or cerrados:
-            puertos_cambiados[ip] = {"nuevos": nuevos, "cerrados": cerrados}
+            nuevos_sensibles = [
+                {"puerto": p, "motivo": PUERTOS_SENSIBLES[p]}
+                for p in nuevos
+                if p in PUERTOS_SENSIBLES
+            ]
+            puertos_cambiados[ip] = {
+                "nuevos": nuevos,
+                "cerrados": cerrados,
+                "nuevos_sensibles": nuevos_sensibles,
+            }
 
     return {
         "primera_vez": False,
@@ -125,7 +136,13 @@ def registrar_y_comparar(resultados: dict, rango: str, db_path: str = DB_POR_DEF
             "primera_vez": bool,
             "hosts_nuevos": [ip, ...],
             "hosts_caidos": [ip, ...],
-            "puertos_cambiados": {ip: {"nuevos": [puerto, ...], "cerrados": [puerto, ...]}},
+            "puertos_cambiados": {
+                ip: {
+                    "nuevos": [puerto, ...],
+                    "cerrados": [puerto, ...],
+                    "nuevos_sensibles": [{"puerto": .., "motivo": ..}, ...],  # subconjunto de "nuevos"
+                }
+            },
         }
     """
     try:

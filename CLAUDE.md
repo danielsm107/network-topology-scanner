@@ -67,16 +67,22 @@ de escribir código.
   distintos no se mezclan. Un fallo de SQLite (`HistoryError`) no aborta el
   programa: se avisa por log y se sigue con el grafo/export normal, porque
   el escaneo en sí ya ha funcionado.
+- `history.py` importa `PUERTOS_SENSIBLES` de `classifier.py` para marcar,
+  dentro de `puertos_cambiados`, qué puertos nuevos son además sensibles
+  (`nuevos_sensibles`, subconjunto de `nuevos`). Es la única dependencia
+  entre módulos fuera de scanner.py -> classifier.py, y está bien: classifier
+  sigue sin saber nada de nadie, solo se importa hacia él.
+- El `.gitignore` cubre `*.html`/`*.db`/`*.csv` en bloque (no solo los
+  nombres de archivo por defecto) porque cualquier `--output`/`--history-db`
+  personalizado puede contener datos reales de red (IPs, MACs, puertos
+  abiertos) y no debe poder colarse en un commit.
 
 ## Roadmap (por orden de prioridad hablado)
 
 1. ~~**Alertas por puertos sensibles**~~ — hecho.
 2. ~~**Historial en SQLite**~~ — hecho (`history.py` + flags `--history-db`/`--sin-historial`).
-3. **Cruzar el historial con las alertas** — `history.py` no sabe nada de
-   `PUERTOS_SENSIBLES`: si un puerto nuevo detectado en `puertos_cambiados`
-   es sensible, el diff debería destacarlo (no solo "puerto nuevo: 23",
-   sino "puerto nuevo y sensible: 23 (Telnet)"). Conecta las dos features
-   de seguridad ya construidas; barato, todo el dato ya existe.
+3. ~~**Cruzar el historial con las alertas**~~ — hecho (`nuevos_sensibles`
+   en `puertos_cambiados`, destacado en `exportar_diff_texto`).
 4. **Exportar a CSV** — IP, hostname, MAC, vendor, SO, puertos — para
    inventario/auditoría.
 5. **Leyenda visual en el HTML** — panel fijo explicando qué icono/color es
