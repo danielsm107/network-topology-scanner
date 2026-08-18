@@ -8,6 +8,8 @@ dist/
 .venv/
 venv/
 
-# Salida generada por el escáner
-topologia_red.html
+# Salida generada por el escáner (datos reales de red - nunca a git,
+# sin importar el nombre que se le pase con --output/--history-db)
+*.html
 *.db
+*.csv
