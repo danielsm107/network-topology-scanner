@@ -24,6 +24,8 @@ def construir_grafo(resultados: dict, rango: str) -> nx.Graph:
             f"{p['puerto']}/{p['servicio']}" for p in datos["puertos"]
         ) or "sin puertos abiertos detectados"
 
+        alertas = datos.get("alertas", [])
+
         tooltip = (
             f"IP: {ip}\n"
             f"Hostname: {datos['hostname'] or 'N/D'}\n"
@@ -32,6 +34,9 @@ def construir_grafo(resultados: dict, rango: str) -> nx.Graph:
             f"SO estimado: {datos['so']}\n"
             f"Puertos: {etiqueta_puertos}"
         )
+        if alertas:
+            etiqueta_alertas = ", ".join(f"{a['puerto']} ({a['motivo']})" for a in alertas)
+            tooltip += f"\n\n⚠ Puertos sensibles abiertos: {etiqueta_alertas}"
 
         grafo.add_node(
             ip,
@@ -40,6 +45,7 @@ def construir_grafo(resultados: dict, rango: str) -> nx.Graph:
             hostname=datos["hostname"],
             categoria=datos.get("categoria", "desconocido"),
             num_puertos=len(datos["puertos"]),
+            alertas=alertas,
         )
         grafo.add_edge(nodo_red, ip)
 

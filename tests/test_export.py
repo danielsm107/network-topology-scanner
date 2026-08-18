@@ -4,11 +4,11 @@ es un módulo de exportación puro, más simple y fiable comprobar el HTML
 generado de verdad que simular toda la API de pyvis.
 """
 
-from topology_scanner.export import exportar_html, exportar_texto
+from topology_scanner.export import exportar_html, exportar_texto, COLOR_ALERTA
 from topology_scanner.graph import construir_grafo
 
 
-def _resultado_fake(hostname="server01", categoria="pc", puertos=None):
+def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=None):
     return {
         "estado": "up",
         "hostname": hostname,
@@ -17,6 +17,7 @@ def _resultado_fake(hostname="server01", categoria="pc", puertos=None):
         "vendor": "Dell Inc.",
         "categoria": categoria,
         "puertos": puertos or [],
+        "alertas": alertas or [],
     }
 
 
@@ -70,3 +71,24 @@ def test_exportar_texto_host_sin_puertos_lo_indica(capsys):
 
     salida = capsys.readouterr().out
     assert "Sin puertos abiertos detectados" in salida
+
+
+def test_exportar_html_marca_con_color_de_alerta_si_hay_puertos_sensibles(tmp_path):
+    alertas = [{"puerto": 3389, "motivo": "RDP (objetivo habitual de fuerza bruta)"}]
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake(alertas=alertas)}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    assert COLOR_ALERTA.replace("#", "") in html
+
+
+def test_exportar_html_sin_alertas_usa_el_color_normal_de_categoria(tmp_path):
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake(categoria="nas")}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    assert COLOR_ALERTA.replace("#", "") not in html

@@ -31,6 +31,11 @@ CDN_FONTAWESOME = (
     'href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">'
 )
 
+# Color de aviso para hosts con puertos sensibles abiertos (ver
+# classifier.PUERTOS_SENSIBLES). Pisa el color normal del icono de
+# categoría para que destaque independientemente del tipo de dispositivo.
+COLOR_ALERTA = "#ff0000"
+
 
 def exportar_html(grafo: nx.Graph, archivo_salida: str):
     """Genera un HTML interactivo (pyvis) a partir del grafo, usando un icono
@@ -52,12 +57,16 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
             categoria = atributos.get("categoria", "desconocido")
             icono = icono_para_categoria(categoria)
             etiqueta = atributos.get("hostname") or nodo
+            tiene_alerta = bool(atributos.get("alertas"))
+            color_icono = COLOR_ALERTA if tiene_alerta else icono["color"]
+            if tiene_alerta:
+                etiqueta = f"⚠ {etiqueta}"
             red_visual.add_node(
                 nodo,
                 label=f"{etiqueta}\n({nodo})",
                 shape="icon",
                 icon={"face": "'Font Awesome 5 Free'", "code": icono["code"], "size": 40,
-                      "color": icono["color"], "weight": "900"},
+                      "color": color_icono, "weight": "900"},
                 title=atributos.get("titulo", ""),
             )
 

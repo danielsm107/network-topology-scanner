@@ -24,7 +24,7 @@ except ImportError as e:
         "Falta la librería python-nmap. Instala con: pip install python-nmap"
     ) from e
 
-from .classifier import clasificar_dispositivo
+from .classifier import clasificar_dispositivo, puertos_sensibles_abiertos
 
 log = logging.getLogger("topology_scanner")
 
@@ -85,6 +85,7 @@ def _parsear_host(info_host) -> dict:
         "vendor": vendor,
         "categoria": clasificar_dispositivo(vendor),
         "puertos": puertos_abiertos,
+        "alertas": puertos_sensibles_abiertos(puertos_abiertos),
     }
 
 

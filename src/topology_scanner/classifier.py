@@ -57,3 +57,30 @@ def clasificar_dispositivo(vendor: str) -> str:
 def icono_para_categoria(categoria: str) -> dict:
     """Devuelve el dict {code, color} de Font Awesome para una categoría dada."""
     return ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])
+
+
+# Puertos que merece la pena señalar si están abiertos: protocolos sin
+# cifrar o servicios que son objetivo habitual de ataques (fuerza bruta,
+# ransomware...). No es una lista exhaustiva de auditoría, es una primera
+# señal visual de aviso.
+PUERTOS_SENSIBLES = {
+    21: "FTP (credenciales sin cifrar)",
+    23: "Telnet (sin cifrar)",
+    445: "SMB (vector típico de ransomware)",
+    3389: "RDP (objetivo habitual de fuerza bruta)",
+    5900: "VNC (a menudo sin autenticación)",
+}
+
+
+def puertos_sensibles_abiertos(puertos: list) -> list:
+    """
+    A partir de la lista de puertos abiertos de un host (formato de
+    scanner.py: [{"puerto": .., "servicio": .., "producto": ..}, ...]),
+    devuelve los que están en PUERTOS_SENSIBLES junto con el motivo.
+    Lista vacía si no hay ninguno.
+    """
+    return [
+        {"puerto": p["puerto"], "motivo": PUERTOS_SENSIBLES[p["puerto"]]}
+        for p in puertos
+        if p["puerto"] in PUERTOS_SENSIBLES
+    ]

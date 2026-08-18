@@ -1,4 +1,8 @@
-from topology_scanner.classifier import clasificar_dispositivo, icono_para_categoria
+from topology_scanner.classifier import (
+    clasificar_dispositivo,
+    icono_para_categoria,
+    puertos_sensibles_abiertos,
+)
 
 
 def test_vendor_vacio_es_desconocido():
@@ -37,3 +41,29 @@ def test_icono_existe_para_cada_categoria_conocida():
 def test_icono_categoria_desconocida_usa_fallback():
     icono = icono_para_categoria("categoria-que-no-existe")
     assert icono == icono_para_categoria("desconocido")
+
+
+def test_puertos_sensibles_detecta_rdp_telnet_smb():
+    puertos = [
+        {"puerto": 3389, "servicio": "ms-wbt-server", "producto": ""},
+        {"puerto": 23, "servicio": "telnet", "producto": ""},
+        {"puerto": 445, "servicio": "microsoft-ds", "producto": ""},
+        {"puerto": 80, "servicio": "http", "producto": ""},
+    ]
+    alertas = puertos_sensibles_abiertos(puertos)
+    assert {a["puerto"] for a in alertas} == {3389, 23, 445}
+
+
+def test_puertos_sensibles_incluye_motivo():
+    puertos = [{"puerto": 3389, "servicio": "ms-wbt-server", "producto": ""}]
+    alertas = puertos_sensibles_abiertos(puertos)
+    assert alertas[0]["motivo"]
+
+
+def test_puertos_sensibles_vacio_si_no_hay_ninguno_sensible():
+    puertos = [{"puerto": 80, "servicio": "http", "producto": ""}]
+    assert puertos_sensibles_abiertos(puertos) == []
+
+
+def test_puertos_sensibles_lista_vacia():
+    assert puertos_sensibles_abiertos([]) == []

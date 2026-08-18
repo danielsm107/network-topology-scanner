@@ -82,6 +82,27 @@ def test_escanear_red_sin_hosts_devuelve_vacio(mock_portscanner_cls):
 
 
 @patch("topology_scanner.scanner.nmap.PortScanner")
+def test_escanear_red_incluye_alertas_de_puertos_sensibles(mock_portscanner_cls):
+    mock_scanner = MagicMock()
+    mock_scanner.all_hosts.return_value = ["192.168.1.10"]
+    mock_scanner.__getitem__.return_value = HostInfoFalso(
+        estado="up",
+        hostname="server01",
+        puertos_tcp={
+            3389: {"state": "open", "name": "ms-wbt-server", "product": ""},
+            80: {"state": "open", "name": "http", "product": ""},
+        },
+    )
+    mock_portscanner_cls.return_value = mock_scanner
+
+    resultados = escanear_red("192.168.1.0/24", "80,3389", "-sV -T4", dos_fases=False)
+
+    alertas = resultados["192.168.1.10"]["alertas"]
+    assert len(alertas) == 1
+    assert alertas[0]["puerto"] == 3389
+
+
+@patch("topology_scanner.scanner.nmap.PortScanner")
 def test_escanear_red_lanza_scannererror_si_nmap_no_esta_disponible(mock_portscanner_cls):
     """Si nmap.PortScanner() falla al construirse (p.ej. binario nmap no
     instalado), debe dar el mismo error amistoso que si falla scan() -
