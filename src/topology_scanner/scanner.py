@@ -28,9 +28,9 @@ def descubrir_hosts_vivos(rango: str) -> list:
     Devuelve la lista de IPs que están activas.
     """
     log.info(f"Fase 1/2: descubriendo hosts activos en {rango} (ping scan)...")
-    scanner = nmap.PortScanner()
 
     try:
+        scanner = nmap.PortScanner()
         scanner.scan(hosts=rango, arguments="-sn -T4")
     except nmap.PortScannerError as e:
         sys.exit(f"Error de nmap (¿ejecutas con sudo?): {e}")
@@ -100,9 +100,8 @@ def escanear_red(rango: str, puertos: str, argumentos_nmap: str, dos_fases: bool
     else:
         log.info(f"Escaneando rango {rango} (puertos: {puertos})...")
 
-    scanner = nmap.PortScanner()
-
     try:
+        scanner = nmap.PortScanner()
         scanner.scan(hosts=objetivo, ports=puertos, arguments=argumentos_nmap)
     except nmap.PortScannerError as e:
         sys.exit(f"Error de nmap (¿ejecutas con sudo?): {e}")

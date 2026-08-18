@@ -5,6 +5,9 @@ sin necesitar una red real ni el binario nmap instalado.
 
 from unittest.mock import MagicMock, patch
 
+import nmap
+import pytest
+
 from topology_scanner.scanner import escanear_red, descubrir_hosts_vivos
 
 
@@ -76,3 +79,14 @@ def test_escanear_red_sin_hosts_devuelve_vacio(mock_portscanner_cls):
     resultados = escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
 
     assert resultados == {}
+
+
+@patch("topology_scanner.scanner.nmap.PortScanner")
+def test_escanear_red_sale_con_error_claro_si_nmap_no_esta_disponible(mock_portscanner_cls):
+    """Si nmap.PortScanner() falla al construirse (p.ej. binario nmap no
+    instalado), debe dar el mismo error amistoso que si falla scan() -
+    no un traceback crudo sin capturar."""
+    mock_portscanner_cls.side_effect = nmap.PortScannerError("nmap program was not found in path")
+
+    with pytest.raises(SystemExit):
+        escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
