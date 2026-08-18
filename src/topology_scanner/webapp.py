@@ -42,13 +42,12 @@ import nmap
 # script suelto, sin contexto de paquete, así que "from .scanner import..."
 # falla con ImportError. Requiere que topology_scanner esté instalado
 # (pip install -e .) o en el PYTHONPATH.
-from topology_scanner.scanner import descubrir_hosts_vivos, parsear_host, ScannerError
+from topology_scanner.scanner import (
+    descubrir_hosts_vivos, parsear_host, ScannerError, DEFAULT_NMAP_ARGS, PUERTOS_POR_DEFECTO,
+)
 from topology_scanner.graph import construir_grafo
 from topology_scanner.export import exportar_html, exportar_csv
-from topology_scanner.history import registrar_y_comparar, HistoryError
-
-DEFAULT_NMAP_ARGS = "-sV -T4"
-PUERTOS_POR_DEFECTO = "21-23,25,53,80,110,135,139,143,443,445,3389,8080"
+from topology_scanner.history import registrar_y_comparar, HistoryError, hay_cambios
 
 
 def _detectar_rango_local() -> Optional[str]:
@@ -198,15 +197,6 @@ def _generar_csv_bytes(resultados: dict) -> bytes:
         os.remove(archivo_csv)
 
 
-def _hay_cambios(diff: dict) -> bool:
-    """True si el diff (ver history.registrar_y_comparar) tiene algún
-    cambio real. Envuelto en bool(): un `a or b or c` normal aquí acababa
-    devolviendo el propio dict de puertos_cambiados en vez de True/False
-    cuando era el único no vacío, y st.expander(expanded=...) exige un bool
-    de verdad (TypeError si no)."""
-    return bool(diff["hosts_nuevos"] or diff["hosts_caidos"] or diff["puertos_cambiados"])
-
-
 def _filas_para_tabla(resultados: dict) -> list:
     """Convierte resultados (formato de scanner.py) en filas planas para
     st.dataframe - una fila por host, sin listas anidadas."""
@@ -237,8 +227,8 @@ def _mostrar_resultado(resultado: dict):
 
     diff = resultado["diff"]
     if diff and not diff["primera_vez"]:
-        hay_cambios = _hay_cambios(diff)
-        with st.expander("Cambios respecto al escaneo anterior", expanded=hay_cambios):
+        hay_cambios_reales = hay_cambios(diff)
+        with st.expander("Cambios respecto al escaneo anterior", expanded=hay_cambios_reales):
             if diff["hosts_nuevos"]:
                 st.write("**Hosts nuevos:**", ", ".join(diff["hosts_nuevos"]))
             if diff["hosts_caidos"]:
@@ -248,7 +238,7 @@ def _mostrar_resultado(resultado: dict):
                     st.write(f"**[{ip}]** puertos nuevos:", ", ".join(map(str, cambios["nuevos"])))
                 for sensible in cambios.get("nuevos_sensibles", []):
                     st.warning(f"[{ip}] puerto nuevo y sensible: {sensible['puerto']} ({sensible['motivo']})")
-            if not hay_cambios:
+            if not hay_cambios_reales:
                 st.write("Sin cambios respecto al escaneo anterior.")
 
     st.dataframe(_filas_para_tabla(resultados), use_container_width=True)

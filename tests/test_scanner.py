@@ -8,7 +8,13 @@ from unittest.mock import MagicMock, patch
 import nmap
 import pytest
 
-from topology_scanner.scanner import escanear_red, descubrir_hosts_vivos, ScannerError
+from topology_scanner.scanner import (
+    escanear_red,
+    descubrir_hosts_vivos,
+    ScannerError,
+    DEFAULT_NMAP_ARGS,
+    PUERTOS_POR_DEFECTO,
+)
 
 
 class HostInfoFalso(dict):
@@ -112,3 +118,11 @@ def test_escanear_red_lanza_scannererror_si_nmap_no_esta_disponible(mock_portsca
 
     with pytest.raises(ScannerError):
         escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
+
+
+def test_defaults_compartidos_por_cli_y_webapp():
+    """DEFAULT_NMAP_ARGS y PUERTOS_POR_DEFECTO viven aquí como única fuente
+    de verdad - antes estaban copiados literalmente en cli.py y webapp.py,
+    con riesgo de desincronizarse si se cambiaba uno y no el otro."""
+    assert DEFAULT_NMAP_ARGS == "-sV -T4"
+    assert PUERTOS_POR_DEFECTO == "21-23,25,53,80,110,135,139,143,443,445,3389,8080"

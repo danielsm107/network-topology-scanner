@@ -73,9 +73,19 @@ de escribir código.
   el escaneo en sí ya ha funcionado.
 - `history.py` importa `PUERTOS_SENSIBLES` de `classifier.py` para marcar,
   dentro de `puertos_cambiados`, qué puertos nuevos son además sensibles
-  (`nuevos_sensibles`, subconjunto de `nuevos`). Es la única dependencia
-  entre módulos fuera de scanner.py -> classifier.py, y está bien: classifier
-  sigue sin saber nada de nadie, solo se importa hacia él.
+  (`nuevos_sensibles`, subconjunto de `nuevos`).
+- `history.py` también expone `hay_cambios(diff)` — única fuente de verdad
+  para "¿tiene contenido real este diff?", reutilizada por `export.py` y
+  `webapp.py`. Antes cada uno reimplementaba su propio `a or b or c`, que no
+  da un bool de verdad si el único operando no vacío es un dict
+  (`puertos_cambiados`) — causó un `TypeError` real en `st.expander()`.
+  Con esto, `classifier.py` sigue sin saber nada de nadie (solo se importa
+  hacia él) pero `history.py` ya no es un callejón sin salida: además de
+  `scanner.py -> classifier.py`, ahora también `export.py -> history.py`.
+- `scanner.py` expone `DEFAULT_NMAP_ARGS`/`PUERTOS_POR_DEFECTO` como única
+  fuente de verdad para los valores por defecto de nmap — antes `cli.py` y
+  `webapp.py` tenían cada uno su propia copia literal de esas dos cadenas,
+  con riesgo de desincronizarse si se cambiaba una y no la otra.
 - El `.gitignore` cubre `*.html`/`*.db`/`*.csv` en bloque (no solo los
   nombres de archivo por defecto) porque cualquier `--output`/`--history-db`
   personalizado puede contener datos reales de red (IPs, MACs, puertos

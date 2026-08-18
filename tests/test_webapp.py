@@ -4,9 +4,9 @@ así que este módulo entero se salta si no está instalado - no debe romper
 `pytest tests/ -v` para quien solo instaló el CLI.
 
 La lógica pura (_argumentos_nmap_desde_formulario, _construir_comando_nmap,
-_procesar_salida_nmap, _finalizar_resultados, _filas_para_tabla,
-_hay_cambios) se testea con pytest normal, mockeando los mismos puntos que
-test_cli.py. El renderizado de widgets se comprueba con
+_procesar_salida_nmap, _finalizar_resultados, _filas_para_tabla) se testea
+con pytest normal, mockeando los mismos puntos que test_cli.py. El
+renderizado de widgets se comprueba con
 streamlit.testing.v1.AppTest, que ejecuta el script sin navegador - pero
 sin llegar a lanzar un escaneo real (eso no se prueba aquí, solo a mano
 en el navegador, igual que el resto de cambios de UI de este proyecto).
@@ -28,7 +28,6 @@ from topology_scanner.webapp import (
     _ejecutar_proceso_nmap,
     _filas_para_tabla,
     _finalizar_resultados,
-    _hay_cambios,
     _procesar_salida_nmap,
 )
 from topology_scanner.history import HistoryError
@@ -252,27 +251,9 @@ def test_generar_csv_bytes_borra_el_csv_temporal():
     assert not os.path.exists(rutas_creadas[-1])
 
 
-def test_hay_cambios_es_true_si_solo_cambian_puertos():
-    """Bug real (TypeError en st.expander): `a or b or c` no devuelve un
-    bool, devuelve el primer operando truthy - si solo puertos_cambiados
-    tenía contenido, hay_cambios acababa siendo un dict, no True."""
-    diff = {
-        "primera_vez": False,
-        "hosts_nuevos": [],
-        "hosts_caidos": [],
-        "puertos_cambiados": {"192.168.1.10": {"nuevos": [23], "cerrados": [], "nuevos_sensibles": []}},
-    }
-    assert _hay_cambios(diff) is True
-
-
-def test_hay_cambios_es_false_si_no_hay_nada():
-    diff = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
-    assert _hay_cambios(diff) is False
-
-
-def test_hay_cambios_es_true_si_hay_hosts_nuevos():
-    diff = {"primera_vez": False, "hosts_nuevos": ["192.168.1.20"], "hosts_caidos": [], "puertos_cambiados": {}}
-    assert _hay_cambios(diff) is True
+# hay_cambios() ya no vive aquí - se movió a history.py (única fuente de
+# verdad, la reutilizan export.py y webapp.py) y sus tests están en
+# test_history.py.
 
 
 def test_filas_para_tabla_una_fila_por_host():

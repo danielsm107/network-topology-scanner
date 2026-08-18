@@ -28,6 +28,12 @@ from .classifier import clasificar_dispositivo, puertos_sensibles_abiertos
 
 log = logging.getLogger("topology_scanner")
 
+# Única fuente de verdad para los valores por defecto de nmap: cli.py y
+# webapp.py los reutilizan en vez de tener cada uno su propia copia
+# literal, que podía desincronizarse si se cambiaba uno y no el otro.
+DEFAULT_NMAP_ARGS = "-sV -T4"
+PUERTOS_POR_DEFECTO = "21-23,25,53,80,110,135,139,143,443,445,3389,8080"
+
 
 def descubrir_hosts_vivos(rango: str) -> list:
     """

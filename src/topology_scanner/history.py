@@ -155,3 +155,12 @@ def registrar_y_comparar(resultados: dict, rango: str, db_path: str = DB_POR_DEF
             return diff
     except sqlite3.Error as e:
         raise HistoryError(f"Error accediendo al historial ({db_path}): {e}") from e
+
+
+def hay_cambios(diff: dict) -> bool:
+    """True si el diff (ver registrar_y_comparar) tiene algún cambio real
+    respecto al escaneo anterior. Única fuente de verdad para esta
+    pregunta - export.py y webapp.py la reutilizan en vez de reimplementar
+    cada uno su propio `a or b or c`, que no da un bool de verdad si el
+    único operando no vacío es un dict (puertos_cambiados)."""
+    return bool(diff["hosts_nuevos"] or diff["hosts_caidos"] or diff["puertos_cambiados"])

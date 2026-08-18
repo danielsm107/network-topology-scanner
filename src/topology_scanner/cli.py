@@ -10,7 +10,7 @@ import logging
 import sys
 
 try:
-    from .scanner import escanear_red, ScannerError
+    from .scanner import escanear_red, ScannerError, DEFAULT_NMAP_ARGS, PUERTOS_POR_DEFECTO
     from .graph import construir_grafo
     from .export import exportar_html, exportar_texto, exportar_diff_texto, exportar_csv, ExportError
     from .history import registrar_y_comparar, HistoryError, DB_POR_DEFECTO
@@ -24,8 +24,6 @@ logging.basicConfig(
 )
 log = logging.getLogger("topology_scanner")
 
-DEFAULT_NMAP_ARGS = "-sV -T4"
-
 
 def construir_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -34,7 +32,7 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("rango", help="Rango de red en notación CIDR, ej: 192.168.1.0/24")
     parser.add_argument(
-        "--ports", default="21-23,25,53,80,110,135,139,143,443,445,3389,8080",
+        "--ports", default=PUERTOS_POR_DEFECTO,
         help="Puertos a escanear (formato nmap, ej: '22,80,443' o '1-1000')"
     )
     parser.add_argument(

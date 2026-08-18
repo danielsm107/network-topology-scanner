@@ -24,6 +24,7 @@ except ImportError as e:
     raise ExportError("Falta pyvis. Instala con: pip install pyvis") from e
 
 from .classifier import icono_para_categoria, ICONOS_POR_CATEGORIA
+from .history import hay_cambios
 
 log = logging.getLogger("topology_scanner")
 
@@ -182,8 +183,7 @@ def exportar_diff_texto(diff: dict):
         print("-" * 60 + "\n")
         return
 
-    hay_cambios = diff["hosts_nuevos"] or diff["hosts_caidos"] or diff["puertos_cambiados"]
-    if not hay_cambios:
+    if not hay_cambios(diff):
         print("Sin cambios respecto al escaneo anterior.")
         print("-" * 60 + "\n")
         return

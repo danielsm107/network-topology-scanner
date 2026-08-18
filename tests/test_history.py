@@ -5,7 +5,7 @@ Tests de history.py. Cada test usa una base de datos SQLite temporal
 
 import pytest
 
-from topology_scanner.history import registrar_y_comparar, HistoryError
+from topology_scanner.history import registrar_y_comparar, HistoryError, hay_cambios
 
 
 def _resultado_fake(hostname="server01", puertos=None):
@@ -134,3 +134,28 @@ def test_error_de_sqlite_se_convierte_en_historyerror(tmp_path):
 
     with pytest.raises(HistoryError):
         registrar_y_comparar({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24", db_path=db)
+
+
+def test_hay_cambios_es_true_si_solo_cambian_puertos():
+    """Antes, export.py y webapp.py reimplementaban esto cada uno por su
+    lado con `a or b or c` (que no devuelve un bool de verdad si el único
+    no vacío es un dict) - único punto de verdad ahora."""
+    diff = {
+        "primera_vez": False,
+        "hosts_nuevos": [],
+        "hosts_caidos": [],
+        "puertos_cambiados": {"192.168.1.10": {"nuevos": [23], "cerrados": [], "nuevos_sensibles": []}},
+    }
+    assert hay_cambios(diff) is True
+
+
+def test_hay_cambios_es_false_si_no_hay_nada():
+    diff = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
+    assert hay_cambios(diff) is False
+
+
+def test_hay_cambios_es_true_si_hay_hosts_nuevos_o_caidos():
+    diff_nuevos = {"primera_vez": False, "hosts_nuevos": ["192.168.1.20"], "hosts_caidos": [], "puertos_cambiados": {}}
+    diff_caidos = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": ["192.168.1.20"], "puertos_cambiados": {}}
+    assert hay_cambios(diff_nuevos) is True
+    assert hay_cambios(diff_caidos) is True
