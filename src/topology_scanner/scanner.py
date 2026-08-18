@@ -48,8 +48,11 @@ def descubrir_hosts_vivos(rango: str) -> list:
     return vivos
 
 
-def _parsear_host(info_host) -> dict:
-    """Convierte el resultado de nmap para un host en nuestro formato interno."""
+def parsear_host(info_host) -> dict:
+    """Convierte el resultado de nmap para un host en nuestro formato interno.
+    Pública (no _parsear_host): webapp.py la reutiliza para el escaneo
+    cancelable, que no pasa por escanear_red() (lanza nmap a mano en un
+    hilo para poder matar el proceso si el usuario pulsa "Parar")."""
     estado = info_host.state()
 
     hostname = ""
@@ -117,7 +120,7 @@ def escanear_red(rango: str, puertos: str, argumentos_nmap: str, dos_fases: bool
 
     resultados = {}
     for host in scanner.all_hosts():
-        datos = _parsear_host(scanner[host])
+        datos = parsear_host(scanner[host])
         resultados[host] = datos
         log.info(f"  Host {host} ({datos['hostname'] or 'sin hostname'}) - "
                   f"{datos['vendor'] or 'vendor desconocido'} - {len(datos['puertos'])} puertos abiertos")
