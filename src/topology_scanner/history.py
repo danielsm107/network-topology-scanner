@@ -128,7 +128,37 @@ def _comparar(resultados: dict, anterior: Optional[dict]) -> dict:
     }
 
 
-def registrar_y_comparar(resultados: dict, rango: str, db_path: str = DB_POR_DEFECTO) -> dict:
+MANTENER_ULTIMOS_POR_DEFECTO = 50
+
+
+def _purgar_antiguos(conn: sqlite3.Connection, rango: str, mantener: int):
+    """Borra los escaneos de `rango` más antiguos que los últimos
+    `mantener` (y sus hosts/puertos asociados - no hay ON DELETE CASCADE
+    activado). Sin esto, historial.db crece sin límite para siempre."""
+    ids_a_borrar = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM escaneos WHERE rango = ? ORDER BY fecha DESC, id DESC LIMIT -1 OFFSET ?",
+            (rango, mantener),
+        )
+    ]
+    if not ids_a_borrar:
+        return
+
+    marcadores = ",".join("?" * len(ids_a_borrar))
+    conn.execute(
+        f"DELETE FROM puertos WHERE host_id IN "
+        f"(SELECT id FROM hosts WHERE escaneo_id IN ({marcadores}))",
+        ids_a_borrar,
+    )
+    conn.execute(f"DELETE FROM hosts WHERE escaneo_id IN ({marcadores})", ids_a_borrar)
+    conn.execute(f"DELETE FROM escaneos WHERE id IN ({marcadores})", ids_a_borrar)
+
+
+def registrar_y_comparar(
+    resultados: dict, rango: str, db_path: str = DB_POR_DEFECTO,
+    mantener_ultimos: int = MANTENER_ULTIMOS_POR_DEFECTO,
+) -> dict:
     """
     Guarda el escaneo actual en SQLite y devuelve la comparación con el
     escaneo anterior del mismo rango (si existe):
@@ -144,6 +174,9 @@ def registrar_y_comparar(resultados: dict, rango: str, db_path: str = DB_POR_DEF
                 }
             },
         }
+
+    También purga los escaneos de este mismo rango más antiguos que los
+    últimos `mantener_ultimos` (por defecto 50).
     """
     try:
         with closing(sqlite3.connect(db_path)) as conn:
@@ -151,6 +184,7 @@ def registrar_y_comparar(resultados: dict, rango: str, db_path: str = DB_POR_DEF
             anterior = _ultimo_escaneo(conn, rango)
             diff = _comparar(resultados, anterior)
             _guardar_escaneo(conn, resultados, rango)
+            _purgar_antiguos(conn, rango, mantener_ultimos)
             conn.commit()
             return diff
     except sqlite3.Error as e:
