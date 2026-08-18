@@ -3,6 +3,7 @@ Tests de scanner.py usando unittest.mock para simular nmap.PortScanner
 sin necesitar una red real ni el binario nmap instalado.
 """
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import nmap
@@ -42,6 +43,7 @@ class HostInfoFalso(dict):
 @patch("topology_scanner.scanner.nmap.PortScanner")
 def test_descubrir_hosts_vivos_filtra_por_estado(mock_portscanner_cls):
     mock_scanner = MagicMock()
+    mock_scanner.scaninfo.return_value = {}
     mock_scanner.all_hosts.return_value = ["192.168.1.1", "192.168.1.2"]
     mock_scanner.__getitem__.side_effect = lambda ip: (
         HostInfoFalso(estado="up") if ip == "192.168.1.1" else HostInfoFalso(estado="down")
@@ -56,6 +58,7 @@ def test_descubrir_hosts_vivos_filtra_por_estado(mock_portscanner_cls):
 @patch("topology_scanner.scanner.nmap.PortScanner")
 def test_escanear_red_sin_2_fases_parsea_host_correctamente(mock_portscanner_cls):
     mock_scanner = MagicMock()
+    mock_scanner.scaninfo.return_value = {}
     mock_scanner.all_hosts.return_value = ["192.168.1.10"]
     mock_scanner.__getitem__.return_value = HostInfoFalso(
         estado="up",
@@ -79,6 +82,7 @@ def test_escanear_red_sin_2_fases_parsea_host_correctamente(mock_portscanner_cls
 @patch("topology_scanner.scanner.nmap.PortScanner")
 def test_escanear_red_sin_hosts_devuelve_vacio(mock_portscanner_cls):
     mock_scanner = MagicMock()
+    mock_scanner.scaninfo.return_value = {}
     mock_scanner.all_hosts.return_value = []
     mock_portscanner_cls.return_value = mock_scanner
 
@@ -90,6 +94,7 @@ def test_escanear_red_sin_hosts_devuelve_vacio(mock_portscanner_cls):
 @patch("topology_scanner.scanner.nmap.PortScanner")
 def test_escanear_red_incluye_alertas_de_puertos_sensibles(mock_portscanner_cls):
     mock_scanner = MagicMock()
+    mock_scanner.scaninfo.return_value = {}
     mock_scanner.all_hosts.return_value = ["192.168.1.10"]
     mock_scanner.__getitem__.return_value = HostInfoFalso(
         estado="up",
@@ -118,6 +123,35 @@ def test_escanear_red_lanza_scannererror_si_nmap_no_esta_disponible(mock_portsca
 
     with pytest.raises(ScannerError):
         escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
+
+
+@patch("topology_scanner.scanner.nmap.PortScanner")
+def test_escanear_red_avisa_si_nmap_reporta_error_interno(mock_portscanner_cls, caplog):
+    """nmap puede terminar sin lanzar PortScannerError y aun así no haber
+    escaneado nada - el error queda en scanner.scaninfo()["error"],
+    invisible si nadie lo revisa explícitamente."""
+    mock_scanner = MagicMock()
+    mock_scanner.all_hosts.return_value = []
+    mock_scanner.scaninfo.return_value = {"error": ["Failed to resolve given hostname/IP"]}
+    mock_portscanner_cls.return_value = mock_scanner
+
+    with caplog.at_level(logging.WARNING):
+        escanear_red("host-que-no-existe", "22", "-sV -T4", dos_fases=False)
+
+    assert "Failed to resolve given hostname/IP" in caplog.text
+
+
+@patch("topology_scanner.scanner.nmap.PortScanner")
+def test_escanear_red_sin_errores_no_avisa(mock_portscanner_cls, caplog):
+    mock_scanner = MagicMock()
+    mock_scanner.all_hosts.return_value = []
+    mock_scanner.scaninfo.return_value = {}
+    mock_portscanner_cls.return_value = mock_scanner
+
+    with caplog.at_level(logging.WARNING):
+        escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
+
+    assert "nmap reportó errores" not in caplog.text
 
 
 def test_defaults_compartidos_por_cli_y_webapp():

@@ -12,6 +12,7 @@ sin llegar a lanzar un escaneo real (eso no se prueba aquí, solo a mano
 en el navegador, igual que el resto de cambios de UI de este proyecto).
 """
 
+import logging
 import os
 import tempfile
 from unittest.mock import MagicMock, patch
@@ -116,12 +117,11 @@ def test_ejecutar_proceso_nmap_rellena_el_contenedor(mock_popen_cls):
     mock_proceso.communicate.return_value = (b"<xml/>", b"")
     mock_popen_cls.return_value = mock_proceso
 
-    contenedor = {"proceso": None, "salida": None, "terminado": False}
+    contenedor = {"proceso": None, "salida": None}
     _ejecutar_proceso_nmap(["nmap", "-oX", "-"], contenedor)
 
     assert contenedor["proceso"] is mock_proceso
     assert contenedor["salida"] == b"<xml/>"
-    assert contenedor["terminado"] is True
     assert contenedor.get("error") is None
 
 
@@ -133,12 +133,10 @@ def test_ejecutar_proceso_nmap_guarda_el_error_si_popen_falla(mock_popen_cls):
     con una excepción sin controlar (no era nmap.PortScannerError)."""
     mock_popen_cls.side_effect = OSError("No such file or directory")
 
-    contenedor = {"proceso": None, "salida": None, "terminado": False}
+    contenedor = {"proceso": None, "salida": None}
     _ejecutar_proceso_nmap(["nmap-que-no-existe"], contenedor)
 
-    assert contenedor["terminado"] is True
     assert "No such file or directory" in contenedor["error"]
-    assert contenedor["terminado"] is True
 
 
 class _HostInfoFalso(dict):
@@ -160,12 +158,29 @@ def test_procesar_salida_nmap_reutiliza_parsear_host(mock_portscanner_cls):
     mock_nm = MagicMock()
     mock_nm.all_hosts.return_value = ["192.168.1.10"]
     mock_nm.__getitem__.return_value = _HostInfoFalso(hostname="server01")
+    mock_nm.scaninfo.return_value = {}
     mock_portscanner_cls.return_value = mock_nm
 
     resultados = _procesar_salida_nmap(b"<xml/>")
 
     mock_nm.analyse_nmap_xml_scan.assert_called_once_with(nmap_xml_output=b"<xml/>")
     assert resultados["192.168.1.10"]["hostname"] == "server01"
+
+
+@patch("topology_scanner.webapp.nmap.PortScanner")
+def test_procesar_salida_nmap_avisa_si_nmap_reporto_error(mock_portscanner_cls, caplog):
+    """El escaneo cancelable de webapp.py no pasa por scanner.escanear_red(),
+    así que sin esto se perdía el aviso de errores internos de nmap que sí
+    tiene el CLI."""
+    mock_nm = MagicMock()
+    mock_nm.all_hosts.return_value = []
+    mock_nm.scaninfo.return_value = {"error": ["Failed to resolve given hostname/IP"]}
+    mock_portscanner_cls.return_value = mock_nm
+
+    with caplog.at_level(logging.WARNING):
+        _procesar_salida_nmap(b"<xml/>")
+
+    assert "Failed to resolve given hostname/IP" in caplog.text
 
 
 @patch("topology_scanner.webapp.exportar_html")

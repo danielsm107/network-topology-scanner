@@ -43,7 +43,8 @@ import nmap
 # falla con ImportError. Requiere que topology_scanner esté instalado
 # (pip install -e .) o en el PYTHONPATH.
 from topology_scanner.scanner import (
-    descubrir_hosts_vivos, parsear_host, ScannerError, DEFAULT_NMAP_ARGS, PUERTOS_POR_DEFECTO,
+    descubrir_hosts_vivos, parsear_host, avisar_si_nmap_reporto_error,
+    ScannerError, DEFAULT_NMAP_ARGS, PUERTOS_POR_DEFECTO,
 )
 from topology_scanner.graph import construir_grafo
 from topology_scanner.export import exportar_html, exportar_csv
@@ -134,8 +135,6 @@ def _ejecutar_proceso_nmap(comando: list, contenedor: dict):
         atexit.unregister(_matar_si_sigue_vivo)
     except OSError as e:
         contenedor["error"] = str(e)
-    finally:
-        contenedor["terminado"] = True
 
 
 def _procesar_salida_nmap(salida_xml: bytes) -> dict:
@@ -145,6 +144,7 @@ def _procesar_salida_nmap(salida_xml: bytes) -> dict:
     (p.ej. porque el proceso se mató a medias con "Parar escaneo")."""
     nm = nmap.PortScanner()
     nm.analyse_nmap_xml_scan(nmap_xml_output=salida_xml)
+    avisar_si_nmap_reporto_error(nm)
     return {host: parsear_host(nm[host]) for host in nm.all_hosts()}
 
 
@@ -352,7 +352,7 @@ def main():
                 except ScannerError as e:
                     st.error(str(e))
                 else:
-                    contenedor = {"proceso": None, "salida": None, "terminado": False}
+                    contenedor = {"proceso": None, "salida": None}
                     hilo = threading.Thread(target=_ejecutar_proceso_nmap, args=(comando, contenedor), daemon=True)
                     hilo.start()
                     st.session_state.estado = "escaneando"

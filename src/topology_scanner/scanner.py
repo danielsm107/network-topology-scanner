@@ -35,6 +35,16 @@ DEFAULT_NMAP_ARGS = "-sV -T4"
 PUERTOS_POR_DEFECTO = "21-23,25,53,80,110,135,139,143,443,445,3389,8080"
 
 
+def avisar_si_nmap_reporto_error(scanner):
+    """nmap puede "tener éxito" (sin lanzar PortScannerError) y aun así no
+    haber podido escanear nada - el error queda en scanner.scaninfo()
+    ["error"], invisible si nadie lo revisa explícitamente. No es fatal
+    (no se convierte en ScannerError): solo se avisa por log."""
+    errores = scanner.scaninfo().get("error")
+    if errores:
+        log.warning(f"nmap reportó errores durante el escaneo: {'; '.join(errores)}")
+
+
 def descubrir_hosts_vivos(rango: str) -> list:
     """
     FASE 1: ping scan rápido (-sn), sin puertos ni detección de servicio/SO.
@@ -49,6 +59,7 @@ def descubrir_hosts_vivos(rango: str) -> list:
     except nmap.PortScannerError as e:
         raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
 
+    avisar_si_nmap_reporto_error(scanner)
     vivos = [h for h in scanner.all_hosts() if scanner[h].state() == "up"]
     log.info(f"  {len(vivos)} hosts activos de todo el rango")
     return vivos
@@ -124,6 +135,7 @@ def escanear_red(rango: str, puertos: str, argumentos_nmap: str, dos_fases: bool
     except nmap.PortScannerError as e:
         raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
 
+    avisar_si_nmap_reporto_error(scanner)
     resultados = {}
     for host in scanner.all_hosts():
         datos = parsear_host(scanner[host])
