@@ -39,6 +39,22 @@ def test_exportar_html_inyecta_el_cdn_de_fontawesome(tmp_path):
     assert "font-awesome" in salida.read_text(encoding="utf-8")
 
 
+def test_exportar_html_ocupa_toda_la_ventana_del_navegador(tmp_path):
+    """pyvis fija #mynetwork a 800px de alto por defecto; el CSS inyectado
+    debe pisarlo para que el grafo se adapte a la ventana (ver CLAUDE.md)."""
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake()}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    assert "100vh" in html
+    assert "#mynetwork" in html and "!important" in html
+    # pyvis mete un <center><h1></h1></center> vacío que, sin ocultar,
+    # deja una franja blanca (fondo por defecto del body) por encima del grafo
+    assert "center { display: none" in html
+
+
 def test_exportar_html_usa_el_color_de_icono_de_la_categoria(tmp_path):
     """El color viene de ICONOS_POR_CATEGORIA en classifier.py: nas -> #f1c40f."""
     grafo = construir_grafo({"192.168.1.1": _resultado_fake(categoria="nas")}, "192.168.1.0/24")

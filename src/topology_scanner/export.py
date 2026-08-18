@@ -31,6 +31,18 @@ CDN_FONTAWESOME = (
     'href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">'
 )
 
+# pyvis fija #mynetwork a una altura en píxeles (800px) que no se adapta a
+# la ventana del navegador. Se pisa a mano con !important para que el grafo
+# ocupe siempre el 100% de la ventana, y se neutralizan los márgenes/bordes
+# de Bootstrap que pyvis mete alrededor (.card, .card-body) para que no
+# empujen el grafo fuera de la vista.
+CSS_PANTALLA_COMPLETA = """<style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #1e1e1e; }
+    center { display: none !important; }
+    .card, .card-body { margin: 0 !important; padding: 0 !important; border: none !important; }
+    #mynetwork { width: 100% !important; height: 100vh !important; border: none !important; }
+</style>"""
+
 # Color de aviso para hosts con puertos sensibles abiertos (ver
 # classifier.PUERTOS_SENSIBLES). Pisa el color normal del icono de
 # categoría para que destaque independientemente del tipo de dispositivo.
@@ -74,7 +86,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
         red_visual.add_edge(origen, destino)
 
     html = red_visual.generate_html(archivo_salida, notebook=False)
-    html = html.replace("</head>", f"{CDN_FONTAWESOME}</head>")
+    html = html.replace("</head>", f"{CDN_FONTAWESOME}{CSS_PANTALLA_COMPLETA}</head>")
 
     with open(archivo_salida, "w", encoding="utf-8") as f:
         f.write(html)
