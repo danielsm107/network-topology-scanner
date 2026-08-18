@@ -27,7 +27,7 @@ src/topology_scanner/
 ├── scanner.py      # Todo lo de nmap: descubrimiento (fase 1, ping scan) + escaneo completo (fase 2)
 ├── classifier.py   # clasificar_dispositivo(vendor) -> categoría, iconos por categoría
 ├── graph.py        # construir_grafo(resultados, rango) -> networkx.Graph (topología en estrella)
-├── export.py       # exportar_html (pyvis + iconos Font Awesome vía CDN), exportar_texto, exportar_diff_texto
+├── export.py       # exportar_html (pyvis + iconos Font Awesome vía CDN), exportar_texto, exportar_diff_texto, exportar_csv
 ├── history.py      # registrar_y_comparar(resultados, rango, db_path) -> guarda en SQLite y compara con el escaneo anterior
 └── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
 tests/               # un test_<modulo>.py por módulo
@@ -83,8 +83,10 @@ de escribir código.
 2. ~~**Historial en SQLite**~~ — hecho (`history.py` + flags `--history-db`/`--sin-historial`).
 3. ~~**Cruzar el historial con las alertas**~~ — hecho (`nuevos_sensibles`
    en `puertos_cambiados`, destacado en `exportar_diff_texto`).
-4. **Exportar a CSV** — IP, hostname, MAC, vendor, SO, puertos — para
-   inventario/auditoría.
+4. ~~**Exportar a CSV**~~ — hecho (`exportar_csv`, flag `--csv`). Columnas:
+   ip, hostname, mac, vendor, categoria, so, puertos, alertas (se añadieron
+   categoria y alertas sobre lo hablado originalmente porque ya estaban
+   calculadas y son justo lo relevante para una auditoría de seguridad).
 5. **Leyenda visual en el HTML** — panel fijo explicando qué icono/color es
    cada categoría de dispositivo.
 6. **Topología real vía SNMP** — consultar tablas ARP/CDP/LLDP de los

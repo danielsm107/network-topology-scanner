@@ -5,6 +5,7 @@ Convierte el grafo/resultados en salidas visibles: HTML interactivo (pyvis)
 o informe de texto plano por consola.
 """
 
+import csv
 import logging
 from datetime import datetime
 
@@ -111,6 +112,34 @@ def exportar_texto(resultados: dict):
         else:
             print("  - Sin puertos abiertos detectados")
     print("\n" + "=" * 60 + "\n")
+
+
+CABECERA_CSV = ["ip", "hostname", "mac", "vendor", "categoria", "so", "puertos", "alertas"]
+
+
+def exportar_csv(resultados: dict, archivo_salida: str):
+    """Exporta el inventario a CSV (IP, hostname, MAC, vendor, categoría,
+    SO, puertos, alertas de puertos sensibles) para auditoría/inventario.
+    Una fila por host; puertos y alertas se listan separados por comas
+    dentro de su celda (el módulo csv se encarga del quoting)."""
+    with open(archivo_salida, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(CABECERA_CSV)
+        for ip, datos in sorted(resultados.items()):
+            puertos = ", ".join(f"{p['puerto']}/{p['servicio']}" for p in datos.get("puertos", []))
+            alertas = ", ".join(f"{a['puerto']} ({a['motivo']})" for a in datos.get("alertas", []))
+            writer.writerow([
+                ip,
+                datos.get("hostname", ""),
+                datos.get("mac", ""),
+                datos.get("vendor", ""),
+                datos.get("categoria", "desconocido"),
+                datos.get("so", ""),
+                puertos,
+                alertas,
+            ])
+
+    log.info(f"Inventario exportado a: {archivo_salida}")
 
 
 def exportar_diff_texto(diff: dict):

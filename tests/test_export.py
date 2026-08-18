@@ -4,9 +4,12 @@ es un módulo de exportación puro, más simple y fiable comprobar el HTML
 generado de verdad que simular toda la API de pyvis.
 """
 
+import csv
 import io
 
-from topology_scanner.export import exportar_html, exportar_texto, exportar_diff_texto, COLOR_ALERTA
+from topology_scanner.export import (
+    exportar_html, exportar_texto, exportar_diff_texto, exportar_csv, COLOR_ALERTA,
+)
 from topology_scanner.graph import construir_grafo
 
 
@@ -204,3 +207,81 @@ def test_exportar_html_sin_alertas_usa_el_color_normal_de_categoria(tmp_path):
 
     html = salida.read_text(encoding="utf-8")
     assert COLOR_ALERTA.replace("#", "") not in html
+
+
+def test_exportar_csv_incluye_cabecera_y_datos_del_host(tmp_path):
+    resultados = {
+        "192.168.1.10": _resultado_fake(
+            hostname="server01",
+            puertos=[{"puerto": 22, "servicio": "ssh", "producto": ""}],
+        )
+    }
+    salida = tmp_path / "inventario.csv"
+
+    exportar_csv(resultados, str(salida))
+
+    with open(salida, encoding="utf-8") as f:
+        filas = list(csv.reader(f))
+
+    assert filas[0] == ["ip", "hostname", "mac", "vendor", "categoria", "so", "puertos", "alertas"]
+    assert len(filas) == 2
+    fila = filas[1]
+    assert fila[0] == "192.168.1.10"
+    assert fila[1] == "server01"
+    assert "22/ssh" in fila[6]
+
+
+def test_exportar_csv_incluye_alertas(tmp_path):
+    alertas = [{"puerto": 3389, "motivo": "RDP (objetivo habitual de fuerza bruta)"}]
+    resultados = {"192.168.1.1": _resultado_fake(alertas=alertas)}
+    salida = tmp_path / "inventario.csv"
+
+    exportar_csv(resultados, str(salida))
+
+    with open(salida, encoding="utf-8") as f:
+        filas = list(csv.reader(f))
+
+    assert "3389" in filas[1][7]
+    assert "RDP" in filas[1][7]
+
+
+def test_exportar_csv_hosts_sin_puertos_ni_alertas_deja_columnas_vacias(tmp_path):
+    resultados = {"192.168.1.1": _resultado_fake(puertos=[], alertas=[])}
+    salida = tmp_path / "inventario.csv"
+
+    exportar_csv(resultados, str(salida))
+
+    with open(salida, encoding="utf-8") as f:
+        filas = list(csv.reader(f))
+
+    assert filas[1][6] == ""
+    assert filas[1][7] == ""
+
+
+def test_exportar_csv_maneja_comas_en_campos_correctamente(tmp_path):
+    """El módulo csv debe encargarse del quoting - una coma dentro de un
+    campo (p.ej. un vendor con coma en el nombre) no debe romper columnas."""
+    resultados = {"192.168.1.1": _resultado_fake(hostname="host, con coma")}
+    salida = tmp_path / "inventario.csv"
+
+    exportar_csv(resultados, str(salida))
+
+    with open(salida, encoding="utf-8") as f:
+        filas = list(csv.reader(f))
+
+    assert filas[1][1] == "host, con coma"
+
+
+def test_exportar_csv_ordena_por_ip(tmp_path):
+    resultados = {
+        "192.168.1.20": _resultado_fake(hostname="segundo"),
+        "192.168.1.10": _resultado_fake(hostname="primero"),
+    }
+    salida = tmp_path / "inventario.csv"
+
+    exportar_csv(resultados, str(salida))
+
+    with open(salida, encoding="utf-8") as f:
+        filas = list(csv.reader(f))
+
+    assert [fila[0] for fila in filas[1:]] == ["192.168.1.10", "192.168.1.20"]

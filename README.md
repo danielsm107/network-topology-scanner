@@ -2,7 +2,10 @@
 
 Escanea un rango de red, detecta hosts activos, sus puertos/servicios, fabricante
 (vía MAC) y tipo de dispositivo, y genera un grafo de topología interactivo en
-HTML con iconos por categoría (router, PC, NAS, impresora, etc.).
+HTML con iconos por categoría (router, PC, NAS, impresora, etc.). Marca en rojo
+los hosts con puertos sensibles abiertos (Telnet, SMB, RDP, FTP, VNC), guarda
+cada escaneo en SQLite para comparar con el anterior (hosts nuevos/caídos,
+puertos que cambian), y puede exportar el inventario a CSV.
 
 ## ⚠️ Aviso legal
 Usa esta herramienta **solo en redes propias o con autorización explícita**
@@ -17,7 +20,8 @@ network-topology-scanner/
 │   ├── scanner.py        # Escaneo con nmap (descubrimiento + puertos)
 │   ├── classifier.py      # Clasificación de dispositivo por MAC/vendor
 │   ├── graph.py            # Construcción del grafo (networkx)
-│   ├── export.py           # Exportación a HTML (pyvis) y texto
+│   ├── export.py           # Exportación a HTML (pyvis), texto y CSV
+│   ├── history.py          # Historial de escaneos en SQLite (diff vs. el anterior)
 │   └── cli.py               # Interfaz de línea de comandos
 ├── tests/                   # pytest, con mocks de nmap (sin red real)
 ├── pyproject.toml
@@ -59,7 +63,10 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 | `--output`      | Nombre del HTML de salida                                      | `topologia_red.html` |
 | `--con-so`      | Activa detección de SO (-O), la opción más lenta                 | desactivado     |
 | `--sin-2-fases` | Desactiva el ping scan previo, escanea el rango completo directo | desactivado     |
-| `--rapido`      | Preset de máxima velocidad, solo puertos                          | desactivado     |
+| `--rapido`      | Preset de máxima velocidad, solo puertos (incompatible con `--con-so`/`--nmap-args`) | desactivado |
+| `--csv`         | Exporta también un inventario CSV a la ruta indicada          | desactivado     |
+| `--history-db`  | Archivo SQLite donde guardar el historial de escaneos          | `historial.db`  |
+| `--sin-historial` | No guarda el escaneo en el historial ni compara con el anterior | desactivado   |
 
 ## Clasificación de dispositivos
 

@@ -12,7 +12,7 @@ import sys
 try:
     from .scanner import escanear_red, ScannerError
     from .graph import construir_grafo
-    from .export import exportar_html, exportar_texto, exportar_diff_texto, ExportError
+    from .export import exportar_html, exportar_texto, exportar_diff_texto, exportar_csv, ExportError
     from .history import registrar_y_comparar, HistoryError, DB_POR_DEFECTO
 except RuntimeError as e:
     sys.exit(str(e))
@@ -61,6 +61,11 @@ def construir_parser() -> argparse.ArgumentParser:
              "Incompatible con --con-so y --nmap-args"
     )
     parser.add_argument(
+        "--csv", default=None, metavar="ARCHIVO",
+        help="Exporta también un inventario CSV (IP, hostname, MAC, vendor, categoría, SO, "
+             "puertos, alertas) a la ruta indicada. Desactivado por defecto"
+    )
+    parser.add_argument(
         "--history-db", default=DB_POR_DEFECTO,
         help=f"Archivo SQLite donde guardar el historial de escaneos (por defecto: {DB_POR_DEFECTO})"
     )
@@ -103,6 +108,9 @@ def main():
         return
 
     exportar_texto(resultados)
+
+    if args.csv:
+        exportar_csv(resultados, args.csv)
 
     if not args.sin_historial:
         try:

@@ -108,6 +108,38 @@ def test_main_continua_si_falla_el_historial(
     mock_exportar_html.assert_called_once()
 
 
+@patch("topology_scanner.cli.exportar_csv")
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.escanear_red")
+def test_main_exporta_csv_si_se_pide(
+    mock_escanear_red, mock_construir_grafo, mock_exportar_texto,
+    mock_exportar_html, mock_exportar_csv,
+):
+    mock_escanear_red.return_value = _resultado_dummy()
+
+    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--csv", "inventario.csv"])
+
+    mock_exportar_csv.assert_called_once_with(mock_escanear_red.return_value, "inventario.csv")
+
+
+@patch("topology_scanner.cli.exportar_csv")
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.escanear_red")
+def test_main_no_exporta_csv_por_defecto(
+    mock_escanear_red, mock_construir_grafo, mock_exportar_texto,
+    mock_exportar_html, mock_exportar_csv,
+):
+    mock_escanear_red.return_value = _resultado_dummy()
+
+    _run_main_con_argv(["192.168.1.0/24", "--sin-historial"])
+
+    mock_exportar_csv.assert_not_called()
+
+
 def _parsear(argv):
     return construir_parser().parse_args(argv)
 
