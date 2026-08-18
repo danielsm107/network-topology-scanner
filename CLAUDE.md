@@ -72,16 +72,21 @@ de escribir código.
 
 1. ~~**Alertas por puertos sensibles**~~ — hecho.
 2. ~~**Historial en SQLite**~~ — hecho (`history.py` + flags `--history-db`/`--sin-historial`).
-3. **Exportar a CSV** — IP, hostname, MAC, vendor, SO, puertos — para
+3. **Cruzar el historial con las alertas** — `history.py` no sabe nada de
+   `PUERTOS_SENSIBLES`: si un puerto nuevo detectado en `puertos_cambiados`
+   es sensible, el diff debería destacarlo (no solo "puerto nuevo: 23",
+   sino "puerto nuevo y sensible: 23 (Telnet)"). Conecta las dos features
+   de seguridad ya construidas; barato, todo el dato ya existe.
+4. **Exportar a CSV** — IP, hostname, MAC, vendor, SO, puertos — para
    inventario/auditoría.
-4. **Leyenda visual en el HTML** — panel fijo explicando qué icono/color es
+5. **Leyenda visual en el HTML** — panel fijo explicando qué icono/color es
    cada categoría de dispositivo.
-5. **Topología real vía SNMP** — consultar tablas ARP/CDP/LLDP de los
+6. **Topología real vía SNMP** — consultar tablas ARP/CDP/LLDP de los
    MikroTik/Fortinet del mantenedor para topología real en vez de estrella
    aproximada. La feature más compleja, dejar para el final.
-6. **Interfaz web con Streamlit** — envolver el CLI en una web local con
+7. **Interfaz web con Streamlit** — envolver el CLI en una web local con
    botón de escaneo y el grafo embebido.
-7. **CI con GitHub Actions** — ejecutar pytest + ruff en cada push, badge en
+8. **CI con GitHub Actions** — ejecutar pytest + ruff en cada push, badge en
    el README.
 
 ## Forma de trabajar preferida
