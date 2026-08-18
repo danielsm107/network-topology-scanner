@@ -9,12 +9,20 @@ Esto permite testear la lógica de descubrimiento sin tocar networkx/pyvis.
 """
 
 import logging
-import sys
+
+
+class ScannerError(RuntimeError):
+    """Error al lanzar nmap: dependencia faltante, binario no encontrado,
+    fallo del propio escaneo, etc. Quien llame decide qué hacer (cli.py
+    la captura y termina el programa con un mensaje claro)."""
+
 
 try:
     import nmap
-except ImportError:
-    sys.exit("Falta la librería python-nmap. Instala con: pip install python-nmap")
+except ImportError as e:
+    raise ScannerError(
+        "Falta la librería python-nmap. Instala con: pip install python-nmap"
+    ) from e
 
 from .classifier import clasificar_dispositivo
 
@@ -33,7 +41,7 @@ def descubrir_hosts_vivos(rango: str) -> list:
         scanner = nmap.PortScanner()
         scanner.scan(hosts=rango, arguments="-sn -T4")
     except nmap.PortScannerError as e:
-        sys.exit(f"Error de nmap (¿ejecutas con sudo?): {e}")
+        raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
 
     vivos = [h for h in scanner.all_hosts() if scanner[h].state() == "up"]
     log.info(f"  {len(vivos)} hosts activos de todo el rango")
@@ -104,7 +112,7 @@ def escanear_red(rango: str, puertos: str, argumentos_nmap: str, dos_fases: bool
         scanner = nmap.PortScanner()
         scanner.scan(hosts=objetivo, ports=puertos, arguments=argumentos_nmap)
     except nmap.PortScannerError as e:
-        sys.exit(f"Error de nmap (¿ejecutas con sudo?): {e}")
+        raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
 
     resultados = {}
     for host in scanner.all_hosts():

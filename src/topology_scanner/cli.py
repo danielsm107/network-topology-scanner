@@ -7,10 +7,14 @@ llama a scanner -> graph -> export. La lógica real vive en esos módulos.
 
 import argparse
 import logging
+import sys
 
-from .scanner import escanear_red
-from .graph import construir_grafo
-from .export import exportar_html, exportar_texto
+try:
+    from .scanner import escanear_red, ScannerError
+    from .graph import construir_grafo
+    from .export import exportar_html, exportar_texto, ExportError
+except RuntimeError as e:
+    sys.exit(str(e))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,7 +67,10 @@ def main():
     if args.rapido:
         argumentos_nmap = "-T4"
 
-    resultados = escanear_red(args.rango, args.ports, argumentos_nmap, dos_fases=not args.sin_2_fases)
+    try:
+        resultados = escanear_red(args.rango, args.ports, argumentos_nmap, dos_fases=not args.sin_2_fases)
+    except ScannerError as e:
+        sys.exit(str(e))
 
     if not resultados:
         log.warning("No se detectaron hosts. Revisa el rango y los permisos (prueba con sudo).")
@@ -72,7 +79,10 @@ def main():
     exportar_texto(resultados)
 
     grafo = construir_grafo(resultados, args.rango)
-    exportar_html(grafo, args.output)
+    try:
+        exportar_html(grafo, args.output)
+    except ExportError as e:
+        sys.exit(str(e))
 
 
 if __name__ == "__main__":

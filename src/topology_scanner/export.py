@@ -10,11 +10,17 @@ from datetime import datetime
 
 import networkx as nx
 
+
+class ExportError(RuntimeError):
+    """Error al generar la salida: dependencia faltante, fallo de escritura,
+    etc. Quien llame decide qué hacer (cli.py la captura y termina el
+    programa con un mensaje claro)."""
+
+
 try:
     from pyvis.network import Network
-except ImportError:
-    import sys
-    sys.exit("Falta pyvis. Instala con: pip install pyvis")
+except ImportError as e:
+    raise ExportError("Falta pyvis. Instala con: pip install pyvis") from e
 
 from .classifier import icono_para_categoria
 
