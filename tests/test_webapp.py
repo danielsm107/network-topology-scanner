@@ -12,8 +12,11 @@ sin llegar a lanzar un escaneo real (eso no se prueba aquí, solo a mano
 en el navegador, igual que el resto de cambios de UI de este proyecto).
 """
 
+import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
+import nmap
 import pytest
 
 pytest.importorskip("streamlit", reason='pip install "topology-scanner[web]" para probar la interfaz web')
@@ -29,6 +32,7 @@ from topology_scanner.webapp import (
     _procesar_salida_nmap,
 )
 from topology_scanner.history import HistoryError
+from topology_scanner.scanner import ScannerError
 
 
 def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=None):
@@ -78,16 +82,33 @@ def test_detectar_rango_local_devuelve_none_si_no_hay_red(mock_socket_cls):
     assert _detectar_rango_local() is None
 
 
-def test_construir_comando_nmap_incluye_hosts_puertos_y_argumentos():
+@patch("topology_scanner.webapp.nmap.PortScanner")
+def test_construir_comando_nmap_incluye_hosts_puertos_y_argumentos(mock_portscanner_cls):
+    mock_portscanner_cls.return_value._nmap_path = "/usr/bin/nmap"
+
     comando = _construir_comando_nmap("192.168.1.1 192.168.1.2", "22,80", "-sV -T4")
 
-    assert comando[1:] == ["-oX", "-", "192.168.1.1", "192.168.1.2", "-p", "22,80", "-sV", "-T4"]
+    assert comando == ["/usr/bin/nmap", "-oX", "-", "192.168.1.1", "192.168.1.2", "-p", "22,80", "-sV", "-T4"]
 
 
-def test_construir_comando_nmap_usa_el_nmap_del_path():
+@patch("topology_scanner.webapp.nmap.PortScanner")
+def test_construir_comando_nmap_reutiliza_la_ruta_resuelta_por_python_nmap(mock_portscanner_cls):
+    """No usa shutil.which("nmap") - reutiliza nmap.PortScanner()._nmap_path,
+    la misma resolución de ruta que ya usa descubrir_hosts_vivos (fase 1),
+    para no divergir si una encuentra el binario y la otra no."""
+    mock_portscanner_cls.return_value._nmap_path = "C:\\Program Files (x86)\\Nmap\\nmap.exe"
+
     comando = _construir_comando_nmap("192.168.1.1", "22", "-T4")
 
-    assert "nmap" in comando[0].lower()
+    assert comando[0] == "C:\\Program Files (x86)\\Nmap\\nmap.exe"
+
+
+@patch("topology_scanner.webapp.nmap.PortScanner")
+def test_construir_comando_nmap_error_claro_si_nmap_no_esta_disponible(mock_portscanner_cls):
+    mock_portscanner_cls.side_effect = nmap.PortScannerError("nmap program was not found in path")
+
+    with pytest.raises(ScannerError):
+        _construir_comando_nmap("192.168.1.1", "22", "-T4")
 
 
 @patch("topology_scanner.webapp.subprocess.Popen")
@@ -101,6 +122,23 @@ def test_ejecutar_proceso_nmap_rellena_el_contenedor(mock_popen_cls):
 
     assert contenedor["proceso"] is mock_proceso
     assert contenedor["salida"] == b"<xml/>"
+    assert contenedor["terminado"] is True
+    assert contenedor.get("error") is None
+
+
+@patch("topology_scanner.webapp.subprocess.Popen")
+def test_ejecutar_proceso_nmap_guarda_el_error_si_popen_falla(mock_popen_cls):
+    """Si no se puede lanzar nmap (ruta inválida, permisos...), el hilo no
+    debe morir en silencio - antes de este fix, contenedor["salida"] se
+    quedaba en None y _procesar_salida_nmap(None) reventaba más adelante
+    con una excepción sin controlar (no era nmap.PortScannerError)."""
+    mock_popen_cls.side_effect = OSError("No such file or directory")
+
+    contenedor = {"proceso": None, "salida": None, "terminado": False}
+    _ejecutar_proceso_nmap(["nmap-que-no-existe"], contenedor)
+
+    assert contenedor["terminado"] is True
+    assert "No such file or directory" in contenedor["error"]
     assert contenedor["terminado"] is True
 
 
@@ -168,6 +206,50 @@ def test_finalizar_resultados_continua_si_falla_el_historial(
 
     assert resultado["diff"] is None
     mock_exportar_html.assert_called_once()
+
+
+@patch("topology_scanner.webapp.exportar_html")
+@patch("topology_scanner.webapp.construir_grafo")
+def test_finalizar_resultados_borra_el_html_temporal(mock_construir_grafo, mock_exportar_html):
+    """Antes de este fix, el .html temporal (NamedTemporaryFile(delete=False))
+    nunca se borraba - cada escaneo dejaba basura en el directorio temporal
+    del sistema para siempre."""
+    resultados = {"192.168.1.10": _resultado_fake()}
+    rutas_creadas = []
+    ntf_original = tempfile.NamedTemporaryFile
+
+    def _capturar_ruta(*args, **kwargs):
+        f = ntf_original(*args, **kwargs)
+        rutas_creadas.append(f.name)
+        return f
+
+    with patch("topology_scanner.webapp.tempfile.NamedTemporaryFile", side_effect=_capturar_ruta):
+        _finalizar_resultados(resultados, "192.168.1.0/24", guardar_historial=False)
+
+    assert rutas_creadas
+    assert not os.path.exists(rutas_creadas[-1])
+
+
+def test_generar_csv_bytes_borra_el_csv_temporal():
+    """Mismo problema que el .html: el .csv temporal del botón de descarga
+    tampoco se borraba."""
+    from topology_scanner.webapp import _generar_csv_bytes
+
+    resultados = {"192.168.1.10": _resultado_fake()}
+    rutas_creadas = []
+    ntf_original = tempfile.NamedTemporaryFile
+
+    def _capturar_ruta(*args, **kwargs):
+        f = ntf_original(*args, **kwargs)
+        rutas_creadas.append(f.name)
+        return f
+
+    with patch("topology_scanner.webapp.tempfile.NamedTemporaryFile", side_effect=_capturar_ruta):
+        contenido = _generar_csv_bytes(resultados)
+
+    assert b"192.168.1.10" in contenido
+    assert rutas_creadas
+    assert not os.path.exists(rutas_creadas[-1])
 
 
 def test_hay_cambios_es_true_si_solo_cambian_puertos():

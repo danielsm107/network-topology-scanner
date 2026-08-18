@@ -20,8 +20,9 @@ entry point `topology-scanner-web` (ver pyproject.toml) una vez instalado
 el extra opcional: pip install "topology-scanner[web]"
 """
 
+import atexit
+import os
 import shlex
-import shutil
 import socket
 import subprocess
 import tempfile
@@ -88,21 +89,54 @@ def _construir_comando_nmap(hosts: str, ports: str, arguments: str) -> list:
     internamente. Hace falta porque ese método es bloqueante y no expone el
     subprocess.Popen que crea - no hay forma de matarlo desde fuera si el
     usuario pulsa "Parar" a medio escaneo, así que lanzamos el proceso
-    nosotros mismos para quedarnos con esa referencia."""
-    nmap_path = shutil.which("nmap") or "nmap"
+    nosotros mismos para quedarnos con esa referencia.
+
+    La ruta del binario se resuelve con nmap.PortScanner()._nmap_path (la
+    misma búsqueda que ya hace python-nmap internamente en
+    descubrir_hosts_vivos, fase 1) en vez de shutil.which("nmap"): esa
+    alternativa mira solo el PATH y podía no encontrar el binario aunque la
+    fase 1 sí lo hubiera hecho, dejando la fase 2 rota de forma inconsistente."""
+    try:
+        nmap_path = nmap.PortScanner()._nmap_path
+    except nmap.PortScannerError as e:
+        raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
     return [nmap_path, "-oX", "-"] + shlex.split(hosts) + ["-p", ports] + shlex.split(arguments)
+
+
+def _matar_si_sigue_vivo(proceso: subprocess.Popen):
+    """Handler de atexit: si el proceso de Streamlit se cierra (Ctrl+C)
+    mientras un escaneo sigue en marcha, intenta matar el nmap huérfano en
+    vez de dejarlo corriendo en segundo plano. No cubre un kill -9/taskkill
+    /F del propio proceso de Streamlit - ningún código de aplicación puede
+    reaccionar a eso."""
+    try:
+        proceso.terminate()
+    except OSError:
+        pass
 
 
 def _ejecutar_proceso_nmap(comando: list, contenedor: dict):
     """Lanza nmap como subprocess y deja el resultado en `contenedor` (dict
     compartido con el hilo que lo lanzó). Pensado para correr en un
     threading.Thread aparte: mientras nmap corre, el hilo principal de
-    Streamlit sigue libre para atender el botón "Parar escaneo"."""
-    proceso = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    contenedor["proceso"] = proceso
-    salida, _error = proceso.communicate()
-    contenedor["salida"] = salida
-    contenedor["terminado"] = True
+    Streamlit sigue libre para atender el botón "Parar escaneo".
+
+    Cualquier fallo se guarda en contenedor["error"] en vez de dejar que la
+    excepción tire el hilo en silencio: antes, si subprocess.Popen fallaba
+    (ruta inválida, permisos...), contenedor["salida"] se quedaba en None y
+    _procesar_salida_nmap(None) reventaba más adelante con una excepción
+    sin controlar."""
+    try:
+        proceso = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        contenedor["proceso"] = proceso
+        atexit.register(_matar_si_sigue_vivo, proceso)
+        salida, _error = proceso.communicate()
+        contenedor["salida"] = salida
+        atexit.unregister(_matar_si_sigue_vivo)
+    except OSError as e:
+        contenedor["error"] = str(e)
+    finally:
+        contenedor["terminado"] = True
 
 
 def _procesar_salida_nmap(salida_xml: bytes) -> dict:
@@ -136,11 +170,32 @@ def _finalizar_resultados(resultados: dict, rango: str, guardar_historial: bool)
     grafo = construir_grafo(resultados, rango)
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
         archivo_html = f.name
-    exportar_html(grafo, archivo_html)
-    with open(archivo_html, encoding="utf-8") as f:
-        html = f.read()
+    try:
+        exportar_html(grafo, archivo_html)
+        with open(archivo_html, encoding="utf-8") as f:
+            html = f.read()
+    finally:
+        # NamedTemporaryFile(delete=False) porque exportar_html necesita una
+        # ruta a la que escribir, no un file object - pero eso significa que
+        # nadie lo borra solo. Sin este finally, cada escaneo dejaba un
+        # .html huérfano en el directorio temporal del sistema para siempre.
+        os.remove(archivo_html)
 
     return {"resultados": resultados, "html": html, "diff": diff}
+
+
+def _generar_csv_bytes(resultados: dict) -> bytes:
+    """Genera el CSV de inventario en memoria (para el botón de descarga),
+    limpiando el archivo temporal que exportar_csv necesita para escribir -
+    mismo motivo que el .html de _finalizar_resultados."""
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
+        archivo_csv = f.name
+    try:
+        exportar_csv(resultados, archivo_csv)
+        with open(archivo_csv, "rb") as f:
+            return f.read()
+    finally:
+        os.remove(archivo_csv)
 
 
 def _hay_cambios(diff: dict) -> bool:
@@ -198,11 +253,10 @@ def _mostrar_resultado(resultado: dict):
 
     st.dataframe(_filas_para_tabla(resultados), use_container_width=True)
 
-    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
-        archivo_csv = f.name
-    exportar_csv(resultados, archivo_csv)
-    with open(archivo_csv, "rb") as f:
-        st.download_button("Descargar inventario CSV", f.read(), file_name="inventario.csv", mime="text/csv")
+    st.download_button(
+        "Descargar inventario CSV", _generar_csv_bytes(resultados),
+        file_name="inventario.csv", mime="text/csv",
+    )
 
     st.components.v1.html(resultado["html"], height=650, scrolling=True)
 
@@ -225,6 +279,9 @@ def _fragmento_progreso():
     st.session_state.estado = "idle"
     if st.session_state.cancelado:
         st.session_state.mensaje = ("info", "Escaneo cancelado.")
+        st.session_state.resultado = None
+    elif contenedor.get("error"):
+        st.session_state.mensaje = ("error", f"No se pudo lanzar nmap: {contenedor['error']}")
         st.session_state.resultado = None
     else:
         try:
@@ -300,16 +357,20 @@ def main():
                 st.warning("Ningún host respondió al ping scan.")
             elif vivos:
                 argumentos_nmap = _argumentos_nmap_desde_formulario(rapido, con_so)
-                comando = _construir_comando_nmap(" ".join(vivos), PUERTOS_POR_DEFECTO, argumentos_nmap)
-                contenedor = {"proceso": None, "salida": None, "terminado": False}
-                hilo = threading.Thread(target=_ejecutar_proceso_nmap, args=(comando, contenedor), daemon=True)
-                hilo.start()
-                st.session_state.estado = "escaneando"
-                st.session_state.hilo = hilo
-                st.session_state.contenedor = contenedor
-                st.session_state.parametros_pendientes = {"rango": rango, "guardar_historial": guardar_historial}
-                st.session_state.cancelado = False
-                st.rerun()
+                try:
+                    comando = _construir_comando_nmap(" ".join(vivos), PUERTOS_POR_DEFECTO, argumentos_nmap)
+                except ScannerError as e:
+                    st.error(str(e))
+                else:
+                    contenedor = {"proceso": None, "salida": None, "terminado": False}
+                    hilo = threading.Thread(target=_ejecutar_proceso_nmap, args=(comando, contenedor), daemon=True)
+                    hilo.start()
+                    st.session_state.estado = "escaneando"
+                    st.session_state.hilo = hilo
+                    st.session_state.contenedor = contenedor
+                    st.session_state.parametros_pendientes = {"rango": rango, "guardar_historial": guardar_historial}
+                    st.session_state.cancelado = False
+                    st.rerun()
 
     if parar and escaneando:
         proceso = st.session_state.contenedor.get("proceso")

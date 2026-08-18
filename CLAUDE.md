@@ -104,6 +104,23 @@ de escribir código.
   rerun tira el render a medias). Los mensajes que tienen que sobrevivir a
   un rerun se guardan en `st.session_state["mensaje"]` y se muestran al
   principio de la siguiente pasada de `main()` (con `.pop()`, una sola vez).
+- `_construir_comando_nmap` resuelve el binario con
+  `nmap.PortScanner()._nmap_path`, no `shutil.which("nmap")`: esta última
+  solo mira el `PATH` y podía no encontrarlo aunque la fase 1
+  (`descubrir_hosts_vivos`, que sí usa python-nmap) hubiera funcionado.
+- `_ejecutar_proceso_nmap` (el hilo del escaneo) guarda cualquier excepción
+  en `contenedor["error"]` en vez de dejar que el hilo muera en silencio -
+  si no, `_procesar_salida_nmap(None)` revienta más tarde con una excepción
+  que no es `nmap.PortScannerError`, sin capturar en ningún sitio.
+- Los `.html`/`.csv` temporales de `webapp.py` (`_finalizar_resultados`,
+  `_generar_csv_bytes`) se borran con `os.remove()` en un `finally` justo
+  después de leerlos - antes se quedaban para siempre en el directorio
+  temporal del sistema (se encontraron 40+ archivos huérfanos de sesiones
+  de prueba anteriores).
+- Si se mata el proceso de Streamlit (Ctrl+C) a media pasada de un escaneo,
+  `_matar_si_sigue_vivo` (registrado con `atexit`) intenta matar el
+  `nmap.exe` huérfano. No cubre un `taskkill /F`/kill duro del propio
+  proceso de Streamlit - eso ningún código de aplicación puede evitarlo.
 
 ## Roadmap (por orden de prioridad hablado)
 
