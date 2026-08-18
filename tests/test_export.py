@@ -11,6 +11,7 @@ from topology_scanner.export import (
     exportar_html, exportar_texto, exportar_diff_texto, exportar_csv, COLOR_ALERTA,
 )
 from topology_scanner.graph import construir_grafo
+from topology_scanner.classifier import icono_para_categoria
 
 
 def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=None):
@@ -206,7 +207,11 @@ def test_exportar_html_sin_alertas_usa_el_color_normal_de_categoria(tmp_path):
     exportar_html(grafo, str(salida))
 
     html = salida.read_text(encoding="utf-8")
-    assert COLOR_ALERTA.replace("#", "") not in html
+    # La leyenda siempre incluye el color de alerta (entrada "puerto
+    # sensible"), así que hay que comprobar solo los datos del nodo, no
+    # el HTML completo.
+    datos_nodos = html.split("nodes = new vis.DataSet(")[1].split("edges = new vis.DataSet(")[0]
+    assert COLOR_ALERTA.replace("#", "") not in datos_nodos
 
 
 def test_exportar_csv_incluye_cabecera_y_datos_del_host(tmp_path):
@@ -285,3 +290,50 @@ def test_exportar_csv_ordena_por_ip(tmp_path):
         filas = list(csv.reader(f))
 
     assert [fila[0] for fila in filas[1:]] == ["192.168.1.10", "192.168.1.20"]
+
+
+def test_exportar_html_incluye_leyenda_con_todas_las_categorias(tmp_path):
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake()}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    for categoria in ["router", "firewall", "vm", "nas", "printer", "camera", "iot", "mobile", "apple", "pc"]:
+        nombre = icono_para_categoria(categoria)["nombre"]
+        assert nombre in html, f"falta '{nombre}' ({categoria}) en la leyenda"
+
+
+def test_exportar_html_leyenda_menciona_puertos_sensibles(tmp_path):
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake()}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    assert "sensible" in salida.read_text(encoding="utf-8").lower()
+
+
+def test_exportar_html_icono_apple_usa_la_fuente_de_marcas(tmp_path):
+    """El glyph de Apple (\\uf179) pertenece a 'Font Awesome 5 Brands', no a
+    'Font Awesome 5 Free' (que es lo que se usa para el resto de iconos) -
+    si se usa la fuente equivocada el icono sale en blanco."""
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake(categoria="apple")}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    datos_nodos = html.split("nodes = new vis.DataSet(")[1].split("edges = new vis.DataSet(")[0]
+    assert "Font Awesome 5 Brands" in datos_nodos
+
+
+def test_exportar_html_leyenda_es_independiente_de_los_hosts_del_grafo(tmp_path):
+    """La leyenda es un panel fijo con todas las categorías conocidas, no
+    solo las que aparecen en el escaneo actual."""
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake(categoria="nas")}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    assert icono_para_categoria("printer")["nombre"] in html

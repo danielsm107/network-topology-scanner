@@ -23,7 +23,7 @@ try:
 except ImportError as e:
     raise ExportError("Falta pyvis. Instala con: pip install pyvis") from e
 
-from .classifier import icono_para_categoria
+from .classifier import icono_para_categoria, ICONOS_POR_CATEGORIA
 
 log = logging.getLogger("topology_scanner")
 
@@ -48,6 +48,33 @@ CSS_PANTALLA_COMPLETA = """<style>
 # classifier.PUERTOS_SENSIBLES). Pisa el color normal del icono de
 # categoría para que destaque independientemente del tipo de dispositivo.
 COLOR_ALERTA = "#ff0000"
+
+
+def _generar_leyenda_html() -> str:
+    """Panel fijo (esquina inferior izquierda) con el icono/color/nombre de
+    cada categoría conocida, reutilizando ICONOS_POR_CATEGORIA de
+    classifier.py como única fuente de verdad - no una lista aparte que
+    se pueda desincronizar si se añade una categoría nueva."""
+    filas = "".join(
+        f'<div style="margin:3px 0;">'
+        f'<span style="font-family:{icono["face"]}; font-weight:{icono["weight"]}; '
+        f'color:{icono["color"]}; display:inline-block; width:20px;">{icono["code"]}</span> '
+        f'{icono["nombre"]}</div>'
+        for icono in ICONOS_POR_CATEGORIA.values()
+    )
+    fila_alerta = (
+        f'<div style="margin:3px 0; border-top:1px solid #555; padding-top:5px;">'
+        f'<span style="color:{COLOR_ALERTA}; display:inline-block; width:20px;">⚠</span> '
+        f'Puerto sensible abierto</div>'
+    )
+    return (
+        '<div id="leyenda" style="position:fixed; bottom:16px; left:16px; '
+        'background:rgba(30,30,30,0.9); color:white; padding:10px 14px; '
+        'border-radius:6px; font-family:sans-serif; font-size:13px; z-index:1000;">'
+        '<div style="font-weight:bold; margin-bottom:6px;">Leyenda</div>'
+        f'{filas}{fila_alerta}'
+        '</div>'
+    )
 
 
 def exportar_html(grafo: nx.Graph, archivo_salida: str):
@@ -78,8 +105,8 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
                 nodo,
                 label=f"{etiqueta}\n({nodo})",
                 shape="icon",
-                icon={"face": "'Font Awesome 5 Free'", "code": icono["code"], "size": 40,
-                      "color": color_icono, "weight": "900"},
+                icon={"face": icono["face"], "code": icono["code"], "size": 40,
+                      "color": color_icono, "weight": icono["weight"]},
                 title=atributos.get("titulo", ""),
             )
 
@@ -88,6 +115,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
 
     html = red_visual.generate_html(archivo_salida, notebook=False)
     html = html.replace("</head>", f"{CDN_FONTAWESOME}{CSS_PANTALLA_COMPLETA}</head>")
+    html = html.replace("</body>", f"{_generar_leyenda_html()}</body>")
 
     with open(archivo_salida, "w", encoding="utf-8") as f:
         f.write(html)

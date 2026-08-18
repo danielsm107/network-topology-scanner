@@ -43,6 +43,12 @@ def test_icono_categoria_desconocida_usa_fallback():
     assert icono == icono_para_categoria("desconocido")
 
 
+def test_cada_categoria_tiene_nombre_legible():
+    for categoria in ["router", "firewall", "vm", "nas", "printer", "camera", "iot", "mobile", "apple", "pc", "desconocido"]:
+        icono = icono_para_categoria(categoria)
+        assert icono["nombre"]
+
+
 def test_puertos_sensibles_detecta_rdp_telnet_smb():
     puertos = [
         {"puerto": 3389, "servicio": "ms-wbt-server", "producto": ""},

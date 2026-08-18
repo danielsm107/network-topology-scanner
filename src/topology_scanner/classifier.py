@@ -24,19 +24,21 @@ CATEGORIA_POR_VENDOR = {
     "pc": ["dell inc", "lenovo", "intel corporate", "hewlett packard", "hp inc", "gigabyte", "asustek"],
 }
 
-# Icono Font Awesome 5 (unicode) + color por categoría de dispositivo
+# Icono Font Awesome 5 (unicode) + color + nombre legible por categoría de
+# dispositivo. Única fuente de verdad: export.py la reutiliza tal cual para
+# la leyenda del HTML en vez de mantener su propia lista de categorías.
 ICONOS_POR_CATEGORIA = {
-    "router":      {"code": "\uf6ff", "color": "#3498db"},  # network-wired
-    "firewall":    {"code": "\uf3ed", "color": "#e67e22"},  # shield-alt
-    "vm":          {"code": "\uf0c2", "color": "#9b59b6"},  # cloud
-    "nas":         {"code": "\uf0a0", "color": "#f1c40f"},  # hdd
-    "printer":     {"code": "\uf02f", "color": "#95a5a6"},  # print
-    "camera":      {"code": "\uf03d", "color": "#e74c3c"},  # video
-    "iot":         {"code": "\uf2db", "color": "#1abc9c"},  # microchip
-    "mobile":      {"code": "\uf3cd", "color": "#2ecc71"},  # mobile-alt
-    "apple":       {"code": "\uf179", "color": "#ecf0f1"},  # apple
-    "pc":          {"code": "\uf108", "color": "#2ecc71"},  # desktop
-    "desconocido": {"code": "\uf059", "color": "#7f8c8d"},  # question-circle
+    "router":      {"code": "\uf6ff", "color": "#3498db", "nombre": "Router / AP", "face": "'Font Awesome 5 Free'", "weight": "900"},  # network-wired
+    "firewall":    {"code": "\uf3ed", "color": "#e67e22", "nombre": "Firewall", "face": "'Font Awesome 5 Free'", "weight": "900"},  # shield-alt
+    "vm":          {"code": "\uf0c2", "color": "#9b59b6", "nombre": "Máquina virtual", "face": "'Font Awesome 5 Free'", "weight": "900"},  # cloud
+    "nas":         {"code": "\uf0a0", "color": "#f1c40f", "nombre": "NAS", "face": "'Font Awesome 5 Free'", "weight": "900"},  # hdd
+    "printer":     {"code": "\uf02f", "color": "#95a5a6", "nombre": "Impresora", "face": "'Font Awesome 5 Free'", "weight": "900"},  # print
+    "camera":      {"code": "\uf03d", "color": "#e74c3c", "nombre": "Cámara", "face": "'Font Awesome 5 Free'", "weight": "900"},  # video
+    "iot":         {"code": "\uf2db", "color": "#1abc9c", "nombre": "IoT", "face": "'Font Awesome 5 Free'", "weight": "900"},  # microchip
+    "mobile":      {"code": "\uf3cd", "color": "#2ecc71", "nombre": "Móvil", "face": "'Font Awesome 5 Free'", "weight": "900"},  # mobile-alt
+    "apple":       {"code": "\uf179", "color": "#ecf0f1", "nombre": "Apple", "face": "'Font Awesome 5 Brands'", "weight": "400"},  # apple
+    "pc":          {"code": "\uf108", "color": "#2ecc71", "nombre": "PC", "face": "'Font Awesome 5 Free'", "weight": "900"},  # desktop
+    "desconocido": {"code": "\uf059", "color": "#7f8c8d", "nombre": "Desconocido", "face": "'Font Awesome 5 Free'", "weight": "900"},  # question-circle
 }
 
 

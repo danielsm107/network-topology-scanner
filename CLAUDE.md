@@ -87,8 +87,13 @@ de escribir código.
    ip, hostname, mac, vendor, categoria, so, puertos, alertas (se añadieron
    categoria y alertas sobre lo hablado originalmente porque ya estaban
    calculadas y son justo lo relevante para una auditoría de seguridad).
-5. **Leyenda visual en el HTML** — panel fijo explicando qué icono/color es
-   cada categoría de dispositivo.
+5. ~~**Leyenda visual en el HTML**~~ — hecho (`_generar_leyenda_html`,
+   reutiliza `ICONOS_POR_CATEGORIA` como única fuente). De paso se encontró
+   y arregló un bug preexistente: el icono de "apple" (`\uf179`) pertenece a
+   la fuente "Font Awesome 5 Brands", no a "Font Awesome 5 Free" que se
+   usaba a pelo en todos los iconos — salía en blanco tanto en los nodos
+   del grafo como en la leyenda. Ahora cada categoría lleva su propio
+   `face`/`weight` en `ICONOS_POR_CATEGORIA`.
 6. **Topología real vía SNMP** — consultar tablas ARP/CDP/LLDP de los
    MikroTik/Fortinet del mantenedor para topología real en vez de estrella
    aproximada. La feature más compleja, dejar para el final.
