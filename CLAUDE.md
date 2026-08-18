@@ -131,6 +131,22 @@ de escribir código.
   `_matar_si_sigue_vivo` (registrado con `atexit`) intenta matar el
   `nmap.exe` huérfano. No cubre un `taskkill /F`/kill duro del propio
   proceso de Streamlit - eso ningún código de aplicación puede evitarlo.
+- `scanner.avisar_si_nmap_reporto_error(scanner)` revisa
+  `scanner.scaninfo()["error"]` tras cada `.scan()`: nmap puede "tener
+  éxito" (sin lanzar `PortScannerError`) y aun así no haber escaneado nada
+  (host no resuelto, etc.), silencioso si nadie lo mira. No es fatal, solo
+  se avisa por log. Se llama desde `escanear_red`/`descubrir_hosts_vivos` y
+  también desde `webapp._procesar_salida_nmap` (que no pasa por esas dos
+  funciones para la fase cancelable).
+- `history.registrar_y_comparar` purga automáticamente los escaneos de un
+  rango más antiguos que los últimos `mantener_ultimos` (por defecto 50,
+  parámetro opcional) — sin esto `historial.db` crecía sin límite.
+- El número de versión se lee con `importlib.metadata.version(...)` en
+  `__init__.py`, no de una copia a mano: `pyproject.toml` es la única
+  fuente de verdad.
+- No hay `requirements.txt`/`requirements-dev.txt` (se quitaron por
+  obsoletos, no reflejaban `streamlit`): `pyproject.toml` +
+  `pip install -e ".[dev,web]"` es el único camino de instalación.
 
 ## Roadmap (por orden de prioridad hablado)
 

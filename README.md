@@ -26,8 +26,7 @@ network-topology-scanner/
 │   ├── cli.py               # Interfaz de línea de comandos
 │   └── webapp.py            # Interfaz web (Streamlit, opcional)
 ├── tests/                   # pytest, con mocks de nmap (sin red real)
-├── pyproject.toml
-└── requirements.txt
+└── pyproject.toml           # única fuente de dependencias (pip install -e ".[dev,web]")
 ```
 
 ## Instalación
