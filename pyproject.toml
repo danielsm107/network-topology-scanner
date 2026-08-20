@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "topology-scanner"
-version = "0.2.0"
+version = "0.3.0"
 description = "Escáner de topología de red (nmap + networkx + pyvis) con clasificación de dispositivos por MAC"
 readme = "README.md"
 requires-python = ">=3.9"
