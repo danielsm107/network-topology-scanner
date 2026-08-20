@@ -10,6 +10,8 @@ Esto permite testear la lógica de descubrimiento sin tocar networkx/pyvis.
 
 import logging
 
+from .classifier import clasificar_dispositivo, puertos_sensibles_abiertos
+
 
 class ScannerError(RuntimeError):
     """Error al lanzar nmap: dependencia faltante, binario no encontrado,
@@ -23,8 +25,6 @@ except ImportError as e:
     raise ScannerError(
         "Falta la librería python-nmap. Instala con: pip install python-nmap"
     ) from e
-
-from .classifier import clasificar_dispositivo, puertos_sensibles_abiertos
 
 log = logging.getLogger("topology_scanner")
 
@@ -77,7 +77,7 @@ def parsear_host(info_host) -> dict:
         hostname = info_host.hostname()
 
     so_detectado = "desconocido"
-    if "osmatch" in info_host and info_host["osmatch"]:
+    if info_host.get("osmatch"):
         so_detectado = info_host["osmatch"][0].get("name", "desconocido")
 
     mac = ""

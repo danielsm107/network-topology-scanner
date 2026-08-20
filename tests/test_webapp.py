@@ -22,6 +22,8 @@ import pytest
 
 pytest.importorskip("streamlit", reason='pip install "topology-scanner[web]" para probar la interfaz web')
 
+from topology_scanner.history import HistoryError
+from topology_scanner.scanner import ScannerError
 from topology_scanner.webapp import (
     _argumentos_nmap_desde_formulario,
     _construir_comando_nmap,
@@ -31,8 +33,6 @@ from topology_scanner.webapp import (
     _finalizar_resultados,
     _procesar_salida_nmap,
 )
-from topology_scanner.history import HistoryError
-from topology_scanner.scanner import ScannerError
 
 
 def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=None):

@@ -10,10 +10,21 @@ import logging
 import sys
 
 try:
-    from .scanner import escanear_red, ScannerError, DEFAULT_NMAP_ARGS, PUERTOS_POR_DEFECTO
+    from .export import (
+        ExportError,
+        exportar_csv,
+        exportar_diff_texto,
+        exportar_html,
+        exportar_texto,
+    )
     from .graph import construir_grafo
-    from .export import exportar_html, exportar_texto, exportar_diff_texto, exportar_csv, ExportError
-    from .history import registrar_y_comparar, HistoryError, DB_POR_DEFECTO
+    from .history import DB_POR_DEFECTO, HistoryError, registrar_y_comparar
+    from .scanner import (
+        DEFAULT_NMAP_ARGS,
+        PUERTOS_POR_DEFECTO,
+        ScannerError,
+        escanear_red,
+    )
 except RuntimeError as e:
     sys.exit(str(e))
 

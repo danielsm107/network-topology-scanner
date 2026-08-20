@@ -34,3 +34,17 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+# El código ya usa líneas más largas que las 88 por defecto (diccionarios de
+# datos, f-strings en español) sin que aporte legibilidad partirlas todas.
+line-length = 120
+
+[tool.ruff.lint]
+# Sin esto, ruff sin [tool.ruff.lint] activa ~800 reglas (prácticamente
+# "ALL", incluidas categorías irrelevantes aquí como async/trio o
+# compatibilidad py2/3) - demasiado ruido para CI. Selección explícita:
+# pyflakes + pycodestyle, imports (I, ya usado para ordenar), pyupgrade,
+# bugbear, simplify y las reglas propias de ruff.
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

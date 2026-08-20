@@ -10,11 +10,11 @@ import nmap
 import pytest
 
 from topology_scanner.scanner import (
-    escanear_red,
-    descubrir_hosts_vivos,
-    ScannerError,
     DEFAULT_NMAP_ARGS,
     PUERTOS_POR_DEFECTO,
+    ScannerError,
+    descubrir_hosts_vivos,
+    escanear_red,
 )
 
 

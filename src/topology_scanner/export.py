@@ -11,6 +11,9 @@ from datetime import datetime
 
 import networkx as nx
 
+from .classifier import ICONOS_POR_CATEGORIA, icono_para_categoria
+from .history import hay_cambios
+
 
 class ExportError(RuntimeError):
     """Error al generar la salida: dependencia faltante, fallo de escritura,
@@ -22,9 +25,6 @@ try:
     from pyvis.network import Network
 except ImportError as e:
     raise ExportError("Falta pyvis. Instala con: pip install pyvis") from e
-
-from .classifier import icono_para_categoria, ICONOS_POR_CATEGORIA
-from .history import hay_cambios
 
 log = logging.getLogger("topology_scanner")
 

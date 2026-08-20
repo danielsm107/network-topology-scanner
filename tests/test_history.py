@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from topology_scanner.history import registrar_y_comparar, HistoryError, hay_cambios
+from topology_scanner.history import HistoryError, hay_cambios, registrar_y_comparar
 
 
 def _resultado_fake(hostname="server01", puertos=None):

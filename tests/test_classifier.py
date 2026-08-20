@@ -44,7 +44,11 @@ def test_icono_categoria_desconocida_usa_fallback():
 
 
 def test_cada_categoria_tiene_nombre_legible():
-    for categoria in ["router", "firewall", "vm", "nas", "printer", "camera", "iot", "mobile", "apple", "pc", "desconocido"]:
+    categorias = [
+        "router", "firewall", "vm", "nas", "printer", "camera",
+        "iot", "mobile", "apple", "pc", "desconocido",
+    ]
+    for categoria in categorias:
         icono = icono_para_categoria(categoria)
         assert icono["nombre"]
 

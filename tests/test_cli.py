@@ -8,14 +8,14 @@ from unittest.mock import patch
 
 import pytest
 
-from topology_scanner.cli import main, construir_parser, _resolver_argumentos_nmap
-from topology_scanner.scanner import ScannerError
+from topology_scanner.cli import _resolver_argumentos_nmap, construir_parser, main
 from topology_scanner.export import ExportError
 from topology_scanner.history import HistoryError
+from topology_scanner.scanner import ScannerError
 
 
 def _run_main_con_argv(argv):
-    with patch("sys.argv", ["topology-scanner"] + argv):
+    with patch("sys.argv", ["topology-scanner", *argv]):
         main()
 
 
@@ -36,7 +36,12 @@ def test_main_sale_con_mensaje_claro_si_falla_el_escaneo(mock_escanear_red):
 def test_main_sale_con_mensaje_claro_si_falla_la_exportacion(
     mock_escanear_red, mock_construir_grafo, mock_exportar_texto, mock_exportar_html
 ):
-    mock_escanear_red.return_value = {"192.168.1.10": {"puertos": [], "hostname": "", "so": "", "mac": "", "vendor": "", "categoria": "desconocido"}}
+    mock_escanear_red.return_value = {
+        "192.168.1.10": {
+            "puertos": [], "hostname": "", "so": "", "mac": "",
+            "vendor": "", "categoria": "desconocido",
+        }
+    }
     mock_exportar_html.side_effect = ExportError("Falta pyvis. Instala con: pip install pyvis")
 
     with pytest.raises(SystemExit) as excinfo:
@@ -46,7 +51,12 @@ def test_main_sale_con_mensaje_claro_si_falla_la_exportacion(
 
 
 def _resultado_dummy():
-    return {"192.168.1.10": {"puertos": [], "hostname": "", "so": "", "mac": "", "vendor": "", "categoria": "desconocido"}}
+    return {
+        "192.168.1.10": {
+            "puertos": [], "hostname": "", "so": "", "mac": "",
+            "vendor": "", "categoria": "desconocido",
+        }
+    }
 
 
 @patch("topology_scanner.cli.exportar_diff_texto")
@@ -65,7 +75,9 @@ def test_main_guarda_historial_y_muestra_el_diff(
 
     _run_main_con_argv(["192.168.1.0/24", "--history-db", "db_de_prueba.sqlite"])
 
-    mock_registrar.assert_called_once_with(mock_escanear_red.return_value, "192.168.1.0/24", db_path="db_de_prueba.sqlite")
+    mock_registrar.assert_called_once_with(
+        mock_escanear_red.return_value, "192.168.1.0/24", db_path="db_de_prueba.sqlite"
+    )
     mock_exportar_diff.assert_called_once_with(diff_falso)
 
 

@@ -7,11 +7,15 @@ generado de verdad que simular toda la API de pyvis.
 import csv
 import io
 
+from topology_scanner.classifier import icono_para_categoria
 from topology_scanner.export import (
-    exportar_html, exportar_texto, exportar_diff_texto, exportar_csv, COLOR_ALERTA,
+    COLOR_ALERTA,
+    exportar_csv,
+    exportar_diff_texto,
+    exportar_html,
+    exportar_texto,
 )
 from topology_scanner.graph import construir_grafo
-from topology_scanner.classifier import icono_para_categoria
 
 
 def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=None):

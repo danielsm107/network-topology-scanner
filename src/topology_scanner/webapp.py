@@ -21,6 +21,7 @@ el extra opcional: pip install "topology-scanner[web]"
 """
 
 import atexit
+import contextlib
 import os
 import shlex
 import socket
@@ -38,17 +39,22 @@ except ImportError as e:
 
 import nmap
 
+from topology_scanner.export import exportar_csv, exportar_html
+from topology_scanner.graph import construir_grafo
+from topology_scanner.history import HistoryError, hay_cambios, registrar_y_comparar
+
 # Imports absolutos (no relativos): streamlit run ejecuta este archivo como
 # script suelto, sin contexto de paquete, así que "from .scanner import..."
 # falla con ImportError. Requiere que topology_scanner esté instalado
 # (pip install -e .) o en el PYTHONPATH.
 from topology_scanner.scanner import (
-    descubrir_hosts_vivos, parsear_host, avisar_si_nmap_reporto_error,
-    ScannerError, DEFAULT_NMAP_ARGS, PUERTOS_POR_DEFECTO,
+    DEFAULT_NMAP_ARGS,
+    PUERTOS_POR_DEFECTO,
+    ScannerError,
+    avisar_si_nmap_reporto_error,
+    descubrir_hosts_vivos,
+    parsear_host,
 )
-from topology_scanner.graph import construir_grafo
-from topology_scanner.export import exportar_html, exportar_csv
-from topology_scanner.history import registrar_y_comparar, HistoryError, hay_cambios
 
 
 def _detectar_rango_local() -> Optional[str]:
@@ -100,7 +106,7 @@ def _construir_comando_nmap(hosts: str, ports: str, arguments: str) -> list:
         nmap_path = nmap.PortScanner()._nmap_path
     except nmap.PortScannerError as e:
         raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
-    return [nmap_path, "-oX", "-"] + shlex.split(hosts) + ["-p", ports] + shlex.split(arguments)
+    return [nmap_path, "-oX", "-", *shlex.split(hosts), "-p", ports, *shlex.split(arguments)]
 
 
 def _matar_si_sigue_vivo(proceso: subprocess.Popen):
@@ -109,10 +115,8 @@ def _matar_si_sigue_vivo(proceso: subprocess.Popen):
     vez de dejarlo corriendo en segundo plano. No cubre un kill -9/taskkill
     /F del propio proceso de Streamlit - ningún código de aplicación puede
     reaccionar a eso."""
-    try:
+    with contextlib.suppress(OSError):
         proceso.terminate()
-    except OSError:
-        pass
 
 
 def _ejecutar_proceso_nmap(comando: list, contenedor: dict):
