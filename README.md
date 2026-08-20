@@ -1,5 +1,7 @@
 # Network Topology Scanner
 
+[![CI](https://github.com/danielsm107/network-topology-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/danielsm107/network-topology-scanner/actions/workflows/ci.yml)
+
 Escanea un rango de red, detecta hosts activos, sus puertos/servicios, fabricante
 (vía MAC) y tipo de dispositivo, y genera un grafo de topología interactivo en
 HTML con iconos por categoría (router, PC, NAS, impresora, etc.). Marca en rojo
