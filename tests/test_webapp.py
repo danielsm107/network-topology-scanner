@@ -31,8 +31,29 @@ from topology_scanner.webapp import (
     _ejecutar_proceso_nmap,
     _filas_para_tabla,
     _finalizar_resultados,
+    _formatear_tiempo_transcurrido,
+    _generar_cambios_html,
+    _generar_chips_categorias_html,
+    _generar_css,
+    _generar_encabezado_html,
+    _generar_estado_vacio_html,
+    _generar_kpis_html,
+    _generar_progreso_html,
+    _generar_tabla_inventario_html,
     _procesar_salida_nmap,
 )
+
+
+@pytest.fixture(autouse=True)
+def _sin_historial_real(tmp_path, monkeypatch):
+    """Los tests con AppTest renderizan el sidebar entero, incluido el
+    historial reciente - que por defecto lee/crea historial.db en el cwd.
+    Sin este chdir a un directorio temporal, solo con ejecutar
+    `pytest tests/ -v` ya se creaba (o se leía) el historial.db real del
+    proyecto en la raíz del repo, el mismo problema de archivos huérfanos
+    que _finalizar_resultados/_generar_csv_bytes ya solucionan para
+    .html/.csv."""
+    monkeypatch.chdir(tmp_path)
 
 
 def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=None):
@@ -224,6 +245,19 @@ def test_finalizar_resultados_continua_si_falla_el_historial(
 
 @patch("topology_scanner.webapp.exportar_html")
 @patch("topology_scanner.webapp.construir_grafo")
+def test_finalizar_resultados_incluye_el_rango(mock_construir_grafo, mock_exportar_html):
+    """La vista de resultados (KPIs) necesita el rango escaneado para el
+    KPI "Hosts detectados" ("en 192.168.1.0/24") - antes no viajaba en el
+    dict de resultado, solo se usaba internamente para el historial."""
+    resultados = {"192.168.1.10": _resultado_fake()}
+
+    resultado = _finalizar_resultados(resultados, "192.168.1.0/24", guardar_historial=False)
+
+    assert resultado["rango"] == "192.168.1.0/24"
+
+
+@patch("topology_scanner.webapp.exportar_html")
+@patch("topology_scanner.webapp.construir_grafo")
 def test_finalizar_resultados_borra_el_html_temporal(mock_construir_grafo, mock_exportar_html):
     """Antes de este fix, el .html temporal (NamedTemporaryFile(delete=False))
     nunca se borraba - cada escaneo dejaba basura en el directorio temporal
@@ -288,9 +322,153 @@ def test_filas_para_tabla_cuenta_alertas():
     assert filas[0]["Alertas"] == 1
 
 
+def test_generar_css_incluye_el_color_de_acento():
+    """El acento se recibe como parámetro (leído de theme.primaryColor en
+    tiempo de ejecución) en vez de repetirse a mano en el CSS, para no
+    desincronizarse si se cambia .streamlit/config.toml."""
+    css = _generar_css("#123456")
+    assert "#123456" in css
+
+
+def test_generar_encabezado_html_incluye_version_y_acento():
+    html = _generar_encabezado_html(version="0.3.0", accent="#00D2D3")
+    assert "v0.3.0" in html
+    assert "#00D2D3" in html
+
+
+def test_formatear_tiempo_transcurrido_bajo_un_minuto():
+    assert _formatear_tiempo_transcurrido(47) == "00:47"
+
+
+def test_formatear_tiempo_transcurrido_con_minutos():
+    assert _formatear_tiempo_transcurrido(125) == "02:05"
+
+
+def test_generar_progreso_html_incluye_solo_datos_reales():
+    """No debe fabricar progreso host a host de la fase 2 (nmap no da
+    resultados incrementales - ver docstring de _generar_progreso_html):
+    solo cifras que la app conoce de verdad en ese momento."""
+    html = _generar_progreso_html(
+        rango="192.168.1.0/24", hosts_vivos=12, argumentos_nmap="-sV -T4", tiempo="00:47"
+    )
+    assert "192.168.1.0/24" in html
+    assert "12" in html
+    assert "-sV -T4" in html
+    assert "00:47" in html
+
+
+def test_generar_chips_categorias_agrupa_por_categoria():
+    resultados = {
+        "192.168.1.1": _resultado_fake(categoria="pc"),
+        "192.168.1.2": _resultado_fake(categoria="pc"),
+        "192.168.1.3": _resultado_fake(categoria="router"),
+    }
+    html = _generar_chips_categorias_html(resultados)
+    assert "pc 2" in html
+    assert "router 1" in html
+
+
+def test_generar_chips_categorias_limita_y_resume_el_resto():
+    categorias = ["router", "firewall", "vm", "nas", "printer", "camera", "iot", "mobile", "apple", "pc"]
+    resultados = {f"192.168.1.{i}": _resultado_fake(categoria=c) for i, c in enumerate(categorias)}
+
+    html = _generar_chips_categorias_html(resultados, limite=8)
+
+    assert "+2 categorías más" in html
+
+
+def test_generar_kpis_html_incluye_hosts_y_rango():
+    resultados = {"192.168.1.10": _resultado_fake()}
+    html = _generar_kpis_html(resultados, rango="192.168.1.0/24", diff=None, accent="#00D2D3")
+    assert "192.168.1.0/24" in html
+    assert "sin alertas" in html
+
+
+def test_generar_kpis_html_puertos_sensibles_cuenta_alertas():
+    resultados = {
+        "192.168.1.10": _resultado_fake(alertas=[{"puerto": 3389, "motivo": "RDP"}]),
+    }
+    html = _generar_kpis_html(resultados, rango="192.168.1.0/24", diff=None, accent="#00D2D3")
+    assert "requieren revisión" in html
+
+
+def test_generar_kpis_html_primera_vez_no_muestra_cambios_fabricados():
+    resultados = {"192.168.1.10": _resultado_fake()}
+    diff = {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
+    html = _generar_kpis_html(resultados, rango="192.168.1.0/24", diff=diff, accent="#00D2D3")
+    assert "primer escaneo" in html
+
+
+def test_generar_tabla_inventario_html_marca_fila_con_alertas():
+    resultados = {
+        "192.168.1.10": _resultado_fake(
+            puertos=[{"puerto": 3389, "servicio": "ms-wbt-server", "producto": ""}],
+            alertas=[{"puerto": 3389, "motivo": "RDP"}],
+        )
+    }
+    html = _generar_tabla_inventario_html(resultados)
+    assert 'class="sensitive"' in html
+    assert '"sens' in html  # el chip del puerto 3389 lleva la clase port-chip.sens
+
+
+def test_generar_tabla_inventario_html_host_sin_alertas_no_se_marca():
+    resultados = {"192.168.1.10": _resultado_fake(puertos=[{"puerto": 80, "servicio": "http", "producto": ""}])}
+    html = _generar_tabla_inventario_html(resultados)
+    assert 'class="sensitive"' not in html
+
+
+def test_generar_cambios_html_incluye_host_nuevo_con_su_categoria():
+    diff = {"primera_vez": False, "hosts_nuevos": ["192.168.1.31"], "hosts_caidos": [], "puertos_cambiados": {}}
+    resultados = {"192.168.1.31": _resultado_fake(hostname="galaxy-s23", categoria="mobile")}
+
+    html = _generar_cambios_html(diff, resultados)
+
+    assert "192.168.1.31" in html
+    assert "galaxy-s23" in html
+    assert "mobile" in html
+
+
+def test_generar_cambios_html_incluye_host_caido_sin_inventar_datos():
+    """El host caído ya no está en `resultados` (por eso ha caído) - el
+    texto no debe fabricar hostname/categoría que no tenemos."""
+    diff = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": ["192.168.1.40"], "puertos_cambiados": {}}
+
+    html = _generar_cambios_html(diff, {})
+
+    assert "192.168.1.40" in html
+    assert "no respondió" in html
+
+
+def test_generar_cambios_html_puerto_nuevo_sensible_se_marca_como_warn():
+    diff = {
+        "primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [],
+        "puertos_cambiados": {
+            "192.168.1.14": {
+                "nuevos": [445], "cerrados": [],
+                "nuevos_sensibles": [{"puerto": 445, "motivo": "SMB (vector típico de ransomware)"}],
+            }
+        },
+    }
+    html = _generar_cambios_html(diff, {})
+    assert "chg-item warn" in html
+    assert "ransomware" in html
+
+
+def test_generar_cambios_html_sin_cambios_lo_indica():
+    diff = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
+    assert "Sin cambios" in _generar_cambios_html(diff, {})
+
+
+def test_generar_estado_vacio_html_incluye_el_acento():
+    html = _generar_estado_vacio_html("#123456")
+    assert "#123456" in html
+    assert "Listo para escanear" in html
+
+
 def test_la_app_carga_sin_excepciones():
     """Smoke test: el script se ejecuta sin lanzar excepciones y muestra
-    el formulario, sin necesidad de navegador ni de un escaneo real."""
+    el formulario (en el sidebar, ver punto 2 del roadmap de UI), sin
+    necesidad de navegador ni de un escaneo real."""
     from streamlit.testing.v1 import AppTest
 
     at = AppTest.from_file("../src/topology_scanner/webapp.py")
@@ -298,9 +476,12 @@ def test_la_app_carga_sin_excepciones():
 
     assert not at.exception
     assert "Network Topology Scanner" in at.title[0].value
-    assert len(at.text_input) == 1
-    assert len(at.checkbox) == 3
-    assert len(at.button) == 3  # Escanear, Parar escaneo, Detectar mi red
+    assert len(at.sidebar.text_input) == 1
+    assert len(at.sidebar.checkbox) == 3
+    assert len(at.sidebar.button) == 3  # Escanear, Parar escaneo, Detectar mi red
+    # El estado vacío (sin escaneo ni resultado) vive en el panel principal,
+    # no en el sidebar.
+    assert "Listo para escanear" in at.main.markdown[-1].value
 
 
 def test_la_app_avisa_si_se_escanea_sin_rango():

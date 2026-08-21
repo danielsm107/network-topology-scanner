@@ -7,7 +7,12 @@ import sqlite3
 
 import pytest
 
-from topology_scanner.history import HistoryError, hay_cambios, registrar_y_comparar
+from topology_scanner.history import (
+    HistoryError,
+    hay_cambios,
+    listar_escaneos_recientes,
+    registrar_y_comparar,
+)
 
 
 def _resultado_fake(hostname="server01", puertos=None):
@@ -214,3 +219,55 @@ def test_sin_pasar_mantener_ultimos_usa_un_valor_por_defecto_razonable(tmp_path)
         total = conn.execute("SELECT COUNT(*) FROM escaneos WHERE rango = ?", ("192.168.1.0/24",)).fetchone()[0]
 
     assert total < 60
+
+
+def test_listar_escaneos_recientes_vacio_sin_historial(tmp_path):
+    db = str(tmp_path / "historial.db")
+
+    assert listar_escaneos_recientes(db_path=db) == []
+
+
+def test_listar_escaneos_recientes_mas_reciente_primero(tmp_path):
+    db = str(tmp_path / "historial.db")
+    registrar_y_comparar({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24", db_path=db)
+    registrar_y_comparar({"10.0.0.5": _resultado_fake()}, "10.0.0.0/24", db_path=db)
+
+    recientes = listar_escaneos_recientes(db_path=db)
+
+    assert [e["rango"] for e in recientes] == ["10.0.0.0/24", "192.168.1.0/24"]
+
+
+def test_listar_escaneos_recientes_incluye_total_de_hosts(tmp_path):
+    db = str(tmp_path / "historial.db")
+    registrar_y_comparar(
+        {"192.168.1.10": _resultado_fake(), "192.168.1.20": _resultado_fake()},
+        "192.168.1.0/24", db_path=db,
+    )
+
+    recientes = listar_escaneos_recientes(db_path=db)
+
+    assert recientes[0]["total_hosts"] == 2
+
+
+def test_listar_escaneos_recientes_cuenta_puertos_sensibles_como_alertas(tmp_path):
+    """Reutiliza PUERTOS_SENSIBLES (igual que _comparar) en vez de guardar
+    una columna aparte - un host con Telnet (23) y SSH (22) abiertos cuenta
+    1 alerta (solo el 23 es sensible)."""
+    db = str(tmp_path / "historial.db")
+    puertos = [
+        {"puerto": 22, "servicio": "ssh", "producto": ""},
+        {"puerto": 23, "servicio": "telnet", "producto": ""},
+    ]
+    registrar_y_comparar({"192.168.1.10": _resultado_fake(puertos=puertos)}, "192.168.1.0/24", db_path=db)
+
+    recientes = listar_escaneos_recientes(db_path=db)
+
+    assert recientes[0]["alertas"] == 1
+
+
+def test_listar_escaneos_recientes_respeta_el_limite(tmp_path):
+    db = str(tmp_path / "historial.db")
+    for _ in range(5):
+        registrar_y_comparar({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24", db_path=db)
+
+    assert len(listar_escaneos_recientes(db_path=db, limite=3)) == 3

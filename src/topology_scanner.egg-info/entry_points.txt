@@ -1,2 +1,3 @@
 [console_scripts]
 topology-scanner = topology_scanner.cli:main
+topology-scanner-web = topology_scanner.webapp:lanzar

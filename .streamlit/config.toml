@@ -1,0 +1,10 @@
+# Tema oscuro "Terminal Ops" para la interfaz web (webapp.py). Los colores
+# base van aquí (soportado por Streamlit desde siempre); las fuentes y los
+# retoques de tipografía que [theme] no cubre se inyectan como CSS en
+# webapp.py::_inyectar_estilos.
+[theme]
+base = "dark"
+primaryColor = "#00D2D3"
+backgroundColor = "#091018"
+secondaryBackgroundColor = "#111921"
+textColor = "#E3E8EE"
