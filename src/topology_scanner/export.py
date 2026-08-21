@@ -7,6 +7,7 @@ o informe de texto plano por consola.
 
 import csv
 import logging
+import math
 from datetime import datetime
 
 import networkx as nx
@@ -50,6 +51,32 @@ CSS_PANTALLA_COMPLETA = """<style>
 # categoría para que destaque independientemente del tipo de dispositivo.
 COLOR_ALERTA = "#ff0000"
 
+# Layout circular fijo alrededor del hub (en vez de la simulación
+# barnes_hut anterior, que dejaba el grafo con una disposición cambiante e
+# irregular). NODOS_POR_ANILLO limita cuántos hosts caben en cada anillo
+# antes de abrir uno nuevo más ancho, para que no se amontonen si hay
+# muchos hosts vivos (p.ej. un /24 muy poblado).
+RADIO_BASE_HOST = 320
+RADIO_INCREMENTO_ANILLO = 220
+NODOS_POR_ANILLO = 8
+
+
+def posiciones_circulares(n: int) -> list:
+    """Reparte n puntos en anillos concéntricos alrededor del origen
+    (donde va el hub), llenando cada anillo antes de abrir el siguiente."""
+    posiciones = []
+    restantes = n
+    anillo = 0
+    while restantes > 0:
+        en_este_anillo = min(NODOS_POR_ANILLO, restantes)
+        radio = RADIO_BASE_HOST + anillo * RADIO_INCREMENTO_ANILLO
+        for i in range(en_este_anillo):
+            angulo = 2 * math.pi * i / en_este_anillo
+            posiciones.append((radio * math.cos(angulo), radio * math.sin(angulo)))
+        restantes -= en_este_anillo
+        anillo += 1
+    return posiciones
+
 
 def _generar_leyenda_html() -> str:
     """Panel fijo (esquina inferior izquierda) con el icono/color/nombre de
@@ -80,9 +107,21 @@ def _generar_leyenda_html() -> str:
 
 def exportar_html(grafo: nx.Graph, archivo_salida: str):
     """Genera un HTML interactivo (pyvis) a partir del grafo, usando un icono
-    distinto por categoría de dispositivo (deducida de la MAC/vendor)."""
+    distinto por categoría de dispositivo (deducida de la MAC/vendor).
+
+    Las posiciones son fijas (posiciones_circulares + physics=False por
+    nodo) en vez de dejar que la simulación barnes_hut las calcule: así el
+    grafo sale siempre ordenado en estrella/círculo alrededor del hub, sin
+    depender de dónde se "asiente" la física. physics=False no quita el
+    arrastre manual ni el zoom (los sigue dando vis-network por debajo),
+    solo impide que el nodo se mueva solo."""
     red_visual = Network(height="800px", width="100%", bgcolor="#1e1e1e", font_color="white")
-    red_visual.barnes_hut()
+
+    nodos_host = [(nodo, at) for nodo, at in grafo.nodes(data=True) if at.get("tipo") != "red"]
+    posiciones = dict(zip(
+        (nodo for nodo, _ in nodos_host),
+        posiciones_circulares(len(nodos_host)),
+    ))
 
     for nodo, atributos in grafo.nodes(data=True):
         if atributos.get("tipo") == "red":
@@ -93,6 +132,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
                 icon={"face": "'Font Awesome 5 Free'", "code": "\uf6ff", "size": 60,
                       "color": "#e74c3c", "weight": "900"},
                 title=atributos.get("titulo", ""),
+                x=0, y=0, physics=False,
             )
         else:
             categoria = atributos.get("categoria", "desconocido")
@@ -102,6 +142,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
             color_icono = COLOR_ALERTA if tiene_alerta else icono["color"]
             if tiene_alerta:
                 etiqueta = f"⚠ {etiqueta}"
+            x, y = posiciones[nodo]
             red_visual.add_node(
                 nodo,
                 label=f"{etiqueta}\n({nodo})",
@@ -109,6 +150,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
                 icon={"face": icono["face"], "code": icono["code"], "size": 40,
                       "color": color_icono, "weight": icono["weight"]},
                 title=atributos.get("titulo", ""),
+                x=x, y=y, physics=False,
             )
 
     for origen, destino in grafo.edges():

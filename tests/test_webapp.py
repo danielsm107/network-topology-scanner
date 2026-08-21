@@ -22,10 +22,12 @@ import pytest
 
 pytest.importorskip("streamlit", reason='pip install "topology-scanner[web]" para probar la interfaz web')
 
+from topology_scanner.classifier import ICONOS_POR_CATEGORIA
 from topology_scanner.history import HistoryError
 from topology_scanner.scanner import ScannerError
 from topology_scanner.webapp import (
     _argumentos_nmap_desde_formulario,
+    _compactar_html,
     _construir_comando_nmap,
     _detectar_rango_local,
     _ejecutar_proceso_nmap,
@@ -35,12 +37,16 @@ from topology_scanner.webapp import (
     _generar_cambios_html,
     _generar_chips_categorias_html,
     _generar_css,
-    _generar_encabezado_html,
     _generar_estado_vacio_html,
+    _generar_historial_html,
     _generar_kpis_html,
     _generar_progreso_html,
     _generar_tabla_inventario_html,
+    _generar_topbar_html,
+    _generar_topologia_html,
+    _pagina_de_resultados,
     _procesar_salida_nmap,
+    _total_paginas,
 )
 
 
@@ -107,9 +113,12 @@ def test_detectar_rango_local_devuelve_none_si_no_hay_red(mock_socket_cls):
 def test_construir_comando_nmap_incluye_hosts_puertos_y_argumentos(mock_portscanner_cls):
     mock_portscanner_cls.return_value._nmap_path = "/usr/bin/nmap"
 
-    comando = _construir_comando_nmap("192.168.1.1 192.168.1.2", "22,80", "-sV -T4")
+    comando = _construir_comando_nmap("192.168.1.1 192.168.1.2", "22,80", "-sV -T4", "/tmp/salida.xml")
 
-    assert comando == ["/usr/bin/nmap", "-oX", "-", "192.168.1.1", "192.168.1.2", "-p", "22,80", "-sV", "-T4"]
+    assert comando == [
+        "/usr/bin/nmap", "-v", "-oX", "/tmp/salida.xml",
+        "192.168.1.1", "192.168.1.2", "-p", "22,80", "-sV", "-T4",
+    ]
 
 
 @patch("topology_scanner.webapp.nmap.PortScanner")
@@ -119,7 +128,7 @@ def test_construir_comando_nmap_reutiliza_la_ruta_resuelta_por_python_nmap(mock_
     para no divergir si una encuentra el binario y la otra no."""
     mock_portscanner_cls.return_value._nmap_path = "C:\\Program Files (x86)\\Nmap\\nmap.exe"
 
-    comando = _construir_comando_nmap("192.168.1.1", "22", "-T4")
+    comando = _construir_comando_nmap("192.168.1.1", "22", "-T4", "/tmp/salida.xml")
 
     assert comando[0] == "C:\\Program Files (x86)\\Nmap\\nmap.exe"
 
@@ -129,35 +138,71 @@ def test_construir_comando_nmap_error_claro_si_nmap_no_esta_disponible(mock_port
     mock_portscanner_cls.side_effect = nmap.PortScannerError("nmap program was not found in path")
 
     with pytest.raises(ScannerError):
-        _construir_comando_nmap("192.168.1.1", "22", "-T4")
+        _construir_comando_nmap("192.168.1.1", "22", "-T4", "/tmp/salida.xml")
+
+
+def _mock_popen_con_lineas(lineas):
+    """Simula un subprocess.Popen cuyo stdout, iterado línea a línea (el
+    patrón que usa _ejecutar_proceso_nmap para leer el progreso de nmap en
+    vivo en vez de esperar con .communicate()), produce `lineas`."""
+    mock_proceso = MagicMock()
+    mock_proceso.stdout = iter(lineas)
+    return mock_proceso
 
 
 @patch("topology_scanner.webapp.subprocess.Popen")
 def test_ejecutar_proceso_nmap_rellena_el_contenedor(mock_popen_cls):
-    mock_proceso = MagicMock()
-    mock_proceso.communicate.return_value = (b"<xml/>", b"")
-    mock_popen_cls.return_value = mock_proceso
+    mock_popen_cls.return_value = _mock_popen_con_lineas([])
 
-    contenedor = {"proceso": None, "salida": None}
-    _ejecutar_proceso_nmap(["nmap", "-oX", "-"], contenedor)
+    contenedor = {"proceso": None, "log": []}
+    _ejecutar_proceso_nmap(["nmap", "-v", "-oX", "/tmp/salida.xml"], contenedor)
 
-    assert contenedor["proceso"] is mock_proceso
-    assert contenedor["salida"] == b"<xml/>"
+    assert contenedor["proceso"] is mock_popen_cls.return_value
     assert contenedor.get("error") is None
 
 
 @patch("topology_scanner.webapp.subprocess.Popen")
 def test_ejecutar_proceso_nmap_guarda_el_error_si_popen_falla(mock_popen_cls):
     """Si no se puede lanzar nmap (ruta inválida, permisos...), el hilo no
-    debe morir en silencio - antes de este fix, contenedor["salida"] se
-    quedaba en None y _procesar_salida_nmap(None) reventaba más adelante
-    con una excepción sin controlar (no era nmap.PortScannerError)."""
+    debe morir en silencio."""
     mock_popen_cls.side_effect = OSError("No such file or directory")
 
-    contenedor = {"proceso": None, "salida": None}
+    contenedor = {"proceso": None, "log": []}
     _ejecutar_proceso_nmap(["nmap-que-no-existe"], contenedor)
 
     assert "No such file or directory" in contenedor["error"]
+
+
+@patch("topology_scanner.webapp.subprocess.Popen")
+def test_ejecutar_proceso_nmap_registra_hosts_completados_en_el_log(mock_popen_cls):
+    """El log en vivo viene de eventos reales que nmap suelta por su
+    salida verbose (-v) mientras escanea, no de datos inventados - "Nmap
+    scan report for X" es la línea que nmap imprime cuando termina de
+    escanear ese host."""
+    mock_popen_cls.return_value = _mock_popen_con_lineas([
+        "Scanning 192.168.1.10 [1000 ports]\n",
+        "Nmap scan report for 192.168.1.10\n",
+        "Host is up (0.0012s latency).\n",
+        "Nmap scan report for 192.168.1.20\n",
+    ])
+
+    contenedor = {"proceso": None, "log": []}
+    _ejecutar_proceso_nmap(["nmap"], contenedor)
+
+    assert contenedor["log"] == ["192.168.1.10", "192.168.1.20"]
+
+
+@patch("topology_scanner.webapp.subprocess.Popen")
+def test_ejecutar_proceso_nmap_ignora_lineas_que_no_son_de_host_completado(mock_popen_cls):
+    mock_popen_cls.return_value = _mock_popen_con_lineas([
+        "Starting Nmap 7.94\n",
+        "Host is up (0.0012s latency).\n",
+    ])
+
+    contenedor = {"proceso": None, "log": []}
+    _ejecutar_proceso_nmap(["nmap"], contenedor)
+
+    assert contenedor["log"] == []
 
 
 class _HostInfoFalso(dict):
@@ -330,10 +375,11 @@ def test_generar_css_incluye_el_color_de_acento():
     assert "#123456" in css
 
 
-def test_generar_encabezado_html_incluye_version_y_acento():
-    html = _generar_encabezado_html(version="0.3.0", accent="#00D2D3")
+def test_generar_topbar_html_incluye_version_y_acento():
+    html = _generar_topbar_html(version="0.3.0", accent="#00D2D3")
     assert "v0.3.0" in html
     assert "#00D2D3" in html
+    assert "Network Topology Scanner" in html
 
 
 def test_formatear_tiempo_transcurrido_bajo_un_minuto():
@@ -345,16 +391,36 @@ def test_formatear_tiempo_transcurrido_con_minutos():
 
 
 def test_generar_progreso_html_incluye_solo_datos_reales():
-    """No debe fabricar progreso host a host de la fase 2 (nmap no da
-    resultados incrementales - ver docstring de _generar_progreso_html):
-    solo cifras que la app conoce de verdad en ese momento."""
+    """Las cifras de fase 1/rango/tiempo no dependen del log en vivo -
+    deben seguir apareciendo aunque el log esté vacío (recién arrancado el
+    escaneo, ningún host completado todavía)."""
     html = _generar_progreso_html(
-        rango="192.168.1.0/24", hosts_vivos=12, argumentos_nmap="-sV -T4", tiempo="00:47"
+        rango="192.168.1.0/24", hosts_vivos=12, argumentos_nmap="-sV -T4", tiempo="00:47", log=[]
     )
     assert "192.168.1.0/24" in html
     assert "12" in html
     assert "-sV -T4" in html
     assert "00:47" in html
+
+
+def test_generar_progreso_html_muestra_los_hosts_del_log_en_vivo():
+    """El log en vivo viene de _ejecutar_proceso_nmap (eventos reales de
+    nmap -v), no se fabrica aquí - esta función solo lo pinta."""
+    html = _generar_progreso_html(
+        rango="192.168.1.0/24", hosts_vivos=12, argumentos_nmap="-sV -T4", tiempo="00:47",
+        log=["192.168.1.10", "192.168.1.20"],
+    )
+    assert "192.168.1.10" in html
+    assert "192.168.1.20" in html
+
+
+def test_generar_progreso_html_log_vacio_no_fabrica_hosts():
+    """Sin eventos reales todavía, no debe aparecer ninguna línea de host
+    "detectado"."""
+    html = _generar_progreso_html(
+        rango="10.0.0.0/24", hosts_vivos=12, argumentos_nmap="-sV -T4", tiempo="00:47", log=[]
+    )
+    assert "detectado" not in html
 
 
 def test_generar_chips_categorias_agrupa_por_categoria():
@@ -399,6 +465,49 @@ def test_generar_kpis_html_primera_vez_no_muestra_cambios_fabricados():
     assert "primer escaneo" in html
 
 
+def test_compactar_html_elimina_lineas_en_blanco():
+    original = '<div>\n  <p>a</p>\n\n  <p>b</p>\n</div>'
+    assert "\n" not in _compactar_html(original)
+    assert "<p>a</p>" in _compactar_html(original)
+
+
+def test_total_paginas_redondea_hacia_arriba():
+    assert _total_paginas(15, por_pagina=10) == 2
+
+
+def test_total_paginas_exacto_no_anade_una_de_mas():
+    assert _total_paginas(20, por_pagina=10) == 2
+
+
+def test_total_paginas_minimo_una_pagina_aunque_no_haya_hosts():
+    assert _total_paginas(0, por_pagina=10) == 1
+
+
+def test_pagina_de_resultados_primera_pagina_tiene_por_pagina_hosts():
+    resultados = {f"192.168.1.{i}": _resultado_fake() for i in range(1, 16)}
+    pagina = _pagina_de_resultados(resultados, pagina=1, por_pagina=10)
+    assert len(pagina) == 10
+
+
+def test_pagina_de_resultados_segunda_pagina_tiene_el_resto():
+    resultados = {f"192.168.1.{i}": _resultado_fake() for i in range(1, 16)}
+    pagina = _pagina_de_resultados(resultados, pagina=2, por_pagina=10)
+    assert len(pagina) == 5
+
+
+def test_pagina_de_resultados_ordena_igual_que_la_tabla_completa():
+    """Mismo orden (lexicográfico, no numérico) que ya usa
+    _generar_tabla_inventario_html/exportar_csv - paginar no debe cambiar
+    qué host sale en qué posición relativa."""
+    resultados = {
+        "192.168.1.20": _resultado_fake(hostname="segundo"),
+        "192.168.1.10": _resultado_fake(hostname="primero"),
+        "192.168.1.5": _resultado_fake(hostname="cero"),
+    }
+    pagina = _pagina_de_resultados(resultados, pagina=1, por_pagina=2)
+    assert list(pagina.keys()) == sorted(resultados)[:2]
+
+
 def test_generar_tabla_inventario_html_marca_fila_con_alertas():
     resultados = {
         "192.168.1.10": _resultado_fake(
@@ -415,6 +524,16 @@ def test_generar_tabla_inventario_html_host_sin_alertas_no_se_marca():
     resultados = {"192.168.1.10": _resultado_fake(puertos=[{"puerto": 80, "servicio": "http", "producto": ""}])}
     html = _generar_tabla_inventario_html(resultados)
     assert 'class="sensitive"' not in html
+
+
+def test_generar_tabla_inventario_html_con_varias_filas_no_deja_lineas_en_blanco():
+    """st.markdown trata el HTML como Markdown antes de dejar pasar las
+    etiquetas: una línea en blanco entre filas corta el bloque de HTML "en
+    crudo" a medias y el resto se muestra como texto/código en vez de
+    renderizarse (bug real, reproducido con el historial del sidebar)."""
+    resultados = {f"192.168.1.{i}": _resultado_fake(hostname=f"host{i}") for i in range(4)}
+    html = _generar_tabla_inventario_html(resultados)
+    assert not any(linea.strip() == "" for linea in html.split("\n"))
 
 
 def test_generar_cambios_html_incluye_host_nuevo_con_su_categoria():
@@ -459,6 +578,118 @@ def test_generar_cambios_html_sin_cambios_lo_indica():
     assert "Sin cambios" in _generar_cambios_html(diff, {})
 
 
+def test_generar_cambios_html_con_varios_items_no_deja_lineas_en_blanco():
+    diff = {
+        "primera_vez": False,
+        "hosts_nuevos": ["192.168.1.31", "192.168.1.32"],
+        "hosts_caidos": ["192.168.1.40"],
+        "puertos_cambiados": {},
+    }
+    html = _generar_cambios_html(diff, {})
+    assert not any(linea.strip() == "" for linea in html.split("\n"))
+
+
+def test_generar_historial_html_incluye_una_fila_por_escaneo():
+    escaneos = [
+        {"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 12, "alertas": 2},
+        {"rango": "10.0.0.0/24", "fecha": "2026-08-21T08:00:00", "total_hosts": 7, "alertas": 0},
+    ]
+    html = _generar_historial_html(escaneos)
+    assert html.count("history-row") >= 2
+    assert "192.168.1.0/24" in html
+    assert "10.0.0.0/24" in html
+
+
+def test_generar_historial_html_muestra_alertas_si_las_hay():
+    escaneos = [{"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 12, "alertas": 2}]
+    html = _generar_historial_html(escaneos)
+    assert "#ff5c5c" in html
+    assert "2⚠" in html
+
+
+def test_generar_historial_html_sin_alertas_usa_verde_y_no_fabrica_el_simbolo():
+    escaneos = [{"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 7, "alertas": 0}]
+    html = _generar_historial_html(escaneos)
+    assert "#2ecc71" in html
+    assert "⚠" not in html
+
+
+def test_generar_historial_html_con_varios_escaneos_no_deja_lineas_en_blanco():
+    """Bug real reproducido en el sidebar: con varios escaneos guardados,
+    las líneas en blanco entre <div class="history-row"> cortaban el
+    bloque de HTML a medias y se veía el código en vez del historial."""
+    escaneos = [
+        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 47, "alertas": 13},
+        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:59:00", "total_hosts": 47, "alertas": 13},
+        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:46:00", "total_hosts": 47, "alertas": 13},
+        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:43:00", "total_hosts": 47, "alertas": 13},
+    ]
+    html = _generar_historial_html(escaneos)
+    assert not any(linea.strip() == "" for linea in html.split("\n"))
+
+
+def test_generar_topologia_html_un_nodo_por_host():
+    resultados = {
+        "192.168.1.10": _resultado_fake(hostname="pc1", categoria="pc"),
+        "192.168.1.20": _resultado_fake(hostname="pc2", categoria="router"),
+    }
+    html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3")
+    # count() sobre la clase CSS incluye también sus propias reglas de
+    # estilo (.topo-node-wrap {...}) - se cuenta el atributo class="" real,
+    # que solo aparece una vez por nodo del grafo.
+    assert html.count('class="topo-node-wrap"') == 2
+    assert "pc1" in html
+    assert "pc2" in html
+
+
+def test_generar_topologia_html_marca_alerta_en_hosts_con_puertos_sensibles():
+    resultados = {
+        "192.168.1.10": _resultado_fake(alertas=[{"puerto": 3389, "motivo": "RDP (fuerza bruta)"}]),
+    }
+    html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3")
+    assert '<div class="topo-alert-ring">' in html
+    assert "3389" in html
+    assert "RDP" in html
+
+
+def test_generar_topologia_html_host_sin_alertas_no_lleva_anillo():
+    """La regla CSS .topo-alert-ring siempre está en la hoja de estilos -
+    lo que no debe aparecer es el <div> del anillo en sí."""
+    resultados = {"192.168.1.10": _resultado_fake(alertas=[])}
+    html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3")
+    assert '<div class="topo-alert-ring">' not in html
+
+
+def test_generar_topologia_html_incluye_leyenda_de_todas_las_categorias():
+    resultados = {"192.168.1.10": _resultado_fake(categoria="nas")}
+    html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3")
+    for categoria in ["router", "firewall", "vm", "nas", "printer", "camera", "iot", "mobile", "apple", "pc"]:
+        assert ICONOS_POR_CATEGORIA[categoria]["nombre"] in html
+
+
+def test_generar_topologia_html_el_hub_muestra_el_sufijo_del_rango():
+    resultados = {"192.168.1.10": _resultado_fake()}
+    html = _generar_topologia_html(resultados, rango="10.0.0.0/16", accent="#00D2D3")
+    assert '<div class="topo-hub-label mono">/16</div>' in html
+
+
+def test_generar_topologia_html_un_solo_host_no_revienta():
+    html = _generar_topologia_html({"192.168.1.10": _resultado_fake()}, rango="192.168.1.0/24", accent="#00D2D3")
+    assert '<div class="topo-hub"' in html
+
+
+def test_generar_topologia_html_es_un_documento_autocontenido_con_pan_zoom():
+    """Pensado para st.components.v1.html (no st.markdown): necesita su
+    propio <head> (Font Awesome/fuentes no se heredan de la página) y un
+    <script> real, que st.markdown ignora - imprescindible para el
+    pan/zoom que soluciona el amontonado en redes con muchos hosts."""
+    html = _generar_topologia_html({"192.168.1.10": _resultado_fake()}, rango="192.168.1.0/24", accent="#00D2D3")
+    assert html.startswith("<!doctype html>")
+    assert "<script>" in html
+    assert "topo-viewport" in html and "topo-canvas" in html
+    assert "font-awesome" in html
+
+
 def test_generar_estado_vacio_html_incluye_el_acento():
     html = _generar_estado_vacio_html("#123456")
     assert "#123456" in html
@@ -475,9 +706,9 @@ def test_la_app_carga_sin_excepciones():
     at.run()
 
     assert not at.exception
-    assert "Network Topology Scanner" in at.title[0].value
+    assert any("Network Topology Scanner" in md.value for md in at.main.markdown)
     assert len(at.sidebar.text_input) == 1
-    assert len(at.sidebar.checkbox) == 3
+    assert len(at.sidebar.toggle) == 3
     assert len(at.sidebar.button) == 3  # Escanear, Parar escaneo, Detectar mi red
     # El estado vacío (sin escaneo ni resultado) vive en el panel principal,
     # no en el sidebar.
@@ -489,7 +720,7 @@ def test_la_app_avisa_si_se_escanea_sin_rango():
 
     at = AppTest.from_file("../src/topology_scanner/webapp.py")
     at.run()
-    boton_escanear = next(b for b in at.button if b.label == "Escanear")
+    boton_escanear = next(b for b in at.button if b.label == "▶ Escanear")
     boton_escanear.click().run()
 
     assert not at.exception
@@ -519,7 +750,7 @@ def test_la_app_detecta_mi_red_al_pulsar_el_boton():
     at.run()
     with patch("socket.socket") as mock_socket_cls:
         mock_socket_cls.return_value.__enter__.return_value.getsockname.return_value = ("192.168.1.42", 0)
-        boton_detectar = next(b for b in at.button if b.label == "📍 Detectar mi red")
+        boton_detectar = next(b for b in at.button if b.label == "Detectar mi red automáticamente")
         boton_detectar.click().run()
 
     assert not at.exception

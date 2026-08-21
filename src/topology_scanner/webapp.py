@@ -15,6 +15,13 @@ hilos, lo que en Windows complica mucho recuperar el resultado en el
 proceso de Streamlit. Parar un escaneo a medias no conserva resultados
 parciales (el XML de nmap no queda bien formado si se le mata a mitad).
 
+La XML de resultado se escribe a un archivo temporal (-oX archivo, no
+-oX -) en vez de a stdout: stdout se deja libre para leer en vivo la
+salida verbose de nmap (-v) línea a línea y así poder pintar un "Registro
+de escaneo" real en el panel de progreso (ver _ejecutar_proceso_nmap),
+sin depender de .communicate() (que no devuelve nada hasta que el proceso
+entero termina).
+
 Se lanza con `streamlit run src/topology_scanner/webapp.py`, o con el
 entry point `topology-scanner-web` (ver pyproject.toml) una vez instalado
 el extra opcional: pip install "topology-scanner[web]"
@@ -22,7 +29,9 @@ el extra opcional: pip install "topology-scanner[web]"
 
 import atexit
 import contextlib
+import math
 import os
+import re
 import shlex
 import socket
 import subprocess
@@ -44,7 +53,7 @@ import nmap
 
 from topology_scanner import __version__
 from topology_scanner.classifier import ICONOS_POR_CATEGORIA, PUERTOS_SENSIBLES
-from topology_scanner.export import exportar_csv, exportar_html
+from topology_scanner.export import CDN_FONTAWESOME, exportar_csv, exportar_html, posiciones_circulares
 from topology_scanner.graph import construir_grafo
 from topology_scanner.history import HistoryError, listar_escaneos_recientes, registrar_y_comparar
 
@@ -95,12 +104,18 @@ def _argumentos_nmap_desde_formulario(rapido: bool, con_so: bool) -> str:
     return argumentos
 
 
-def _construir_comando_nmap(hosts: str, ports: str, arguments: str) -> list:
+def _construir_comando_nmap(hosts: str, ports: str, arguments: str, archivo_xml: str) -> list:
     """Reconstruye la línea de comandos que nmap.PortScanner.scan() lanzaría
     internamente. Hace falta porque ese método es bloqueante y no expone el
     subprocess.Popen que crea - no hay forma de matarlo desde fuera si el
     usuario pulsa "Parar" a medio escaneo, así que lanzamos el proceso
     nosotros mismos para quedarnos con esa referencia.
+
+    La XML va a un archivo (-oX archivo_xml), no a stdout: stdout se deja
+    libre para leer en vivo la salida normal de nmap (-v) línea a línea,
+    que es de donde sale el "Registro de escaneo" con los hosts según
+    nmap los va terminando (ver _ejecutar_proceso_nmap). No se puede tener
+    a la vez XML y progreso verbose sobre el mismo stream.
 
     La ruta del binario se resuelve con nmap.PortScanner()._nmap_path (la
     misma búsqueda que ya hace python-nmap internamente en
@@ -111,7 +126,10 @@ def _construir_comando_nmap(hosts: str, ports: str, arguments: str) -> list:
         nmap_path = nmap.PortScanner()._nmap_path
     except nmap.PortScannerError as e:
         raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
-    return [nmap_path, "-oX", "-", *shlex.split(hosts), "-p", ports, *shlex.split(arguments)]
+    return [
+        nmap_path, "-v", "-oX", archivo_xml,
+        *shlex.split(hosts), "-p", ports, *shlex.split(arguments),
+    ]
 
 
 def _matar_si_sigue_vivo(proceso: subprocess.Popen):
@@ -124,23 +142,44 @@ def _matar_si_sigue_vivo(proceso: subprocess.Popen):
         proceso.terminate()
 
 
+_RE_HOST_COMPLETADO = re.compile(r"^Nmap scan report for (\S+)")
+
+
 def _ejecutar_proceso_nmap(comando: list, contenedor: dict):
-    """Lanza nmap como subprocess y deja el resultado en `contenedor` (dict
-    compartido con el hilo que lo lanzó). Pensado para correr en un
-    threading.Thread aparte: mientras nmap corre, el hilo principal de
-    Streamlit sigue libre para atender el botón "Parar escaneo".
+    """Lanza nmap como subprocess y va rellenando `contenedor` (dict
+    compartido con el hilo que lo lanzó) según el propio nmap va soltando
+    eventos reales por su salida verbose (-v), en vez de esperar bloqueado
+    a que el proceso entero termine (.communicate()) - así _fragmento_progreso
+    puede pintar un "Registro de escaneo" en vivo con los hosts que nmap ya
+    ha terminado, no un progreso inventado.
+
+    "Nmap scan report for X" es la línea que nmap imprime al terminar de
+    escanear ese host - no hay forma más fina de saber en qué anda nmap
+    sin parsear su salida línea a línea (la XML, que si tiene el detalle
+    completo, solo se escribe cuando el proceso entero acaba).
+
+    stderr se combina con stdout (STDOUT en vez de un PIPE aparte) para no
+    arriesgarse a un deadlock: si nadie lee stderr y nmap escribe ahí lo
+    bastante como para llenar el buffer del pipe del SO, el proceso se
+    queda colgado esperando a que alguien lo vacíe - aquí solo leemos
+    stdout en el bucle de abajo.
 
     Cualquier fallo se guarda en contenedor["error"] en vez de dejar que la
     excepción tire el hilo en silencio: antes, si subprocess.Popen fallaba
-    (ruta inválida, permisos...), contenedor["salida"] se quedaba en None y
-    _procesar_salida_nmap(None) reventaba más adelante con una excepción
-    sin controlar."""
+    (ruta inválida, permisos...), esto se quedaba sin marcar y reventaba
+    más adelante con una excepción sin controlar."""
+    contenedor.setdefault("log", [])
     try:
-        proceso = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proceso = subprocess.Popen(
+            comando, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+        )
         contenedor["proceso"] = proceso
         atexit.register(_matar_si_sigue_vivo, proceso)
-        salida, _error = proceso.communicate()
-        contenedor["salida"] = salida
+        for linea in proceso.stdout:
+            coincidencia = _RE_HOST_COMPLETADO.match(linea)
+            if coincidencia:
+                contenedor["log"].append(coincidencia.group(1))
+        proceso.wait()
         atexit.unregister(_matar_si_sigue_vivo)
     except OSError as e:
         contenedor["error"] = str(e)
@@ -321,6 +360,37 @@ def _generar_kpis_html(resultados: dict, rango: str, diff: Optional[dict], accen
 """
 
 
+def _compactar_html(html: str) -> str:
+    """st.markdown trata el HTML como Markdown antes de dejar pasar las
+    etiquetas: un bloque <div>/<tr>/... termina en la primera línea en
+    blanco, y lo que venga después con 4+ espacios de indentación se
+    interpreta como un bloque de código en vez de renderizarse. Cualquier
+    función que construya HTML uniendo fragmentos multilínea indentados
+    (uno por fila/tarjeta, típicamente dentro de un bucle) puede acabar
+    con líneas en blanco entre fragmentos sin querer - colapsar todo el
+    whitespace a un solo espacio lo evita sin cambiar el HTML resultante."""
+    return " ".join(html.split())
+
+
+FILAS_POR_PAGINA = 10
+
+
+def _total_paginas(n: int, por_pagina: int = FILAS_POR_PAGINA) -> int:
+    """Nº de páginas necesarias para n hosts - mínimo 1 aunque n sea 0, así
+    la UI de paginación (Página 1 de 1) no tiene que tratar el caso vacío
+    aparte."""
+    return max(1, math.ceil(n / por_pagina))
+
+
+def _pagina_de_resultados(resultados: dict, pagina: int, por_pagina: int = FILAS_POR_PAGINA) -> dict:
+    """Subconjunto de `resultados` para la página `pagina` (1-indexada),
+    ordenados por IP - mismo orden que ya usaba la tabla completa, para que
+    paginar no cambie qué host sale en qué posición relativa."""
+    items = sorted(resultados.items())
+    inicio = (pagina - 1) * por_pagina
+    return dict(items[inicio:inicio + por_pagina])
+
+
 def _generar_tabla_inventario_html(resultados: dict) -> str:
     """Tabla de inventario con chips de puertos (los de PUERTOS_SENSIBLES
     resaltados en rojo) y la fila marcada si el host tiene alguna alerta -
@@ -339,7 +409,7 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
                 for p in puertos
             )
         else:
-            chips_puertos = '<span class="muted mono" style="font-size:11px;">—</span>'
+            chips_puertos = '<span class="muted mono" style="font-size:12.5px;">—</span>'
 
         alerta_icono = "" if not tiene_alertas else (
             '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="#ff5c5c" '
@@ -349,8 +419,8 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
 
         filas.append(f"""
         <tr{' class="sensitive"' if tiene_alertas else ""}>
-          <td><div class="mono" style="font-weight:500;">{ip}</div>
-              <div class="muted mono" style="font-size:11px;">{datos.get("hostname") or ""}</div></td>
+          <td><div class="mono" style="font-weight:500; font-size:14.5px;">{ip}</div>
+              <div class="muted mono" style="font-size:12.5px;">{datos.get("hostname") or ""}</div></td>
           <td><div class="row-cat"><span class="cat-dot" style="background:{color}"></span>{categoria}</div></td>
           <td class="mono muted">{datos.get("so") or "desconocido"}</td>
           <td>{chips_puertos}</td>
@@ -358,12 +428,12 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
         </tr>
         """)
 
-    return f"""
+    return _compactar_html(f"""
 <table class="inv-table">
   <thead><tr><th>Host</th><th>Categoría</th><th>SO</th><th>Puertos</th><th></th></tr></thead>
   <tbody>{"".join(filas)}</tbody>
 </table>
-"""
+""")
 
 
 def _generar_cambios_html(diff: dict, resultados: dict) -> str:
@@ -440,7 +510,265 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
             "Sin cambios respecto al escaneo anterior.</div>"
         )
 
-    return f'<div class="chg-body">{"".join(items)}</div>'
+    return _compactar_html(f'<div class="chg-body">{"".join(items)}</div>')
+
+
+_ICONO_HUB = {"code": "", "face": "'Font Awesome 5 Free'", "weight": "900"}
+NODE_R, MARGEN_TOPOLOGIA = 24, 90
+ALTURA_VIEWPORT_TOPOLOGIA = 540
+
+
+def _css_topologia(accent: str) -> str:
+    """CSS del documento HTML autocontenido del panel de topología (ver
+    _generar_topologia_html) - el iframe no hereda el <head> de la página,
+    así que estas reglas viven aparte de _generar_css(). #topo-viewport es
+    la "ventana" visible (tamaño fijo, overflow oculto); #topo-canvas es el
+    lienzo de tamaño real del grafo al que el script de pan/zoom le aplica
+    un transform - por eso hub/nodos usan posiciones en px absolutos, no
+    en porcentaje como en la primera versión (más simple y es justo lo que
+    necesita un transform de canvas)."""
+    return f"""
+html, body {{ margin: 0; padding: 0; background: #091018; overflow: hidden; }}
+* {{ box-sizing: border-box; }}
+.mono {{ font-family: 'JetBrains Mono', monospace; }}
+.muted {{ color: #7C8A9A; }}
+
+.topo-card {{
+    border-radius: 16px; border: 1px solid rgba(227,232,238,0.08);
+    background: rgba(17,25,33,0.75); overflow: hidden;
+}}
+#topo-viewport {{
+    position: relative; width: 100%; height: {ALTURA_VIEWPORT_TOPOLOGIA}px;
+    overflow: hidden; cursor: grab;
+    background-color: #091018;
+    background-image: radial-gradient(rgba(227,232,238,0.08) 1px, transparent 1px);
+    background-size: 26px 26px;
+}}
+#topo-canvas {{ position: absolute; top: 0; left: 0; transform-origin: 0 0; }}
+.topo-svg {{ position: absolute; inset: 0; width: 100%; height: 100%; }}
+.topo-hub {{
+    position: absolute; transform: translate(-50%, -50%);
+    width: 84px; height: 84px;
+    border-radius: 22px; background: {accent}1a; border: 1.5px solid {accent}80;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    font-size: 26px; color: {accent};
+}}
+.topo-hub-label {{ font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: {accent}; }}
+.topo-node-wrap {{ position: absolute; transform: translate(-50%, -50%); text-align: center; }}
+.topo-node {{
+    width: 44px; height: 44px; border-radius: 50%; background: #0d151d;
+    border: 2px solid; display: flex; align-items: center;
+    justify-content: center; font-size: 16px; margin: 0 auto; position: relative;
+}}
+.topo-node-label {{ margin-top: 5px; font-size: 10px; color: #B8C2CC; white-space: nowrap; }}
+.topo-alert-ring {{
+    position: absolute; top: 50%; left: 50%; width: 54px; height: 54px;
+    transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid #ff5c5c;
+    animation: alertpulse 1.8s ease-in-out infinite; pointer-events: none;
+}}
+@keyframes alertpulse {{ 0%,100% {{ opacity:.7; }} 50% {{ opacity:.15; }} }}
+.topo-alert-badge {{
+    position: absolute; top: -3px; right: -3px; width: 15px; height: 15px;
+    border: 1.5px solid #091018;
+    border-radius: 50%; background: #ff5c5c; color: #091018;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700;
+}}
+.topo-node-wrap .tooltip-card {{ display: none; }}
+.topo-node-wrap:hover .tooltip-card {{ display: block; }}
+.tooltip-card {{
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    margin-bottom: 10px; padding: 10px 12px; border-radius: 10px; background: #0d151d;
+    border: 1px solid rgba(255,92,92,0.4); font-size: 10.5px; width: 190px;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.4); z-index: 5; text-align: left;
+}}
+.tooltip-title {{ font-weight: 600; margin-bottom: 3px; font-family: 'JetBrains Mono', monospace; }}
+.tooltip-alert {{ color: #ff8a80; margin-top: 5px; }}
+.topo-hint {{ position: absolute; left: 12px; bottom: 8px; font-size: 10px; color: #4A5A6A; }}
+
+.legend-bar {{ display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 14px 18px; }}
+.legend-item {{ display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #B8C2CC; }}
+.legend-dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }}
+"""
+
+
+def _generar_leyenda_topologia_html() -> str:
+    """Leyenda horizontal bajo el grafo, reutilizando ICONOS_POR_CATEGORIA -
+    misma fuente de verdad que la leyenda del HTML de export.py, pero con
+    el estilo de barra horizontal del mockup en vez del panel flotante."""
+    items = "".join(
+        f'<div class="legend-item mono">'
+        f'<span class="legend-dot" style="background:{icono["color"]}"></span>{icono["nombre"]}</div>'
+        for icono in ICONOS_POR_CATEGORIA.values()
+    )
+    return f'<div class="legend-bar">{items}</div>'
+
+
+def _generar_topologia_html(resultados: dict, rango: str, accent: str) -> str:
+    """Documento HTML autocontenido (doctype/head/body/script) con el panel
+    de topología dibujado a mano - pensado para st.components.v1.html, no
+    para st.markdown.
+
+    Va en un iframe (no inline en la página, como el resto del panel de
+    resultados) por dos motivos: (1) st.markdown trata el contenido como
+    Markdown antes de dejar pasar el HTML, y con muchos nodos aparecían
+    líneas en blanco entre ellos que cortaban el bloque de HTML "en crudo"
+    a medias; (2) st.markdown ignora cualquier <script>, y sin JS de
+    verdad no hay forma de dar zoom/arrastre - imprescindible en redes con
+    muchos hosts vivos, donde un layout estático siempre amontona algo
+    (ver commits anteriores intentando arreglarlo solo a base de más
+    espaciado). Al vivir en su propio documento, se importan aquí mismo
+    las fuentes/Font Awesome que en el resto de la página inyecta
+    _inyectar_estilos() - el iframe no hereda el <head> de la página.
+
+    Las posiciones reutilizan export.posiciones_circulares - la misma
+    función que ordena el HTML que exportar_html() genera para el CLI, así
+    no hay dos algoritmos de layout distintos que mantener sincronizados.
+
+    Compromiso deliberado frente al mockup original: los iconos se dibujan
+    con los glyphs de Font Awesome de ICONOS_POR_CATEGORIA (los mismos que
+    ya usa export.py) en vez de redibujar a mano 10 iconos SVG nuevos -
+    misma fuente de verdad, muchísimo menos código nuevo."""
+    hosts = sorted(resultados.items())
+    posiciones = posiciones_circulares(len(hosts))
+
+    radio_max = max((math.hypot(x, y) for x, y in posiciones), default=0)
+    mitad = radio_max + NODE_R + MARGEN_TOPOLOGIA
+    ancho = alto = mitad * 2
+    cx = cy = mitad
+
+    radios_anillo = sorted({round(math.hypot(x, y)) for x, y in posiciones})
+    anillos_svg = "".join(
+        f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{accent}1c" '
+        f'stroke-width="1" stroke-dasharray="3 6"/>'
+        for r in radios_anillo
+    )
+
+    # Cada conexión son dos trazos superpuestos, no uno solo: uno largo y
+    # tenue (todo el trayecto) + uno corto y más marcado junto al hub - da
+    # la sensación de profundidad/degradado del mockup sin necesitar un
+    # gradiente SVG de verdad.
+    lineas_svg = "".join(
+        (
+            f'<line x1="{cx}" y1="{cy}" x2="{cx + x:.1f}" y2="{cy + y:.1f}" '
+            f'stroke="{"rgba(255,92,92,0.35)" if datos.get("alertas") else "rgba(227,232,238,0.14)"}" '
+            f'stroke-width="1.3"/>'
+            f'<line x1="{cx}" y1="{cy}" x2="{cx + x * 0.42:.1f}" y2="{cy + y * 0.42:.1f}" '
+            f'stroke="{"#ff5c5c" if datos.get("alertas") else accent}" stroke-opacity="0.55" '
+            f'stroke-width="2.4" stroke-linecap="round"/>'
+        )
+        for (_, datos), (x, y) in zip(hosts, posiciones)
+    )
+
+    nodos_html = []
+    for (ip, datos), (x, y) in zip(hosts, posiciones):
+        categoria = datos.get("categoria", "desconocido")
+        icono = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])
+        alertas = datos.get("alertas", [])
+        color = "#ff5c5c" if alertas else icono["color"]
+        sub = " · ".join(filter(None, [datos.get("hostname"), datos.get("vendor"), categoria]))
+
+        # Con muchos hosts vivos, las etiquetas permanentes con hostname +
+        # fabricante se amontonaban - ahora solo la IP queda visible bajo
+        # el nodo y el resto se mueve al tooltip al pasar el ratón, en
+        # todos los nodos (antes solo en los que tenían alerta). El zoom
+        # (ver JS más abajo) es lo que de verdad soluciona el amontonado
+        # en redes grandes, no el espaciado.
+        if alertas:
+            primera = alertas[0]
+            alerta_extra = '<div class="topo-alert-ring"></div><div class="topo-alert-badge">!</div>'
+            alerta_linea = f'<div class="tooltip-alert">⚠ {primera["puerto"]} · {primera["motivo"]}</div>'
+            borde_tooltip, color_titulo = "rgba(255,92,92,0.4)", "#ff8a80"
+        else:
+            alerta_extra = alerta_linea = ""
+            borde_tooltip, color_titulo = "rgba(227,232,238,0.14)", "#E3E8EE"
+
+        nodos_html.append(f"""
+        <div class="topo-node-wrap" style="left:{cx + x:.1f}px; top:{cy + y:.1f}px;">
+          <div class="topo-node" style="border-color:{color};">
+            <span style="font-family:{icono["face"]}; font-weight:{icono["weight"]}; color:{color};">
+              {icono["code"]}
+            </span>
+            {alerta_extra}
+          </div>
+          <div class="topo-node-label mono">{ip}</div>
+          <div class="tooltip-card" style="border-color:{borde_tooltip};">
+            <div class="tooltip-title" style="color:{color_titulo};">{ip}</div>
+            <div class="muted mono">{sub}</div>
+            {alerta_linea}
+          </div>
+        </div>
+        """)
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+{CDN_FONTAWESOME}
+<style>{_css_topologia(accent)}</style>
+</head>
+<body>
+<div class="topo-card">
+  <div id="topo-viewport">
+    <div id="topo-canvas" style="width:{ancho}px; height:{alto}px;">
+      <svg viewBox="0 0 {ancho} {alto}" class="topo-svg">{anillos_svg}{lineas_svg}</svg>
+      <div class="topo-hub" style="left:{cx}px; top:{cy}px;">
+        <span style="font-family:{_ICONO_HUB["face"]}; font-weight:{_ICONO_HUB["weight"]};">
+          {_ICONO_HUB["code"]}
+        </span>
+        <div class="topo-hub-label mono">{"/" + rango.rsplit("/", 1)[-1] if "/" in rango else rango}</div>
+      </div>
+      {"".join(nodos_html)}
+    </div>
+    <div class="topo-hint mono">rueda = zoom · arrastra = mover · doble clic = restablecer</div>
+  </div>
+  {_generar_leyenda_topologia_html()}
+</div>
+<script>
+(function() {{
+  var viewport = document.getElementById('topo-viewport');
+  var canvas = document.getElementById('topo-canvas');
+  var ancho = {ancho}, alto = {alto};
+  var scale = 1, tx = 0, ty = 0;
+  var dragging = false, moved = false, lastX = 0, lastY = 0;
+
+  function aplicar() {{
+    canvas.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+  }}
+  function ajustar() {{
+    var vw = viewport.clientWidth, vh = viewport.clientHeight;
+    scale = Math.max(0.15, Math.min(vw / ancho, vh / alto, 1.4));
+    tx = (vw - ancho * scale) / 2;
+    ty = (vh - alto * scale) / 2;
+    aplicar();
+  }}
+  viewport.addEventListener('wheel', function(e) {{
+    e.preventDefault();
+    scale = Math.min(4, Math.max(0.15, scale * (e.deltaY < 0 ? 1.12 : 0.89)));
+    aplicar();
+  }}, {{passive: false}});
+  viewport.addEventListener('mousedown', function(e) {{
+    dragging = true; moved = false; lastX = e.clientX; lastY = e.clientY;
+    viewport.style.cursor = 'grabbing';
+  }});
+  window.addEventListener('mousemove', function(e) {{
+    if (!dragging) return;
+    tx += e.clientX - lastX; ty += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY; moved = true;
+    aplicar();
+  }});
+  window.addEventListener('mouseup', function() {{
+    dragging = false; viewport.style.cursor = 'grab';
+  }});
+  viewport.addEventListener('dblclick', ajustar);
+  ajustar();
+}})();
+</script>
+</body>
+</html>
+"""
 
 
 def _mostrar_resultado(resultado: dict, accent: str):
@@ -453,11 +781,36 @@ def _mostrar_resultado(resultado: dict, accent: str):
     st.markdown(_generar_kpis_html(resultados, resultado["rango"], diff, accent), unsafe_allow_html=True)
 
     st.subheader("Topología")
-    st.components.v1.html(resultado["html"], height=650, scrolling=True)
+    st.components.v1.html(
+        _generar_topologia_html(resultados, resultado["rango"], accent),
+        height=ALTURA_VIEWPORT_TOPOLOGIA + 90,
+        scrolling=False,
+    )
 
     st.subheader("Inventario")
-    st.markdown(_generar_tabla_inventario_html(resultados), unsafe_allow_html=True)
-    st.caption(f"Mostrando {len(resultados)} hosts · ordenado por IP")
+    total_paginas = _total_paginas(len(resultados))
+    pagina_actual = min(st.session_state.get("pagina_inventario", 1), total_paginas)
+    st.markdown(
+        _generar_tabla_inventario_html(_pagina_de_resultados(resultados, pagina_actual)),
+        unsafe_allow_html=True,
+    )
+
+    if total_paginas > 1:
+        col_prev, col_info, col_next = st.columns([1, 2, 1])
+        if col_prev.button("< Anterior", disabled=pagina_actual <= 1, use_container_width=True):
+            st.session_state.pagina_inventario = pagina_actual - 1
+            st.rerun()
+        col_info.markdown(
+            f'<div class="mono muted" style="text-align:center; padding-top:8px; font-size:12px;">'
+            f'Página {pagina_actual} de {total_paginas} · {len(resultados)} hosts</div>',
+            unsafe_allow_html=True,
+        )
+        if col_next.button("Siguiente >", disabled=pagina_actual >= total_paginas, use_container_width=True):
+            st.session_state.pagina_inventario = pagina_actual + 1
+            st.rerun()
+    else:
+        st.caption(f"Mostrando {len(resultados)} hosts · ordenado por IP")
+
     st.download_button(
         "Descargar inventario CSV", _generar_csv_bytes(resultados),
         file_name="inventario.csv", mime="text/csv",
@@ -486,6 +839,7 @@ def _fragmento_progreso():
                 hosts_vivos=parametros["hosts_vivos"],
                 argumentos_nmap=parametros["argumentos_nmap"],
                 tiempo=tiempo,
+                log=st.session_state.contenedor.get("log", []),
             ),
             unsafe_allow_html=True,
         )
@@ -494,22 +848,35 @@ def _fragmento_progreso():
     contenedor = st.session_state.contenedor
     parametros = st.session_state.parametros_pendientes
     st.session_state.estado = "idle"
-    if st.session_state.cancelado:
-        st.session_state.mensaje = ("info", "Escaneo cancelado.")
-        st.session_state.resultado = None
-    elif contenedor.get("error"):
-        st.session_state.mensaje = ("error", f"No se pudo lanzar nmap: {contenedor['error']}")
-        st.session_state.resultado = None
-    else:
-        try:
-            resultados = _procesar_salida_nmap(contenedor["salida"])
-        except nmap.PortScannerError as e:
-            st.session_state.mensaje = ("error", f"Error de nmap: {e}")
+    try:
+        if st.session_state.cancelado:
+            st.session_state.mensaje = ("info", "Escaneo cancelado.")
+            st.session_state.resultado = None
+        elif contenedor.get("error"):
+            st.session_state.mensaje = ("error", f"No se pudo lanzar nmap: {contenedor['error']}")
             st.session_state.resultado = None
         else:
-            st.session_state.resultado = _finalizar_resultados(
-                resultados, parametros["rango"], parametros["guardar_historial"]
-            )
+            try:
+                with open(contenedor["archivo_xml"], "rb") as f:
+                    resultados = _procesar_salida_nmap(f.read())
+            except (OSError, nmap.PortScannerError) as e:
+                st.session_state.mensaje = ("error", f"Error de nmap: {e}")
+                st.session_state.resultado = None
+            else:
+                st.session_state.resultado = _finalizar_resultados(
+                    resultados, parametros["rango"], parametros["guardar_historial"]
+                )
+                # Sin esto, un escaneo nuevo con menos hosts que el anterior
+                # podía dejar pagina_inventario apuntando a una página que ya
+                # no existe (tabla vacía hasta que el usuario pulsara "Anterior").
+                st.session_state.pagina_inventario = 1
+    finally:
+        # La XML temporal (creada antes de lanzar nmap, ver main()) ya no
+        # hace falta pase lo que pase - igual que los .html/.csv temporales
+        # de _finalizar_resultados/_generar_csv_bytes, sin este cleanup se
+        # queda huérfana en el directorio temporal del sistema para siempre.
+        with contextlib.suppress(OSError):
+            os.remove(contenedor["archivo_xml"])
     st.rerun()
 
 
@@ -535,6 +902,9 @@ def _generar_css(accent: str) -> str:
 html, body, [data-testid="stAppViewContainer"] {{
     font-family: 'IBM Plex Sans', sans-serif;
 }}
+[data-testid="stHeader"] {{
+    display: none;
+}}
 h1, h2, h3 {{
     font-family: 'Space Grotesk', sans-serif !important;
     letter-spacing: -0.01em;
@@ -558,12 +928,24 @@ h1, h2, h3 {{
 }}
 [data-testid="stBaseButton-secondary"],
 [data-testid="stBaseButton-header"] {{
-    border-radius: 10px;
-    border-color: rgba(227,232,238,0.16);
+    border-radius: 9px;
+    border-color: rgba(227,232,238,0.12);
+    font-family: 'JetBrains Mono', monospace;
     font-weight: 500;
+    font-size: 12.5px;
+    color: #B8C2CC;
 }}
 [data-testid="stTextInputRootElement"] {{
     border-radius: 9px !important;
+}}
+.st-key-detectar_red button {{
+    justify-content: flex-start !important;
+    text-align: left !important;
+    white-space: normal !important;
+    line-height: 1.4;
+    height: auto !important;
+    min-height: 48px;
+    padding: 12px 14px !important;
 }}
 [data-testid="stTextInputRootElement"]:focus-within {{
     border-color: {accent} !important;
@@ -577,25 +959,33 @@ h1, h2, h3 {{
     border: 1px solid rgba(227,232,238,0.10);
 }}
 
-.topbar-meta {{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: -6px;
+.topbar {{
+    width: 100%; box-sizing: border-box;
+    min-height: 64px; display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px;
+    padding: 14px 24px; background: #111921;
+    border: 1px solid rgba(227,232,238,0.08); border-radius: 14px;
+    margin-bottom: 22px;
 }}
-.topbar-eyebrow {{
+.topbar-brand {{ display: flex; align-items: center; gap: 12px; }}
+.topbar-brand-text {{ display: flex; flex-direction: column; gap: 2px; }}
+.topbar-title {{
+    font-size: 15px !important; font-weight: 700 !important; letter-spacing: 0.01em; margin: 0 !important;
+    font-family: 'Space Grotesk', sans-serif !important; color: #E3E8EE !important;
+    text-transform: uppercase; line-height: 1.3 !important;
+}}
+.topbar-subtitle {{
     font-family: 'JetBrains Mono', monospace;
-    font-size: 10.5px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #7C8A9A;
+    font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #7C8A9A;
 }}
-.topbar-version {{
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    color: #4A5A6A;
-    margin-left: auto;
+.topbar-right {{ display: flex; align-items: center; gap: 12px; }}
+.legal-pill {{
+    display: flex; align-items: center; gap: 7px;
+    padding: 6px 12px; border-radius: 20px;
+    border: 1px solid rgba(227,232,238,0.10);
+    color: #7C8A9A; font-size: 11.5px; font-family: 'JetBrains Mono', monospace;
 }}
+.topbar-version {{ font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #4A5A6A; }}
 
 .section-eyebrow {{
     font-family: 'JetBrains Mono', monospace;
@@ -664,7 +1054,7 @@ h1, h2, h3 {{
 }}
 .history-dot {{ width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }}
 
-.phase-row {{ display: flex; align-items: center; gap: 0; }}
+.phase-row {{ display: flex; align-items: center; gap: 0; margin-top: 14px; }}
 .phase-chip {{
     display: flex; align-items: center; gap: 9px;
     padding: 10px 16px; border-radius: 10px;
@@ -684,7 +1074,7 @@ h1, h2, h3 {{
 }}
 @keyframes pulse {{ 0%,100% {{ opacity:1; transform:scale(1);}} 50% {{ opacity:.35; transform:scale(1.3);}} }}
 
-.stats-row {{ display: flex; gap: 14px; }}
+.stats-row {{ display: flex; gap: 14px; margin-top: 18px; }}
 .stat-chip {{
     flex: 1; display: flex; flex-direction: column; gap: 4px;
     padding: 14px 18px; border-radius: 12px;
@@ -698,12 +1088,13 @@ h1, h2, h3 {{
 .terminal-card {{
     border-radius: 16px; border: 1px solid rgba(227,232,238,0.08);
     background: #060b11; padding: 22px 26px; position: relative; overflow: hidden;
-    margin-top: 4px;
+    margin-top: 18px;
 }}
 .terminal-head {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }}
 .terminal-title {{ font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #5A6B7C; }}
 .dots {{ display: flex; gap: 6px; }}
 .dots span {{ width: 8px; height: 8px; border-radius: 50%; background: rgba(227,232,238,0.15); }}
+.log-lines {{ max-height: 220px; overflow-y: auto; }}
 .log-line {{ display: flex; align-items: center; gap: 10px; font-size: 13px; line-height: 2; }}
 .log-line.cmd {{ color: #5A6B7C; }}
 .cursor {{
@@ -723,7 +1114,7 @@ h1, h2, h3 {{
 
 .muted {{ color: #7C8A9A; }}
 
-.kpi-row {{ display: flex; gap: 16px; }}
+.kpi-row {{ display: flex; gap: 16px; margin-top: 14px; }}
 .kpi-card {{
     flex: 1; padding: 18px 20px; border-radius: 14px;
     border: 1px solid rgba(227,232,238,0.08); background: rgba(17,25,33,0.75);
@@ -745,19 +1136,19 @@ h1, h2, h3 {{
 
 table.inv-table {{ width: 100%; border-collapse: collapse; }}
 table.inv-table th {{
-    text-align: left; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
-    color: #5A6B7C; font-weight: 500; padding: 10px 12px;
+    text-align: left; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: #5A6B7C; font-weight: 600; padding: 12px 14px;
     border-bottom: 1px solid rgba(227,232,238,0.07);
 }}
 table.inv-table td {{
-    padding: 10px 12px; font-size: 12.5px; border-bottom: 1px solid rgba(227,232,238,0.05);
+    padding: 13px 14px; font-size: 14.5px; border-bottom: 1px solid rgba(227,232,238,0.05);
     vertical-align: middle;
 }}
 table.inv-table tr.sensitive td:first-child {{ box-shadow: inset 3px 0 0 #ff5c5c; }}
 .row-cat {{ display: flex; align-items: center; gap: 8px; }}
-.cat-dot {{ width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block; }}
+.cat-dot {{ width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; display: inline-block; }}
 .port-chip {{
-    display: inline-block; font-size: 10.5px; padding: 2px 6px; border-radius: 5px;
+    display: inline-block; font-size: 12px; padding: 3px 8px; border-radius: 5px;
     background: rgba(227,232,238,0.06); color: #B8C2CC; margin: 1px 3px 1px 0;
 }}
 .port-chip.sens {{ background: rgba(255,92,92,0.12); color: #ff8a80; }}
@@ -776,19 +1167,37 @@ table.inv-table tr.sensitive td:first-child {{ box-shadow: inset 3px 0 0 #ff5c5c
 """
 
 
-def _generar_encabezado_html(version: str, accent: str) -> str:
-    """HTML del bloque de marca (icono + "Command Center" + versión) que se
-    muestra encima de st.title(). Aparte en su propia función para poder
-    comprobar el contenido sin renderizar Streamlit."""
+def _generar_topbar_html(version: str, accent: str) -> str:
+    """Barra superior completa (marca a la izquierda, aviso legal + versión
+    a la derecha) que sustituye a st.title()/st.caption() - se estira a
+    ancho completo de la ventana con el truco left:50%/-50vw (funciona sin
+    importar el padding real del bloque de contenido de Streamlit, que
+    puede variar). Aparte en su propia función para poder comprobar el
+    contenido sin renderizar Streamlit."""
     return f"""
-<div class="topbar-meta">
-  <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
-    <circle cx="12" cy="12" r="9" stroke="{accent}" stroke-width="1.3" opacity="0.35"/>
-    <circle cx="12" cy="12" r="5.5" stroke="{accent}" stroke-width="1.3" opacity="0.65"/>
-    <circle cx="12" cy="12" r="2" fill="{accent}"/>
-  </svg>
-  <span class="topbar-eyebrow">Command Center</span>
-  <span class="topbar-version">v{version}</span>
+<div class="topbar">
+  <div class="topbar-brand">
+    <svg viewBox="0 0 24 24" width="30" height="30" fill="none">
+      <circle cx="12" cy="12" r="9" stroke="{accent}" stroke-width="1.3" opacity="0.35"/>
+      <circle cx="12" cy="12" r="5.5" stroke="{accent}" stroke-width="1.3" opacity="0.65"/>
+      <circle cx="12" cy="12" r="2" fill="{accent}"/>
+      <circle cx="19" cy="8" r="1.5" fill="{accent}"/>
+    </svg>
+    <div class="topbar-brand-text">
+      <div class="topbar-title">Network Topology Scanner</div>
+      <div class="topbar-subtitle">Command Center</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="legal-pill">
+      <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor"
+           stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 2.5l6 2.2v4.6c0 4-2.6 6.9-6 8.2-3.4-1.3-6-4.2-6-8.2V4.7l6-2.2z"/>
+      </svg>
+      Solo redes propias o autorizadas
+    </div>
+    <div class="topbar-version">v{version}</div>
+  </div>
 </div>
 """
 
@@ -823,7 +1232,7 @@ def _generar_historial_html(escaneos: list) -> str:
     """HTML de la lista de "historial reciente" del sidebar, a partir de
     history.listar_escaneos_recientes(). Aparte en su propia función para
     poder comprobar el contenido sin renderizar Streamlit, igual que
-    _generar_encabezado_html."""
+    _generar_topbar_html."""
     filas = []
     for escaneo in escaneos:
         alertas = escaneo["alertas"]
@@ -838,7 +1247,7 @@ def _generar_historial_html(escaneos: list) -> str:
           <div class="history-badge mono"><div class="history-dot" style="background:{color}"></div>{cifra}</div>
         </div>
         """)
-    return f'<div class="history-list">{"".join(filas)}</div>'
+    return _compactar_html(f'<div class="history-list">{"".join(filas)}</div>')
 
 
 def _formatear_tiempo_transcurrido(segundos: float) -> str:
@@ -847,19 +1256,22 @@ def _formatear_tiempo_transcurrido(segundos: float) -> str:
     return f"{minutos:02d}:{segs:02d}"
 
 
-def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, tiempo: str) -> str:
+def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, tiempo: str, log: list) -> str:
     """HTML del panel de progreso (sustituye al st.info() de una sola línea
-    de antes). Deliberadamente NO inventa progreso host a host de la fase 2:
-    _ejecutar_proceso_nmap lanza un único nmap para todos los hosts vivos a
-    la vez y proceso.communicate() no devuelve nada hasta que termina el
-    proceso completo (ver docstring del módulo), así que durante la fase 2
-    no hay forma de saber cuántos hosts concretos lleva escaneados nmap ni
-    qué alertas ha encontrado todavía - mostrar esas cifras "en vivo" sería
-    fabricarlas, el mismo error que se corrigió antes con el SO detectado
-    en el mockup. Solo se muestran datos que la app conoce de verdad en
-    este momento: los hosts vivos de la fase 1 (ya terminada), el rango y
-    el tiempo transcurrido."""
-    return f"""
+    de antes). `log` es la lista de IPs que _ejecutar_proceso_nmap ya ha
+    visto terminar (eventos reales de la salida verbose de nmap, "Nmap
+    scan report for X") - no se fabrica nada aquí: si `log` está vacío
+    (nmap todavía no ha terminado ningún host) solo se muestra el cursor
+    parpadeando, sin listar hosts que no se han visto de verdad. Fabricante/
+    categoría/alertas por host no se pueden sacar de forma fiable de la
+    salida verbose de nmap (solo de la XML final, cuando el proceso entero
+    termina), así que no aparecen aquí - eso ya se ve en el resultado."""
+    lineas_log = "".join(
+        f'<div class="log-line"><span class="mono">{ip}</span>'
+        f'<span class="muted mono">detectado</span></div>'
+        for ip in log[-30:]
+    )
+    html = f"""
 <div class="phase-row">
   <div class="phase-chip done mono">
     <div class="check-badge">
@@ -900,16 +1312,23 @@ def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, t
     <div class="terminal-title mono">Registro de escaneo</div>
     <div class="dots"><span></span><span></span><span></span></div>
   </div>
-  <div class="mono" style="display:flex; flex-direction:column;">
+  <div class="mono log-lines" style="display:flex; flex-direction:column;">
     <div class="log-line cmd">&gt; descubrir_hosts_vivos({rango})</div>
     <div class="log-line" style="color:#B8C2CC; padding-left:18px;">ping scan completo — {hosts_vivos} hosts vivos</div>
     <div class="log-line cmd" style="margin-top:6px;">&gt; nmap {argumentos_nmap} -p ...</div>
+    {lineas_log}
     <div class="log-line" style="color:#7C8A9A;">
-      escaneando puertos y servicios de {hosts_vivos} hosts<span class="cursor"></span>
+      escaneando puertos y servicios<span class="cursor"></span>
     </div>
   </div>
 </div>
 """
+    # Mismo problema que _generar_topologia_html/_generar_historial_html:
+    # st.markdown trata esto como Markdown antes de dejar pasar el HTML, y
+    # cuando `log` está vacío la línea "{lineas_log}" queda en blanco -
+    # corta el bloque de HTML "en crudo" a medias justo antes del cursor
+    # parpadeante, que se mostraba como texto/código en vez de renderizarse.
+    return _compactar_html(html)
 
 
 def _generar_estado_vacio_html(accent: str) -> str:
@@ -937,18 +1356,21 @@ def _generar_estado_vacio_html(accent: str) -> str:
 
 def _inyectar_estilos() -> str:
     """Devuelve el accent color usado (leído de theme.primaryColor) para que
-    main() pueda reutilizarlo en el estado vacío sin volver a resolverlo."""
+    main() pueda reutilizarlo en el estado vacío sin volver a resolverlo.
+
+    Font Awesome (CDN_FONTAWESOME) NO se inyecta aquí: solo lo necesita el
+    panel de topología, que vive en su propio documento HTML autocontenido
+    (ver _generar_topologia_html/_css_topologia) - nada más en esta página
+    usa esos glyphs."""
     accent = st.get_option("theme.primaryColor") or "#00D2D3"
     st.markdown(_generar_css(accent), unsafe_allow_html=True)
-    st.markdown(_generar_encabezado_html(__version__, accent), unsafe_allow_html=True)
+    st.markdown(_generar_topbar_html(__version__, accent), unsafe_allow_html=True)
     return accent
 
 
 def main():
     st.set_page_config(page_title="Network Topology Scanner", page_icon="🌐", layout="wide")
     accent = _inyectar_estilos()
-    st.title("Network Topology Scanner")
-    st.caption("Usa esta herramienta solo en redes propias o con autorización explícita.")
 
     st.session_state.setdefault("estado", "idle")
     st.session_state.setdefault("rango_detectado", "")
@@ -973,15 +1395,21 @@ def main():
             placeholder="192.168.1.0/24",
             disabled=escaneando,
         )
-        detectar = st.button("📍 Detectar mi red", disabled=escaneando, use_container_width=True)
+        detectar = st.button(
+            "Detectar mi red automáticamente",
+            key="detectar_red",
+            icon=":material/gps_fixed:",
+            disabled=escaneando,
+            use_container_width=True,
+        )
 
         st.divider()
         st.markdown('<div class="section-eyebrow">Opciones</div>', unsafe_allow_html=True)
-        rapido = st.checkbox(
+        rapido = st.toggle(
             "Escaneo rápido", value=True, disabled=escaneando, help="-T4, sin detección de SO"
         )
-        con_so = st.checkbox("Detectar SO", disabled=escaneando, help="-O --osscan-guess, más lento")
-        guardar_historial = st.checkbox(
+        con_so = st.toggle("Detectar SO", disabled=escaneando, help="-O --osscan-guess, más lento")
+        guardar_historial = st.toggle(
             "Guardar en historial",
             value=True,
             disabled=escaneando,
@@ -989,7 +1417,7 @@ def main():
         )
 
         st.divider()
-        enviado = st.button("Escanear", disabled=escaneando, type="primary", use_container_width=True)
+        enviado = st.button("▶ Escanear", disabled=escaneando, type="primary", use_container_width=True)
         parar = st.button("⏹ Parar escaneo", disabled=not escaneando, use_container_width=True)
 
         st.divider()
@@ -1028,12 +1456,17 @@ def main():
                 st.warning("Ningún host respondió al ping scan.")
             elif vivos:
                 argumentos_nmap = _argumentos_nmap_desde_formulario(rapido, con_so)
+                with tempfile.NamedTemporaryFile(suffix=".xml", delete=False) as f:
+                    archivo_xml = f.name
                 try:
-                    comando = _construir_comando_nmap(" ".join(vivos), PUERTOS_POR_DEFECTO, argumentos_nmap)
+                    comando = _construir_comando_nmap(
+                        " ".join(vivos), PUERTOS_POR_DEFECTO, argumentos_nmap, archivo_xml
+                    )
                 except ScannerError as e:
                     st.error(str(e))
+                    os.remove(archivo_xml)
                 else:
-                    contenedor = {"proceso": None, "salida": None}
+                    contenedor = {"proceso": None, "log": [], "archivo_xml": archivo_xml}
                     hilo = threading.Thread(target=_ejecutar_proceso_nmap, args=(comando, contenedor), daemon=True)
                     hilo.start()
                     st.session_state.estado = "escaneando"
