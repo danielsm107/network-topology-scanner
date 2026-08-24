@@ -14,6 +14,7 @@ from topology_scanner.export import (
     exportar_diff_texto,
     exportar_html,
     exportar_texto,
+    posiciones_circulares,
 )
 from topology_scanner.graph import construir_grafo
 
@@ -29,6 +30,33 @@ def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=N
         "puertos": puertos or [],
         "alertas": alertas or [],
     }
+
+
+def test_posiciones_circulares_vacio():
+    assert posiciones_circulares(0) == []
+
+
+def test_posiciones_circulares_una_por_nodo():
+    assert len(posiciones_circulares(5)) == 5
+
+
+def test_posiciones_circulares_reparte_en_un_solo_anillo_si_caben():
+    posiciones = posiciones_circulares(6)
+    radios = {round((x**2 + y**2) ** 0.5, 3) for x, y in posiciones}
+    assert len(radios) == 1
+
+
+def test_posiciones_circulares_abre_un_segundo_anillo_si_no_caben_en_uno():
+    """Con muchos hosts vivos (p.ej. un /24 muy poblado) hace falta más de
+    un anillo para que no se amontonen los nodos."""
+    posiciones = posiciones_circulares(40)
+    radios = {round((x**2 + y**2) ** 0.5, 3) for x, y in posiciones}
+    assert len(radios) > 1
+
+
+def test_posiciones_circulares_no_hay_dos_nodos_en_el_mismo_punto():
+    posiciones = posiciones_circulares(25)
+    assert len(set(posiciones)) == len(posiciones)
 
 
 def test_exportar_html_genera_el_archivo_de_salida(tmp_path):
@@ -216,6 +244,36 @@ def test_exportar_html_sin_alertas_usa_el_color_normal_de_categoria(tmp_path):
     # el HTML completo.
     datos_nodos = html.split("nodes = new vis.DataSet(")[1].split("edges = new vis.DataSet(")[0]
     assert COLOR_ALERTA.replace("#", "") not in datos_nodos
+
+
+def test_exportar_html_hub_fijo_en_el_centro(tmp_path):
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake()}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    datos_nodos = html.split("nodes = new vis.DataSet(")[1].split("edges = new vis.DataSet(")[0]
+    assert '"x": 0' in datos_nodos
+    assert '"y": 0' in datos_nodos
+
+
+def test_exportar_html_hosts_sin_fisica(tmp_path):
+    """Layout circular fijo (physics=False por nodo) en vez de la
+    simulación barnes_hut anterior - el grafo queda ordenado como una
+    estrella en vez de una disposición cambiante, sin perder zoom/arrastre
+    nativos de pyvis (el drag manual sigue funcionando con physics=False)."""
+    grafo = construir_grafo(
+        {"192.168.1.1": _resultado_fake(), "192.168.1.2": _resultado_fake(hostname="pc2")},
+        "192.168.1.0/24",
+    )
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    datos_nodos = html.split("nodes = new vis.DataSet(")[1].split("edges = new vis.DataSet(")[0]
+    assert datos_nodos.count('"physics": false') == 3  # hub + 2 hosts
 
 
 def test_exportar_csv_incluye_cabecera_y_datos_del_host(tmp_path):
