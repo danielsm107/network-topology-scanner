@@ -13,3 +13,7 @@ venv/
 *.html
 *.db
 *.csv
+
+# Config local de Claude Code (preferencias personales, no del proyecto -
+# settings.json sí se trackea, ese es el compartido)
+.claude/settings.local.json

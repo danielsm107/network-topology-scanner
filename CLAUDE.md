@@ -147,6 +147,64 @@ de escribir código.
 - No hay `requirements.txt`/`requirements-dev.txt` (se quitaron por
   obsoletos, no reflejaban `streamlit`): `pyproject.toml` +
   `pip install -e ".[dev,web]"` es el único camino de instalación.
+- La interfaz web tuvo un rediseño visual completo ("Command Center": tema
+  oscuro con acento leído de `.streamlit/config.toml`, fuentes Space
+  Grotesk/JetBrains Mono/IBM Plex Sans, formulario movido al sidebar,
+  KPIs/inventario/cambios en HTML propio en vez de `st.metric`/
+  `st.dataframe`/`st.expander`). La barra nativa de Streamlit (`Deploy`/
+  menú) se oculta con CSS (`[data-testid="stHeader"] { display: none; }`)
+  porque el topbar propio la sustituye. Los antiguos `st.checkbox` de
+  Opciones son ahora `st.toggle` (más parecido al interruptor del diseño,
+  sin reestilar un checkbox nativo a mano). Para dar estilo a un widget
+  concreto sin afectar a otros del mismo tipo (p. ej. el botón "Detectar mi
+  red" frente a "Parar escaneo", ambos secundarios) se usa `key="..."` +
+  la clase CSS que Streamlit genera sola (`.st-key-<key>`) — no hay otra
+  forma fiable de distinguirlos por CSS.
+- `webapp.py` construye HTML a mano uniendo fragmentos multilínea generados
+  en un bucle (`"".join(...)` de divs por fila/tarjeta: inventario, cambios,
+  historial, progreso). `st.markdown(unsafe_allow_html=True)` procesa ese
+  contenido como Markdown antes de dejar pasar las etiquetas, y una línea en
+  blanco entre fragmentos (p. ej. un fragmento condicional que queda vacío)
+  corta el bloque de HTML "en crudo" a medias — el resto se veía como texto/
+  código en vez de renderizarse. `_compactar_html()` colapsa todo el
+  whitespace del HTML generado a un solo espacio antes de pasarlo a
+  `st.markdown`, quitando el problema de raíz en vez de perseguirlo caso a
+  caso.
+- El grafo embebido en la web ya **no** usa pyvis: es un SVG construido a
+  mano (`webapp.py::_generar_topologia_html`) con las posiciones de
+  `export.posiciones_circulares` (reutilizada, no dos algoritmos de layout
+  distintos), pero dentro de un documento HTML autocontenido en
+  `st.components.v1.html` (iframe) con JS propio de pan/zoom (rueda = zoom,
+  arrastrar = mover, doble clic = ajustar). Va en iframe, no inline como el
+  resto del panel, por dos motivos: `st.markdown` ignora cualquier
+  `<script>` (sin JS no hay zoom, imprescindible en redes con muchos hosts
+  vivos, donde un layout estático siempre amontona algo) y para evitar el
+  mismo problema de líneas en blanco de arriba. El iframe importa sus
+  propias fuentes/Font Awesome (`CDN_FONTAWESOME`, reexportado desde
+  `export.py`) porque no hereda el `<head>` de la página. La exportación de
+  pyvis (`export.py::exportar_html`) sigue intacta para el CLI.
+- `export.py::posiciones_circulares` (antes privada, ahora pública para que
+  `webapp.py` la reutilice — mismo patrón que `scanner.parsear_host`)
+  reparte los hosts en anillos concéntricos alrededor del hub en vez de
+  dejar que la física de pyvis (`barnes_hut`) decida las posiciones: el
+  HTML del CLI también sale ordenado en círculo, no con una disposición
+  cambiante. `exportar_html` fija `x`/`y` y `physics=False` por nodo — no
+  quita el arrastre manual ni el zoom nativos de vis-network, solo impide
+  que el nodo se mueva solo.
+- El escaneo cancelable de `webapp.py` ya no espera bloqueado con
+  `.communicate()` a que nmap entero termine: la XML de resultado se
+  escribe a un archivo temporal (`-oX archivo`, no `-oX -`) y stdout se deja
+  libre para leer en vivo la salida verbose de nmap (`-v`) línea a línea.
+  `_ejecutar_proceso_nmap` detecta la línea real que nmap suelta al terminar
+  cada host ("Nmap scan report for X") y la añade a `contenedor["log"]`,
+  que el panel de progreso pinta según van llegando — sin inventar
+  fabricante/categoría/alertas por host, que solo se conocen con la XML
+  completa al terminar. `stderr` se combina con stdout (`STDOUT`, no un
+  `PIPE` aparte) para no arriesgarse a un deadlock si nadie lo vacía.
+- La tabla de Inventario pagina de `FILAS_POR_PAGINA` (10) en 10 hosts en
+  vez de listarlos todos de golpe. `pagina_inventario` en `session_state`
+  se resetea a 1 en cada escaneo nuevo, para no quedarse apuntando a una
+  página que ya no existe si el escaneo nuevo tiene menos hosts.
 
 ## Roadmap (por orden de prioridad hablado)
 
@@ -170,9 +228,12 @@ de escribir código.
    aproximada. La feature más compleja, dejar para el final.
 7. ~~**Interfaz web con Streamlit**~~ — hecho (`webapp.py`, extra opcional
    `[web]`, entry point `topology-scanner-web`). Formulario con detección
-   automática del rango local (botón "📍 Detectar mi red", truco de socket
+   automática del rango local (botón "Detectar mi red", truco de socket
    UDP sin admin/sudo), escaneo cancelable de verdad (mata el proceso nmap,
    no solo la UI), tabla de resultados, descarga de CSV y el grafo embebido.
+   Más tarde tuvo un rediseño visual completo ("Command Center" — ver
+   Decisiones ya tomadas): sidebar, topología en SVG propio con pan/zoom,
+   log de escaneo en vivo, paginación del inventario.
 8. **CI con GitHub Actions** — ejecutar pytest + ruff en cada push, badge en
    el README.
 
