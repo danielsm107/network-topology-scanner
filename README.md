@@ -10,6 +10,11 @@ scan in SQLite to diff against the previous one (new/dropped hosts, ports
 that changed), and can export the inventory to CSV. Available as a CLI or as
 a local web interface (Streamlit, optional).
 
+![Command Center dashboard](docs/screenshots/dashboard.png)
+![Inventory and changes](docs/screenshots/inventario.png)
+
+*Screenshots use fictional demo data — no real network is exposed here.*
+
 ## ⚠️ Legal notice
 Only use this tool **on networks you own or have explicit authorization to
 scan** (your homelab, or your workplace's network if you have permission).
