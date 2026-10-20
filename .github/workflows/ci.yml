@@ -22,8 +22,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Instala el paquete y las dependencias de dev/web
-        run: pip install -e ".[dev,web]"
+      - name: Instala el paquete y las dependencias de dev/web/snmp
+        run: pip install -e ".[dev,web,snmp]"
 
       - name: ruff check
         run: ruff check src/ tests/

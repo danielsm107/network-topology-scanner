@@ -4,8 +4,14 @@ snmp.py
 Topología real a partir de las tablas SNMP de routers/switches (ARP, tabla
 MAC del bridge, rutas, vecinos). No sabe nada de nmap ni de grafos.
 
-Por ahora solo contiene los parsers: funciones puras que reciben las filas
-de un walk SNMP y devuelven listas/dicts normales. Cada fila es
+Dos capas:
+- Consulta (`consultar_equipo`, `_recorrer`): la única que habla con la
+  red, vía pysnmp (extra opcional `[snmp]`, importado solo al consultar
+  para que el resto del módulo funcione sin él).
+- Parsers (`parsear_*`): funciones puras que reciben las filas de un walk
+  SNMP y devuelven listas/dicts normales.
+
+Cada fila es
 (oid_completo, valor) con el valor ya convertido a tipo nativo de Python:
 `bytes` para cadenas/MACs/IPs, `int` para enteros. La conversión desde los
 tipos de la librería SNMP la hace la capa de consulta, así que los parsers
@@ -21,13 +27,18 @@ un equipo real puede devolver entradas incompletas y eso no debe tirar el
 resto de la tabla.
 """
 
+import asyncio
 import ipaddress
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 log = logging.getLogger("topology_scanner")
 
 Fila = tuple[str, bytes | int]
+
+
+class SnmpError(Exception):
+    """El equipo no responde por SNMP, o falta la librería."""
 
 # SNMPv2-MIB / IF-MIB
 OID_SYS_NAME = "1.3.6.1.2.1.1.5"
@@ -43,6 +54,120 @@ OID_PUERTO_A_IFINDEX = "1.3.6.1.2.1.17.1.4.1.2"
 OID_VECINOS_MIKROTIK = "1.3.6.1.4.1.14988.1.1.11.1.1"
 
 _COLUMNAS_VECINOS_MIKROTIK = {2: "ip", 3: "mac", 4: "version", 5: "plataforma", 6: "identidad", 8: "if_index"}
+
+# sysName va primero a propósito: si no responde, el equipo no responde.
+TABLAS_A_CONSULTAR = (
+    OID_SYS_NAME, OID_IF_NAME, OID_ARP, OID_RUTAS,
+    OID_FDB_PUERTO, OID_PUERTO_A_IFINDEX, OID_VECINOS_MIKROTIK,
+)
+
+
+# --- Consulta (red) ----------------------------------------------------------
+
+def consultar_equipo(ip: str, community: str, timeout: float = 2.0, reintentos: int = 1) -> dict:
+    """Lee por SNMP v2c las tablas de un router/switch y las devuelve ya
+    parseadas: {"ip", "nombre", "interfaces", "arp", "rutas", "fdb", "vecinos"}.
+    Lanza SnmpError si el equipo no responde. Una tabla que el equipo no
+    implementa sale vacía, no es un error."""
+    tablas = _recorrer(ip, community, TABLAS_A_CONSULTAR, timeout, reintentos)
+
+    def filas(oid: str) -> list[Fila]:
+        return tablas.get(oid, [])
+
+    return {
+        "ip": ip,
+        "nombre": parsear_nombre(filas(OID_SYS_NAME)),
+        "interfaces": parsear_interfaces(filas(OID_IF_NAME)),
+        "arp": parsear_arp(filas(OID_ARP)),
+        "rutas": parsear_rutas(filas(OID_RUTAS)),
+        "fdb": parsear_fdb(filas(OID_FDB_PUERTO), filas(OID_PUERTO_A_IFINDEX)),
+        "vecinos": parsear_vecinos_mikrotik(filas(OID_VECINOS_MIKROTIK)),
+    }
+
+
+def _recorrer(ip: str, community: str, oids: Sequence[str], timeout: float, reintentos: int) -> dict[str, list[Fila]]:
+    """Hace un walk de cada tabla y devuelve {oid_base: [filas]}.
+    pysnmp 7 solo tiene API asyncio; se envuelve aquí con asyncio.run para
+    que el resto del programa (síncrono) no tenga que saberlo."""
+    try:
+        from pysnmp.hlapi.v3arch.asyncio import (  # noqa: F401 (se comprueba que está instalado)
+            SnmpEngine,
+        )
+    except ImportError as e:
+        raise SnmpError(
+            "Falta la librería SNMP. Instálala con: pip install -e \".[snmp]\""
+        ) from e
+    return asyncio.run(_recorrer_async(ip, community, oids, timeout, reintentos))
+
+
+async def _recorrer_async(ip, community, oids, timeout, reintentos) -> dict[str, list[Fila]]:
+    from pysnmp.error import PySnmpError
+    from pysnmp.hlapi.v3arch.asyncio import CommunityData, SnmpEngine, UdpTransportTarget
+
+    motor = SnmpEngine()
+    try:
+        try:
+            destino = await UdpTransportTarget.create((ip, 161), timeout=timeout, retries=reintentos)
+        except PySnmpError as e:
+            raise SnmpError(f"No se puede usar {ip} como destino SNMP: {e}") from e
+        # mpModel=1 = SNMP v2c. La community nunca va en mensajes de error ni logs.
+        credenciales = CommunityData(community, mpModel=1)
+
+        tablas: dict[str, list[Fila]] = {}
+        for oid in oids:
+            try:
+                tablas[oid] = await _recorrer_tabla(motor, credenciales, destino, oid)
+            except SnmpError as e:
+                if not tablas:
+                    raise SnmpError(
+                        f"{ip} no responde por SNMP ({e}). Revisa que SNMP esté activado, la "
+                        "community y que el equipo acepte consultas desde esta IP."
+                    ) from e
+                log.warning(f"SNMP {ip}: no se pudo leer la tabla {oid} ({e}); se sigue sin ella")
+                tablas[oid] = []
+        return tablas
+    finally:
+        motor.close_dispatcher()
+
+
+async def _recorrer_tabla(motor, credenciales, destino, oid: str) -> list[Fila]:
+    from pysnmp.hlapi.v3arch.asyncio import ContextData, ObjectIdentity, ObjectType, walk_cmd
+
+    filas: list[Fila] = []
+    # lexicographicMode=False: parar al salir de la tabla pedida
+    async for error, estado, _indice_error, varbinds in walk_cmd(
+        motor, credenciales, destino, ContextData(),
+        ObjectType(ObjectIdentity(oid)), lexicographicMode=False,
+    ):
+        if error:
+            raise SnmpError(str(error))
+        if estado:
+            raise SnmpError(estado.prettyPrint())
+        for nombre, valor in varbinds:
+            convertido = _convertir_valor(valor)
+            if convertido is not None:
+                filas.append((str(nombre), convertido))
+    return filas
+
+
+def _convertir_valor(valor) -> bytes | int | None:
+    """Tipo de pysnmp -> bytes (cadenas, MACs, IPs) o int (enteros,
+    contadores). None para lo que no interesa a los parsers (OIDs) y para
+    los marcadores de "no existe": NoSuchObject/NoSuchInstance/EndOfMibView
+    también tienen asOctets() (devuelven b""), así que van primero."""
+    from pysnmp.proto.rfc1905 import EndOfMibView, NoSuchInstance, NoSuchObject
+
+    if isinstance(valor, (NoSuchObject, NoSuchInstance, EndOfMibView)):
+        return None
+    if hasattr(valor, "asOctets"):
+        return valor.asOctets()
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+# --- Parsers (puros) ---------------------------------------------------------
 
 
 def _indice(oid: str, base: str) -> list[int] | None:

@@ -26,6 +26,11 @@ web = [
     # para refrescar el estado del escaneo sin recargar toda la página.
     "streamlit>=1.33",
 ]
+snmp = [
+    # >=7.1: API asyncio con nombres snake_case (walk_cmd,
+    # UdpTransportTarget.create) que usa snmp.py. Exige Python >=3.10.
+    "pysnmp>=7.1",
+]
 
 [project.scripts]
 topology-scanner = "topology_scanner.cli:main"

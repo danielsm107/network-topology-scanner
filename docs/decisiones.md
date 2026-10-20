@@ -193,3 +193,17 @@ contexto completo.
   antigua `ipRouteTable`. De vecinos, de momento solo la tabla propia de
   MikroTik (`mtxrNeighborTable`, trae IP e identidad); la `LLDP-MIB`
   estándar queda para cuando haya equipos de otros fabricantes.
+- La capa de consulta de `snmp.py` importa pysnmp **dentro** de las
+  funciones, no arriba del módulo: así los parsers (y quien importe
+  `snmp.py`) funcionan sin el extra `[snmp]`, y si falta se lanza un
+  `SnmpError` con el comando de instalación en vez de un `ImportError` al
+  arrancar. pysnmp 7 solo tiene API asyncio; `_recorrer` la envuelve con
+  `asyncio.run` para que el resto del programa siga siendo síncrono.
+  `sysName` se consulta primero: si falla, el equipo "no responde" y se
+  lanza `SnmpError`; si falla una tabla posterior, se avisa por log y se
+  sigue con esa tabla vacía (mismo criterio que `HistoryError`: perder un
+  trozo no tira lo que sí ha funcionado). Una tabla que el equipo no
+  implementa sale vacía sin error. Los marcadores `NoSuchObject`/
+  `EndOfMibView` de pysnmp también tienen `asOctets()` (devuelven `b""`),
+  así que `_convertir_valor` los descarta antes de convertir. La community
+  nunca aparece en mensajes de error ni en el log.

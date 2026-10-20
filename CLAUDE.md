@@ -22,6 +22,7 @@ historial de commits (features pequeñas, un commit por feature).
 - Python 3.10+, paquete instalable (`pyproject.toml`, layout `src/`)
 - `python-nmap` (wrapper de nmap), `networkx` (grafo), `pyvis` (export HTML interactivo)
 - `streamlit` (extra opcional `[web]`) para la interfaz web, `webapp.py`
+- `pysnmp` (extra opcional `[snmp]`) para la topología por SNMP, `snmp.py`
 - Tests con `pytest` + `unittest.mock` (mockean `nmap.PortScanner`, no requieren red real ni nmap instalado).
   Los de `webapp.py` usan además `streamlit.testing.v1.AppTest` (ejecuta el
   script sin navegador) y se saltan solos si `streamlit` no está instalado.
@@ -31,7 +32,7 @@ historial de commits (features pequeñas, un commit por feature).
 ## Comandos
 
 ```bash
-pip install -e ".[dev,web]"                     # único camino de instalación (no hay requirements.txt)
+pip install -e ".[dev,web,snmp]"                # único camino de instalación (no hay requirements.txt)
 pytest tests/ -v                                # suite completa (no necesita nmap ni red)
 pytest tests/test_history.py -v                 # un módulo
 pytest tests/test_history.py::test_nombre -v    # un test concreto
@@ -57,7 +58,7 @@ src/topology_scanner/
 ├── graph.py        # construir_grafo(resultados, rango) -> networkx.Graph (topología en estrella)
 ├── export.py       # exportar_html (pyvis + iconos Font Awesome vía CDN), exportar_texto, exportar_diff_texto, exportar_csv
 ├── history.py      # registrar_y_comparar(resultados, rango, db_path) -> guarda en SQLite y compara con el escaneo anterior
-├── snmp.py         # topología real por SNMP (roadmap 6, en curso): de momento solo parsers puros de tablas ARP/rutas/bridge/vecinos
+├── snmp.py         # topología real por SNMP (roadmap 6, en curso): consulta con pysnmp + parsers puros de tablas ARP/rutas/bridge/vecinos
 ├── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
 └── webapp.py       # interfaz Streamlit (opcional): mismo pipeline, con escaneo cancelable
 tests/               # un test_<modulo>.py por módulo

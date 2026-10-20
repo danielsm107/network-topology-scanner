@@ -4,7 +4,17 @@ reproducen la estructura real que devolvió un MikroTik hAP ac2 (RouterOS v6)
 en el reconocimiento, pero anonimizadas: IPs en rangos de documentación
 (192.0.2.0/24 = LAN, 198.51.100.0/24 = enlace al router de arriba) y MACs
 "locales" 02:00:00:xx:xx:xx.
+
+La capa de consulta (la que habla con la red vía pysnmp) se prueba al
+final mockeando `_recorrer` o, para la propia consulta, `walk_cmd`/
+`UdpTransportTarget`/`SnmpEngine`. Los tests que necesitan tipos reales de
+pysnmp se saltan si no está instalado (extra opcional [snmp]).
 """
+
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from topology_scanner.snmp import (
     OID_ARP,
@@ -14,6 +24,10 @@ from topology_scanner.snmp import (
     OID_RUTAS,
     OID_SYS_NAME,
     OID_VECINOS_MIKROTIK,
+    TABLAS_A_CONSULTAR,
+    SnmpError,
+    _recorrer,
+    consultar_equipo,
     parsear_arp,
     parsear_fdb,
     parsear_interfaces,
@@ -217,3 +231,167 @@ def test_los_parsers_ignoran_filas_de_otra_tabla():
     ]
 
     assert parsear_interfaces(filas) == {1: "wlan1"}
+
+
+# === Capa de consulta =======================================================
+
+MODULO_PYSNMP = "pysnmp.hlapi.v3arch.asyncio"
+
+
+# --- consultar_equipo (con _recorrer mockeado) -------------------------------
+
+def _tablas_fake():
+    return {
+        OID_SYS_NAME: [(f"{OID_SYS_NAME}.0", b"Router-Casa")],
+        OID_IF_NAME: [(f"{OID_IF_NAME}.3", b"ether1")],
+        OID_ARP: [(f"{OID_ARP}.3.198.51.100.2", bytes.fromhex("020000000001"))],
+    }
+
+
+@patch("topology_scanner.snmp._recorrer")
+def test_consultar_equipo_devuelve_las_tablas_ya_parseadas(mock_recorrer):
+    mock_recorrer.return_value = _tablas_fake()
+
+    equipo = consultar_equipo("192.0.2.1", "community")
+
+    assert equipo == {
+        "ip": "192.0.2.1",
+        "nombre": "Router-Casa",
+        "interfaces": {3: "ether1"},
+        "arp": [{"ip": "198.51.100.2", "mac": "02:00:00:00:00:01", "if_index": 3}],
+        "rutas": [],
+        "fdb": [],
+        "vecinos": [],
+    }
+
+
+@patch("topology_scanner.snmp._recorrer")
+def test_consultar_equipo_pide_todas_las_tablas_con_timeout_y_reintentos(mock_recorrer):
+    mock_recorrer.return_value = {}
+
+    consultar_equipo("192.0.2.1", "community", timeout=5, reintentos=3)
+
+    mock_recorrer.assert_called_once_with("192.0.2.1", "community", TABLAS_A_CONSULTAR, 5, 3)
+
+
+@patch("topology_scanner.snmp._recorrer", side_effect=SnmpError("192.0.2.1 no responde por SNMP"))
+def test_consultar_equipo_propaga_snmperror(_mock_recorrer):
+    with pytest.raises(SnmpError, match="no responde"):
+        consultar_equipo("192.0.2.1", "community")
+
+
+def test_sin_pysnmp_instalado_da_un_error_claro():
+    """None en sys.modules hace que el import falle con ImportError, igual
+    que si el extra [snmp] no estuviera instalado."""
+    with patch.dict(sys.modules, {MODULO_PYSNMP: None}), pytest.raises(SnmpError, match=r"\[snmp\]"):
+        _recorrer("192.0.2.1", "community", (OID_SYS_NAME,), 1, 0)
+
+
+# --- _recorrer (con pysnmp mockeado) -----------------------------------------
+
+def _walk_falso(respuestas):
+    """Sustituye a walk_cmd. Cada llamada (una por tabla, en orden) consume
+    una respuesta: una lista de (error, estado, varbinds) por paso del walk."""
+    pendientes = iter(respuestas)
+
+    def walk_cmd(*_args, **_kwargs):
+        pasos = next(pendientes)
+
+        async def generador():
+            for error, estado, varbinds in pasos:
+                yield error, estado, 0, varbinds
+
+        return generador()
+
+    return walk_cmd
+
+
+@pytest.fixture
+def pysnmp_falso():
+    """Mockea lo que toca la red (transporte y motor) y deja que cada test
+    defina las respuestas de walk_cmd."""
+    pytest.importorskip(MODULO_PYSNMP)
+    with patch(f"{MODULO_PYSNMP}.UdpTransportTarget.create", new=AsyncMock()), \
+            patch(f"{MODULO_PYSNMP}.SnmpEngine", MagicMock()):
+        yield lambda respuestas: patch(f"{MODULO_PYSNMP}.walk_cmd", _walk_falso(respuestas))
+
+
+def test_recorrer_convierte_los_tipos_de_pysnmp_a_bytes_e_int(pysnmp_falso):
+    from pysnmp.proto.rfc1902 import Integer32, IpAddress, ObjectName, OctetString
+
+    respuestas = [
+        [(None, 0, [(ObjectName(f"{OID_SYS_NAME}.0"), OctetString(b"Router-Casa"))])],
+        [(None, 0, [(ObjectName(f"{OID_IF_NAME}.3"), OctetString(b"ether1"))]),
+         (None, 0, [(ObjectName(f"{OID_IF_NAME}.4"), IpAddress("192.0.2.1"))]),
+         (None, 0, [(ObjectName(f"{OID_IF_NAME}.5"), Integer32(7))])],
+    ]
+
+    with pysnmp_falso(respuestas):
+        tablas = _recorrer("192.0.2.1", "community", (OID_SYS_NAME, OID_IF_NAME), 1, 0)
+
+    assert tablas == {
+        OID_SYS_NAME: [(f"{OID_SYS_NAME}.0", b"Router-Casa")],
+        OID_IF_NAME: [(f"{OID_IF_NAME}.3", b"ether1"),
+                      (f"{OID_IF_NAME}.4", bytes([192, 0, 2, 1])),
+                      (f"{OID_IF_NAME}.5", 7)],
+    }
+
+
+def test_recorrer_descarta_valores_de_no_existe(pysnmp_falso):
+    """NoSuchObject/EndOfMibView también tienen asOctets() (devuelven b""):
+    sin descartarlos antes se colarían como filas vacías."""
+    from pysnmp.proto.rfc1902 import ObjectName
+    from pysnmp.proto.rfc1905 import EndOfMibView, NoSuchObject
+
+    respuestas = [[(None, 0, [(ObjectName(f"{OID_SYS_NAME}.0"), NoSuchObject("")),
+                              (ObjectName(f"{OID_SYS_NAME}.1"), EndOfMibView(""))])]]
+
+    with pysnmp_falso(respuestas):
+        tablas = _recorrer("192.0.2.1", "community", (OID_SYS_NAME,), 1, 0)
+
+    assert tablas == {OID_SYS_NAME: []}
+
+
+def test_recorrer_si_la_primera_tabla_falla_el_equipo_no_responde(pysnmp_falso):
+    respuestas = [[("No SNMP response received before timeout", 0, [])]]
+
+    with pysnmp_falso(respuestas), pytest.raises(SnmpError, match=r"192\.0\.2\.1 no responde"):
+        _recorrer("192.0.2.1", "community", (OID_SYS_NAME, OID_IF_NAME), 1, 0)
+
+
+def test_recorrer_si_falla_una_tabla_posterior_sigue_con_las_demas(pysnmp_falso, caplog):
+    """Si el equipo ya ha respondido, perder una tabla no es motivo para
+    tirar las demás: se avisa y se sigue con esa tabla vacía."""
+    from pysnmp.proto.rfc1902 import ObjectName, OctetString
+
+    respuestas = [
+        [(None, 0, [(ObjectName(f"{OID_SYS_NAME}.0"), OctetString(b"Router-Casa"))])],
+        [("No SNMP response received before timeout", 0, [])],
+        [(None, 0, [(ObjectName(f"{OID_ARP}.3.198.51.100.2"), OctetString(bytes(6)))])],
+    ]
+
+    with pysnmp_falso(respuestas):
+        tablas = _recorrer("192.0.2.1", "community", (OID_SYS_NAME, OID_IF_NAME, OID_ARP), 1, 0)
+
+    assert tablas[OID_IF_NAME] == []
+    assert len(tablas[OID_ARP]) == 1
+    assert "no se pudo leer" in caplog.text
+
+
+def test_recorrer_un_error_de_estado_snmp_cuenta_como_fallo(pysnmp_falso):
+    """errorStatus distinto de 0 (p. ej. authorizationError) llega con
+    errorIndication vacío: también tiene que tratarse como fallo."""
+    estado = MagicMock()
+    estado.__bool__.return_value = True
+    estado.prettyPrint.return_value = "authorizationError"
+
+    with pysnmp_falso([[(None, estado, [])]]), pytest.raises(SnmpError, match="authorizationError"):
+        _recorrer("192.0.2.1", "community", (OID_SYS_NAME,), 1, 0)
+
+
+def test_los_errores_no_incluyen_la_community(pysnmp_falso):
+    with pysnmp_falso([[("No SNMP response received before timeout", 0, [])]]), \
+            pytest.raises(SnmpError) as error:
+        _recorrer("192.0.2.1", "community-secreta", (OID_SYS_NAME,), 1, 0)
+
+    assert "community-secreta" not in str(error.value)
