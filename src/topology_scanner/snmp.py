@@ -452,3 +452,42 @@ def inferir_topologia(equipos_consultados: list[dict]) -> dict:
             ubicar(mac, ip, ip_router, None)
 
     return {"equipos": equipos, "enlaces": list(enlaces.values()), "redes": redes, "ubicaciones": ubicaciones}
+
+
+# --- Orquestación (compartida por cli.py y webapp.py) ------------------------
+
+def parsear_lista_ips(texto: str) -> list[str]:
+    """"192.0.2.1, 192.0.2.2" -> ["192.0.2.1", "192.0.2.2"]. Lanza
+    ValueError si alguna no es una IPv4 (cada interfaz lo muestra a su
+    manera: argparse como error de argumento, la web como aviso)."""
+    ips = [parte.strip() for parte in texto.split(",") if parte.strip()]
+    for ip in ips:
+        try:
+            ipaddress.IPv4Address(ip)
+        except ValueError as e:
+            raise ValueError(f"'{ip}' no es una IPv4 válida") from e
+    return ips
+
+
+def obtener_topologia(ips: list[str], community: str) -> tuple[dict | None, list[str]]:
+    """Consulta cada equipo e infiere la topología. Devuelve (topologia,
+    avisos): un equipo que no responde se salta y se añade a los avisos; si
+    no responde ninguno, topologia es None y quien llame dibuja la estrella
+    (el escaneo de nmap ya ha funcionado: perder la topología no es motivo
+    para no mostrar nada). Los avisos se devuelven en vez de loguearse para
+    que el CLI los mande al log y la web los pinte en pantalla."""
+    equipos = []
+    avisos = []
+    for ip in ips:
+        log.info(f"Consultando {ip} por SNMP...")
+        try:
+            equipos.append(consultar_equipo(ip, community))
+        except SnmpError as e:
+            avisos.append(str(e))
+    if not equipos:
+        avisos.append("Ningún equipo ha respondido por SNMP: se dibuja la topología en estrella.")
+        return None, avisos
+    topologia = inferir_topologia(equipos)
+    log.info(f"Topología SNMP: {len(topologia['equipos'])} equipos de red, "
+             f"{len(topologia['ubicaciones'])} hosts ubicados")
+    return topologia, avisos

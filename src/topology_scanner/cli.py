@@ -6,7 +6,6 @@ llama a scanner (+ snmp) -> graph -> export. La lógica real vive en esos módul
 """
 
 import argparse
-import ipaddress
 import logging
 import os
 import sys
@@ -27,7 +26,7 @@ try:
         ScannerError,
         escanear_red,
     )
-    from .snmp import SnmpError, consultar_equipo, inferir_topologia
+    from .snmp import obtener_topologia, parsear_lista_ips
 except RuntimeError as e:
     sys.exit(str(e))
 
@@ -45,13 +44,10 @@ VARIABLE_COMMUNITY = "TOPOLOGY_SNMP_COMMUNITY"
 
 def _lista_de_ips(valor: str) -> list:
     """Tipo de argparse para --snmp: "192.168.1.1, 192.168.1.2" -> lista."""
-    ips = [parte.strip() for parte in valor.split(",") if parte.strip()]
-    for ip in ips:
-        try:
-            ipaddress.IPv4Address(ip)
-        except ValueError as e:
-            raise argparse.ArgumentTypeError(f"'{ip}' no es una IPv4 válida") from e
-    return ips
+    try:
+        return parsear_lista_ips(valor)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
 
 
 def construir_parser() -> argparse.ArgumentParser:
@@ -169,24 +165,10 @@ def main():
 
 
 def _obtener_topologia(ips: list, community: str) -> dict | None:
-    """Consulta cada equipo por SNMP e infiere la topología. Un equipo que
-    no responde se salta con un aviso; si no responde ninguno, se devuelve
-    None y se dibuja la estrella: el escaneo de nmap ya ha funcionado y
-    perder la topología no es motivo para no generar nada (mismo criterio
-    que con el historial)."""
-    equipos = []
-    for ip in ips:
-        log.info(f"Consultando {ip} por SNMP...")
-        try:
-            equipos.append(consultar_equipo(ip, community))
-        except SnmpError as e:
-            log.warning(str(e))
-    if not equipos:
-        log.warning("Ningún equipo ha respondido por SNMP: se dibuja la topología en estrella.")
-        return None
-    topologia = inferir_topologia(equipos)
-    log.info(f"Topología SNMP: {len(topologia['equipos'])} equipos de red, "
-             f"{len(topologia['ubicaciones'])} hosts ubicados")
+    """snmp.obtener_topologia, con los avisos al log (en la web se pintan)."""
+    topologia, avisos = obtener_topologia(ips, community)
+    for aviso in avisos:
+        log.warning(aviso)
     return topologia
 
 

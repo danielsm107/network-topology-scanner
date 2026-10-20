@@ -30,9 +30,11 @@ from topology_scanner.snmp import (
     _recorrer,
     consultar_equipo,
     inferir_topologia,
+    obtener_topologia,
     parsear_arp,
     parsear_fdb,
     parsear_interfaces,
+    parsear_lista_ips,
     parsear_nombre,
     parsear_rutas,
     parsear_vecinos_mikrotik,
@@ -589,3 +591,39 @@ def test_consultar_equipo_filtra_las_macs_propias_con_la_tabla_de_estado(mock_re
 
     assert consultar_equipo("192.0.2.1", "community")["fdb"] == [{"mac": MAC_PC, "if_index": 4}]
     assert OID_FDB_ESTADO in TABLAS_A_CONSULTAR
+
+
+# === Orquestación (compartida por CLI y web) ================================
+
+def test_parsear_lista_ips_separa_por_comas_y_quita_espacios():
+    assert parsear_lista_ips(" 192.0.2.1, 192.0.2.2 ,") == ["192.0.2.1", "192.0.2.2"]
+
+
+def test_parsear_lista_ips_rechaza_lo_que_no_es_una_ipv4():
+    with pytest.raises(ValueError, match="router-casa"):
+        parsear_lista_ips("192.0.2.1,router-casa")
+
+
+@patch("topology_scanner.snmp.inferir_topologia")
+@patch("topology_scanner.snmp.consultar_equipo")
+def test_obtener_topologia_salta_los_que_no_responden_y_lo_avisa(mock_consultar, mock_inferir):
+    mock_consultar.side_effect = [SnmpError("192.0.2.1 no responde por SNMP"), {"ip": "192.0.2.2"}]
+    mock_inferir.return_value = {"equipos": {}, "enlaces": [], "redes": {}, "ubicaciones": {}}
+
+    topologia, avisos = obtener_topologia(["192.0.2.1", "192.0.2.2"], "community")
+
+    mock_inferir.assert_called_once_with([{"ip": "192.0.2.2"}])
+    assert topologia == mock_inferir.return_value
+    assert avisos == ["192.0.2.1 no responde por SNMP"]
+
+
+@patch("topology_scanner.snmp.inferir_topologia")
+@patch("topology_scanner.snmp.consultar_equipo", side_effect=SnmpError("192.0.2.1 no responde por SNMP"))
+def test_obtener_topologia_si_no_responde_ninguno_devuelve_none(_mock_consultar, mock_inferir):
+    """None = dibujar la estrella: el escaneo de nmap ya ha funcionado y
+    perder la topología no es motivo para no mostrar nada."""
+    topologia, avisos = obtener_topologia(["192.0.2.1"], "community")
+
+    assert topologia is None
+    mock_inferir.assert_not_called()
+    assert avisos[-1].endswith("se dibuja la topología en estrella.")

@@ -230,8 +230,8 @@ def test_snmp_sin_community_falla_antes_de_escanear(mock_escanear_red, monkeypat
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
-@patch("topology_scanner.cli.inferir_topologia")
-@patch("topology_scanner.cli.consultar_equipo")
+@patch("topology_scanner.snmp.inferir_topologia")
+@patch("topology_scanner.snmp.consultar_equipo")
 @patch("topology_scanner.cli.escanear_red")
 def test_snmp_consulta_los_equipos_y_pasa_la_topologia_al_grafo(
     mock_escanear_red, mock_consultar, mock_inferir, mock_construir_grafo,
@@ -255,8 +255,8 @@ def test_snmp_consulta_los_equipos_y_pasa_la_topologia_al_grafo(
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
-@patch("topology_scanner.cli.inferir_topologia")
-@patch("topology_scanner.cli.consultar_equipo")
+@patch("topology_scanner.snmp.inferir_topologia")
+@patch("topology_scanner.snmp.consultar_equipo")
 @patch("topology_scanner.cli.escanear_red")
 def test_snmp_un_equipo_que_no_responde_se_salta_y_se_sigue_con_los_demas(
     mock_escanear_red, mock_consultar, mock_inferir, mock_construir_grafo,
@@ -275,8 +275,8 @@ def test_snmp_un_equipo_que_no_responde_se_salta_y_se_sigue_con_los_demas(
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
-@patch("topology_scanner.cli.inferir_topologia")
-@patch("topology_scanner.cli.consultar_equipo")
+@patch("topology_scanner.snmp.inferir_topologia")
+@patch("topology_scanner.snmp.consultar_equipo")
 @patch("topology_scanner.cli.escanear_red")
 def test_snmp_si_no_responde_ninguno_se_dibuja_la_estrella(
     mock_escanear_red, mock_consultar, mock_inferir, mock_construir_grafo,
@@ -299,7 +299,7 @@ def test_snmp_si_no_responde_ninguno_se_dibuja_la_estrella(
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
-@patch("topology_scanner.cli.consultar_equipo")
+@patch("topology_scanner.snmp.consultar_equipo")
 @patch("topology_scanner.cli.escanear_red")
 def test_sin_snmp_no_se_consulta_nada(
     mock_escanear_red, mock_consultar, mock_construir_grafo, mock_exportar_texto, mock_exportar_html,
