@@ -65,6 +65,19 @@ def descubrir_hosts_vivos(rango: str) -> list:
     return vivos
 
 
+def _reparar_codificacion(texto: str) -> str:
+    """nmap escribe en la XML cada byte UTF-8 de un carácter no ASCII como
+    una referencia aparte (&#xef;&#xbc;&#x8c; en vez de &#xff0c;), y el
+    parser lo lee como caracteres Latin-1 sueltos: "Electronicï¼LTD".
+    Si el texto se puede volver a esos bytes y forman UTF-8 válido, era ese
+    caso y se recompone. Un texto ASCII no cambia, y uno con acentos bien
+    decodificados ("Société") no forma UTF-8 válido y se deja tal cual."""
+    try:
+        return texto.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return texto
+
+
 def parsear_host(info_host) -> dict:
     """Convierte el resultado de nmap para un host en nuestro formato interno.
     Pública (no _parsear_host): webapp.py la reutiliza para el escaneo
@@ -85,7 +98,7 @@ def parsear_host(info_host) -> dict:
     direcciones = info_host.get("addresses", {})
     if "mac" in direcciones:
         mac = direcciones["mac"]
-        vendor = info_host.get("vendor", {}).get(mac, "")
+        vendor = _reparar_codificacion(info_host.get("vendor", {}).get(mac, ""))
 
     puertos_abiertos = []
     if "tcp" in info_host:

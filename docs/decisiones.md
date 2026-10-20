@@ -263,3 +263,11 @@ contexto completo.
   que no responde se salta con un aviso; si no responde ninguno, se dibuja
   la estrella (mismo criterio que `HistoryError`). La consulta SNMP va
   después del escaneo de nmap y antes de construir el grafo.
+- `scanner._reparar_codificacion` arregla el vendor que nmap rompe: en la
+  XML escribe cada byte UTF-8 de un carácter no ASCII como una referencia
+  aparte (`&#xef;&#xbc;&#x8c;` en vez de `&#xff0c;`), y el parser lo lee
+  como caracteres Latin-1 sueltos ("Shenzhen Bilian Electronicï¼LTD" en
+  una red real; el archivo `nmap-mac-prefixes` sí está bien en UTF-8). Se
+  recompone con `encode("latin-1").decode("utf-8")` solo si eso forma
+  UTF-8 válido: ASCII no cambia y un "Société" bien decodificado no pasa
+  la prueba, así que se queda igual.

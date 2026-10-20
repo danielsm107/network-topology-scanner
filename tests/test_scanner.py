@@ -15,6 +15,7 @@ from topology_scanner.scanner import (
     ScannerError,
     descubrir_hosts_vivos,
     escanear_red,
+    parsear_host,
 )
 
 
@@ -160,3 +161,32 @@ def test_defaults_compartidos_por_cli_y_webapp():
     con riesgo de desincronizarse si se cambiaba uno y no el otro."""
     assert DEFAULT_NMAP_ARGS == "-sV -T4"
     assert PUERTOS_POR_DEFECTO == "21-23,25,53,80,110,135,139,143,443,445,3389,8080"
+
+
+# --- Vendor con la codificación rota por nmap --------------------------------
+#
+# nmap escribe en la XML cada byte UTF-8 de un carácter no ASCII como una
+# referencia aparte (&#xef;&#xbc;&#x8c; en vez de &#xff0c;), y el parser lo
+# lee como tres caracteres Latin-1. Visto con "Shenzhen Bilian
+# Electronic<U+FF0C>LTD" (coma de ancho completo) en una red real.
+
+def test_parsear_host_repara_el_vendor_que_nmap_codifica_byte_a_byte():
+    roto = "Shenzhen Bilian Electronic\u00ef\u00bc\u008cLTD"
+
+    datos = parsear_host(HostInfoFalso(mac="14:6B:9C:00:00:01", vendor=roto))
+
+    assert datos["vendor"] == "Shenzhen Bilian Electronic\uff0cLTD"   # coma de ancho completo
+
+
+def test_parsear_host_no_toca_un_vendor_ascii():
+    datos = parsear_host(HostInfoFalso(mac="AA:BB:CC:DD:EE:FF", vendor="Routerboard.com"))
+
+    assert datos["vendor"] == "Routerboard.com"
+
+
+def test_parsear_host_no_toca_un_vendor_con_acentos_bien_decodificados():
+    """"Société" en Latin-1 son bytes que no forman UTF-8 válido: no es el
+    caso roto, se deja tal cual."""
+    datos = parsear_host(HostInfoFalso(mac="AA:BB:CC:DD:EE:FF", vendor="Société Générale"))
+
+    assert datos["vendor"] == "Société Générale"
