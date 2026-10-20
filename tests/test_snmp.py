@@ -28,6 +28,7 @@ from topology_scanner.snmp import (
     SnmpError,
     _recorrer,
     consultar_equipo,
+    inferir_topologia,
     parsear_arp,
     parsear_fdb,
     parsear_interfaces,
@@ -395,3 +396,147 @@ def test_los_errores_no_incluyen_la_community(pysnmp_falso):
         _recorrer("192.0.2.1", "community-secreta", (OID_SYS_NAME,), 1, 0)
 
     assert "community-secreta" not in str(error.value)
+
+
+# === Inferencia de topología ================================================
+#
+# Entrada: lo que devuelve consultar_equipo (ya parseado). Este router
+# reproduce la red real anonimizada:
+#
+#   Upstream 198.51.100.2 ── ether1 ── Router-Casa 192.0.2.1
+#                                         ├─ ether2 ── AP-Interior 192.0.2.254 ── PC
+#                                         ├─ ether3 ── UDM 192.0.2.44 (sin LLDP) ── LAN B 10.0.10.0/24
+#                                         ├─ ether4 ── cámara
+#                                         └─ wlan1  ── móvil
+
+MAC_UDM_OTRA = "02:00:00:00:00:45"
+MAC_CAMARA = "02:00:00:00:00:40"
+MAC_SOLO_ARP = "02:00:00:00:00:50"
+
+
+def _router_casa():
+    return {
+        "ip": "192.0.2.1",
+        "nombre": "Router-Casa",
+        "interfaces": {1: "wlan1", 3: "ether1", 4: "ether2", 5: "ether3", 6: "ether4", 8: "Bridge LAN"},
+        "arp": [
+            {"ip": "198.51.100.2", "mac": MAC_UPSTREAM, "if_index": 3},
+            {"ip": "192.0.2.20", "mac": MAC_PC, "if_index": 8},
+            {"ip": "192.0.2.44", "mac": MAC_UDM, "if_index": 8},
+            {"ip": "192.0.2.30", "mac": MAC_MOVIL, "if_index": 8},
+            {"ip": "192.0.2.40", "mac": MAC_CAMARA, "if_index": 8},
+            {"ip": "192.0.2.50", "mac": MAC_SOLO_ARP, "if_index": 8},
+        ],
+        "rutas": [
+            {"red": "0.0.0.0/0", "siguiente_salto": "198.51.100.2"},
+            {"red": "10.0.10.0/24", "siguiente_salto": "192.0.2.44"},
+            {"red": "192.0.2.0/24", "siguiente_salto": "192.0.2.1"},
+            {"red": "198.51.100.0/30", "siguiente_salto": "198.51.100.1"},
+        ],
+        "fdb": [
+            {"mac": MAC_PC, "if_index": 4},
+            {"mac": MAC_AP, "if_index": 4},
+            {"mac": MAC_UDM, "if_index": 5},
+            {"mac": MAC_UDM_OTRA, "if_index": 5},
+            {"mac": MAC_CAMARA, "if_index": 6},
+            {"mac": MAC_MOVIL, "if_index": 1},
+        ],
+        "vecinos": [
+            {"ip": "198.51.100.2", "mac": MAC_UPSTREAM, "identidad": "Upstream",
+             "plataforma": "MikroTik", "version": "6.48.5", "if_index": 3},
+            {"ip": "192.0.2.254", "mac": MAC_AP, "identidad": "AP-Interior",
+             "plataforma": "MikroTik", "version": "6.49.19", "if_index": 4},
+            {"ip": None, "mac": MAC_PC, "identidad": "", "plataforma": "", "version": "", "if_index": 4},
+        ],
+    }
+
+
+def test_inferir_topologia_sin_equipos_devuelve_estructura_vacia():
+    assert inferir_topologia([]) == {"equipos": {}, "enlaces": [], "redes": {}, "ubicaciones": {}}
+
+
+def test_inferir_topologia_identifica_los_equipos_de_red():
+    """Equipos de red = el consultado + vecinos con identidad + siguientes
+    saltos de rutas (el UDM no anuncia LLDP: solo se sabe de él por la
+    tabla de rutas). El PC que manda LLDP sin identidad no es un equipo."""
+    equipos = inferir_topologia([_router_casa()])["equipos"]
+
+    assert set(equipos) == {"192.0.2.1", "198.51.100.2", "192.0.2.254", "192.0.2.44"}
+    assert equipos["192.0.2.1"] == {"nombre": "Router-Casa", "plataforma": "", "version": "",
+                                    "mac": None, "consultado": True, "upstream": False}
+    assert equipos["192.0.2.254"]["nombre"] == "AP-Interior"
+    assert equipos["192.0.2.44"]["mac"] == MAC_UDM
+    assert equipos["192.0.2.44"]["consultado"] is False
+
+
+def test_inferir_topologia_marca_como_upstream_la_puerta_de_enlace_no_consultada():
+    equipos = inferir_topologia([_router_casa()])["equipos"]
+
+    assert equipos["198.51.100.2"]["upstream"] is True
+    assert not any(e["upstream"] for ip, e in equipos.items() if ip != "198.51.100.2")
+
+
+def test_inferir_topologia_enlaces_padre_hijo_con_interfaces():
+    """La puerta de enlace es el padre del router consultado (el enlace se
+    ve desde el lado del hijo: ether1); el resto de equipos son hijos."""
+    enlaces = inferir_topologia([_router_casa()])["enlaces"]
+
+    assert sorted(enlaces, key=lambda e: e["hijo"]) == [
+        {"padre": "198.51.100.2", "hijo": "192.0.2.1", "interfaz_padre": None, "interfaz_hijo": "ether1"},
+        {"padre": "192.0.2.1", "hijo": "192.0.2.254", "interfaz_padre": "ether2", "interfaz_hijo": None},
+        {"padre": "192.0.2.1", "hijo": "192.0.2.44", "interfaz_padre": "ether3", "interfaz_hijo": None},
+    ]
+
+
+def test_inferir_topologia_redes_remotas_sin_las_conectadas_ni_la_ruta_por_defecto():
+    """Una ruta cuyo siguiente salto está dentro de la propia red es una red
+    conectada (el salto es el propio router), no otro router."""
+    assert inferir_topologia([_router_casa()])["redes"] == {"10.0.10.0/24": "192.0.2.44"}
+
+
+def test_inferir_topologia_ubica_cada_host():
+    ubicaciones = inferir_topologia([_router_casa()])["ubicaciones"]
+
+    assert ubicaciones == {
+        # Puertos de acceso: cuelga del router, en esa interfaz
+        MAC_MOVIL: {"ip": "192.0.2.30", "padre": "192.0.2.1", "interfaz": "wlan1"},
+        MAC_CAMARA: {"ip": "192.0.2.40", "padre": "192.0.2.1", "interfaz": "ether4"},
+        # Visto por un puerto que lleva a otro equipo: cuelga de ese equipo
+        MAC_PC: {"ip": "192.0.2.20", "padre": "192.0.2.254", "interfaz": None},
+        MAC_UDM_OTRA: {"ip": None, "padre": "192.0.2.44", "interfaz": None},
+        # Solo en la ARP: se sabe que está en la red del router, no en qué puerto
+        MAC_SOLO_ARP: {"ip": "192.0.2.50", "padre": "192.0.2.1", "interfaz": None},
+    }
+
+
+def test_inferir_topologia_varios_routers_consultados_sin_duplicar_enlaces():
+    """Si también se consulta el UDM, su puerta de enlace es el router de
+    casa: el enlace es el mismo que ya se dedujo desde arriba, no otro, y
+    el UDM deja de ser 'no consultado'. Sus hosts de la LAN B salen con
+    puerto, y un host visto por los dos se queda con la ubicación con
+    puerto (la más precisa)."""
+    udm = {
+        "ip": "192.0.2.44",
+        "nombre": "UDM",
+        "interfaces": {1: "eth8", 2: "br0", 3: "eth1"},
+        "arp": [{"ip": "192.0.2.1", "mac": "02:00:00:00:00:a1", "if_index": 1},
+                {"ip": "10.0.10.10", "mac": "02:00:00:00:01:10", "if_index": 2}],
+        "rutas": [{"red": "0.0.0.0/0", "siguiente_salto": "192.0.2.1"},
+                  {"red": "10.0.10.0/24", "siguiente_salto": "10.0.10.1"}],
+        "fdb": [{"mac": "02:00:00:00:01:10", "if_index": 3},
+                {"mac": MAC_UDM_OTRA, "if_index": 3}],
+        "vecinos": [],
+    }
+
+    topologia = inferir_topologia([_router_casa(), udm])
+
+    enlaces_udm = [e for e in topologia["enlaces"] if "192.0.2.44" in (e["padre"], e["hijo"])]
+    assert enlaces_udm == [
+        {"padre": "192.0.2.1", "hijo": "192.0.2.44", "interfaz_padre": "ether3", "interfaz_hijo": "eth8"},
+    ]
+    assert topologia["equipos"]["192.0.2.44"]["consultado"] is True
+    assert topologia["equipos"]["192.0.2.44"]["nombre"] == "UDM"
+    assert topologia["equipos"]["192.0.2.1"]["upstream"] is False
+    assert topologia["ubicaciones"]["02:00:00:00:01:10"] == {"ip": "10.0.10.10", "padre": "192.0.2.44",
+                                                            "interfaz": "eth1"}
+    assert topologia["ubicaciones"][MAC_UDM_OTRA] == {"ip": None, "padre": "192.0.2.44", "interfaz": "eth1"}

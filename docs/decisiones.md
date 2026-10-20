@@ -207,3 +207,16 @@ contexto completo.
   `EndOfMibView` de pysnmp también tienen `asOctets()` (devuelven `b""`),
   así que `_convertir_valor` los descarta antes de convertir. La community
   nunca aparece en mensajes de error ni en el log.
+- `snmp.inferir_topologia(equipos)` es pura y devuelve un dict neutral
+  (`equipos`/`enlaces`/`redes`/`ubicaciones`) indexado por IP, igual que
+  los nodos del grafo, para que `graph.py` lo cruce con nmap sin saber nada
+  de SNMP. Reglas: equipos de red = consultados + vecinos **con identidad**
+  (un PC que manda LLDP no cuenta) + siguientes saltos de rutas (el UDM no
+  anuncia LLDP: solo se le conoce por la ruta a su LAN). Una ruta cuyo
+  salto está dentro de la propia red es una red conectada, no otro router.
+  La puerta de enlace es el padre; si no se ha consultado, `upstream`. Un
+  host visto por un puerto donde hay otro equipo de red cuelga de ese
+  equipo sin puerto (no se sabe cuál de los suyos); si varios routers lo
+  ven, gana la ubicación con interfaz. La ARP no sirve para decir en qué
+  puerto está nada dentro de un bridge (diría "Bridge LAN" para todos):
+  solo se usa para etiquetar enlaces cuando no hay vecino ni tabla MAC.

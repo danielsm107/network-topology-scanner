@@ -299,3 +299,145 @@ def parsear_vecinos_mikrotik(filas: Iterable[Fila]) -> list[dict]:
             "if_index": if_index if isinstance(if_index, int) else None,
         })
     return vecinos
+
+
+# --- Inferencia de topología (pura) ------------------------------------------
+
+def inferir_topologia(equipos_consultados: list[dict]) -> dict:
+    """Deduce quién cuelga de quién a partir de lo que devuelve
+    consultar_equipo (uno o varios routers/switches). Devuelve un dict
+    neutral, sin nada de SNMP, indexado por IP como los nodos del grafo:
+
+        {"equipos":     {ip: {"nombre", "plataforma", "version", "mac", "consultado", "upstream"}},
+         "enlaces":     [{"padre", "hijo", "interfaz_padre", "interfaz_hijo"}],
+         "redes":       {"10.0.10.0/24": ip_del_router_que_la_sirve},
+         "ubicaciones": {mac: {"ip", "padre", "interfaz"}}}
+
+    Reglas:
+    - Equipos de red: los consultados, sus vecinos con identidad (MNDP/LLDP)
+      y los siguientes saltos de sus rutas (un router que no anuncia LLDP
+      solo se conoce por la tabla de rutas).
+    - La puerta de enlace (ruta por defecto) es el padre del router; el
+      resto de equipos, sus hijos. Si la puerta de enlace no se ha
+      consultado, se marca como `upstream`.
+    - Una ruta cuyo siguiente salto está dentro de la propia red es una red
+      conectada (el salto es el propio router): no apunta a otro router.
+    - Un host visto en un puerto donde hay otro equipo de red cuelga de ese
+      equipo (sin puerto: no se sabe cuál de los suyos); si no, cuelga del
+      router en esa interfaz. Si varios routers lo ven, gana la ubicación
+      con interfaz (la más precisa).
+    """
+    consultados = {equipo["ip"] for equipo in equipos_consultados}
+    equipos: dict[str, dict] = {}
+    enlaces: dict[tuple[str, str], dict] = {}
+    redes: dict[str, str] = {}
+    pasarelas: set[str] = set()
+    # Por router consultado: ifIndex -> IP del equipo de red que hay detrás
+    interfaz_a_equipo: dict[str, dict[int, str]] = {}
+
+    def registrar(ip: str, **datos):
+        actual = equipos.setdefault(ip, {
+            "nombre": "", "plataforma": "", "version": "", "mac": None,
+            "consultado": ip in consultados, "upstream": False,
+        })
+        for clave, valor in datos.items():
+            if valor and not actual[clave]:
+                actual[clave] = valor
+
+    def enlazar(padre: str, hijo: str, interfaz_padre: str | None, interfaz_hijo: str | None):
+        if padre == hijo or (hijo, padre) in enlaces:
+            return
+        enlace = enlaces.setdefault((padre, hijo), {
+            "padre": padre, "hijo": hijo, "interfaz_padre": None, "interfaz_hijo": None,
+        })
+        enlace["interfaz_padre"] = enlace["interfaz_padre"] or interfaz_padre
+        enlace["interfaz_hijo"] = enlace["interfaz_hijo"] or interfaz_hijo
+
+    # Pasada 1: equipos de red, enlaces y redes remotas
+    for router in equipos_consultados:
+        ip_router = router["ip"]
+        registrar(ip_router, nombre=router["nombre"])
+        arp_por_ip = {entrada["ip"]: entrada for entrada in router["arp"]}
+        fdb_por_mac = {entrada["mac"]: entrada["if_index"] for entrada in router["fdb"]}
+        mapa = interfaz_a_equipo.setdefault(ip_router, {})
+
+        # (ip, mac, ifIndex del vecino si se conoce)
+        vecinos_de_red: list[tuple[str, str | None, int | None]] = []
+        for vecino in router["vecinos"]:
+            if vecino["ip"] and vecino["identidad"]:
+                registrar(vecino["ip"], nombre=vecino["identidad"], plataforma=vecino["plataforma"],
+                          version=vecino["version"], mac=vecino["mac"])
+                vecinos_de_red.append((vecino["ip"], vecino["mac"], vecino["if_index"]))
+
+        pasarela = None
+        for ruta in router["rutas"]:
+            red = ipaddress.IPv4Network(ruta["red"])
+            salto = ruta["siguiente_salto"]
+            if red.prefixlen == 0:
+                pasarela = salto
+            elif ipaddress.IPv4Address(salto) in red:
+                continue
+            else:
+                redes.setdefault(str(red), salto)
+            mac_salto = arp_por_ip.get(salto, {}).get("mac")
+            registrar(salto, mac=mac_salto)
+            vecinos_de_red.append((salto, mac_salto, None))
+
+        for ip_equipo, mac, if_vecino in vecinos_de_red:
+            if ip_equipo == ip_router:
+                continue
+            # Dónde está: vecino > tabla MAC > ARP. La ARP solo sirve para
+            # etiquetar el enlace: en un bridge diría "Bridge LAN" para todos.
+            if_index = if_vecino if if_vecino is not None else fdb_por_mac.get(mac)
+            if if_index is not None:
+                mapa.setdefault(if_index, ip_equipo)
+            else:
+                if_index = arp_por_ip.get(ip_equipo, {}).get("if_index")
+            interfaz = router["interfaces"].get(if_index)
+            if ip_equipo == pasarela:
+                enlazar(ip_equipo, ip_router, None, interfaz)
+            else:
+                enlazar(ip_router, ip_equipo, interfaz, None)
+
+        if pasarela:
+            pasarelas.add(pasarela)
+
+    for pasarela in pasarelas - consultados:
+        equipos[pasarela]["upstream"] = True
+
+    # Pasada 2: hosts (necesita conocer ya todos los equipos de red)
+    macs_de_equipos = {equipo["mac"] for equipo in equipos.values() if equipo["mac"]}
+    ubicaciones: dict[str, dict] = {}
+
+    def ubicar(mac: str, ip: str | None, padre: str, interfaz: str | None):
+        actual = ubicaciones.get(mac)
+        if actual is None or (actual["interfaz"] is None and interfaz is not None):
+            ubicaciones[mac] = {"ip": ip or (actual or {}).get("ip"), "padre": padre, "interfaz": interfaz}
+        elif ip and not actual["ip"]:
+            actual["ip"] = ip
+
+    for router in equipos_consultados:
+        ip_router = router["ip"]
+        ip_por_mac = {entrada["mac"]: entrada["ip"] for entrada in router["arp"]}
+        mapa = interfaz_a_equipo[ip_router]
+        macs_en_fdb = set()
+
+        for entrada in router["fdb"]:
+            mac = entrada["mac"]
+            macs_en_fdb.add(mac)
+            ip = ip_por_mac.get(mac)
+            if mac in macs_de_equipos or ip in equipos:
+                continue
+            equipo_detras = mapa.get(entrada["if_index"])
+            if equipo_detras:
+                ubicar(mac, ip, equipo_detras, None)
+            else:
+                ubicar(mac, ip, ip_router, router["interfaces"].get(entrada["if_index"]))
+
+        for entrada in router["arp"]:
+            mac, ip = entrada["mac"], entrada["ip"]
+            if mac in macs_en_fdb or mac in macs_de_equipos or ip in equipos:
+                continue
+            ubicar(mac, ip, ip_router, None)
+
+    return {"equipos": equipos, "enlaces": list(enlaces.values()), "redes": redes, "ubicaciones": ubicaciones}
