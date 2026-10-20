@@ -234,3 +234,18 @@ contexto completo.
   Todo nodo lleva `padre` (None en las raíces) para el layout por niveles,
   y las aristas `interfaz` (la del padre, o la del hijo si es la única que
   se conoce).
+- `export.posiciones_jerarquicas(grafo)`: cuando el grafo trae equipos de
+  red (topología SNMP), `exportar_html` dibuja un árbol por niveles en vez
+  del círculo. Cada nodo ocupa un hueco tan ancho como su subárbol y se
+  centra sobre sus hijos; las hojas de un mismo padre van en un bloque de
+  `COLUMNAS_HOJAS` (4) columnas ordenadas por interfaz, para que 20 hosts
+  colgando de un router no den un árbol de 20 de ancho. Varias raíces (p.
+  ej. el nodo "Red" de hosts sin ubicar) van una al lado de otra. Ajustes
+  visuales salidos de probarlo con datos reales: aristas `cubicBezier`
+  verticales (las rectas hacia la 2ª/3ª fila del bloque atravesaban la 1ª),
+  una sola etiqueta de interfaz por padre+puerto (8 "wlan1" iguales
+  ensuciaban), la IP una sola vez si no hay hostname, y la leyenda arriba a
+  la izquierda (abajo tapaba hosts). Además se fuerza `network.fit()` tras
+  el primer dibujado: el encuadre inicial venía de rebote al terminar la
+  simulación física de las aristas `dynamic` por defecto, y en el árbol no
+  hay nada que simular — la vista se quedaba centrada en la raíz.

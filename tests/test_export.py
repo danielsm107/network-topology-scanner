@@ -6,6 +6,9 @@ generado de verdad que simular toda la API de pyvis.
 
 import csv
 import io
+import json
+
+import networkx as nx
 
 from topology_scanner.classifier import icono_para_categoria
 from topology_scanner.export import (
@@ -15,6 +18,7 @@ from topology_scanner.export import (
     exportar_html,
     exportar_texto,
     posiciones_circulares,
+    posiciones_jerarquicas,
 )
 from topology_scanner.graph import construir_grafo
 
@@ -411,3 +415,173 @@ def test_exportar_html_leyenda_es_independiente_de_los_hosts_del_grafo(tmp_path)
 
     html = salida.read_text(encoding="utf-8")
     assert icono_para_categoria("printer")["nombre"] in html
+
+
+# === Layout jerárquico (grafo con topología SNMP) ===========================
+
+def _arbol(enlaces):
+    """Grafo mínimo como el que genera graph.py con topología: cada nodo
+    lleva `padre` y cada arista su `interfaz`. enlaces = [(padre, hijo, interfaz)]."""
+    grafo = nx.Graph()
+    for padre, hijo, interfaz in enlaces:
+        grafo.add_node(padre)
+        grafo.nodes[padre].setdefault("padre", None)
+        grafo.add_node(hijo, padre=padre)
+        grafo.add_edge(padre, hijo, interfaz=interfaz)
+    return grafo
+
+
+def test_posiciones_jerarquicas_un_nivel_por_profundidad():
+    grafo = _arbol([("upstream", "router", None), ("router", "ap", "ether2"), ("ap", "pc", None)])
+
+    pos = posiciones_jerarquicas(grafo)
+
+    assert pos["upstream"][1] < pos["router"][1] < pos["ap"][1] < pos["pc"][1]
+
+
+def test_posiciones_jerarquicas_padre_centrado_sobre_sus_hijos():
+    grafo = _arbol([("router", "ap", "ether2"), ("router", "udm", "ether3"),
+                    ("ap", "pc1", None), ("udm", "pc2", None)])
+
+    pos = posiciones_jerarquicas(grafo)
+
+    assert pos["router"][0] == (pos["ap"][0] + pos["udm"][0]) / 2
+
+
+def test_posiciones_jerarquicas_hojas_en_varias_filas_si_son_muchas():
+    """20 hosts colgando del mismo router no deben dar un árbol de 20 de
+    ancho: las hojas se agrupan en un bloque de pocas columnas."""
+    grafo = _arbol([("router", f"host{i:02d}", "wlan1") for i in range(20)])
+
+    pos = posiciones_jerarquicas(grafo)
+    xs = {round(pos[f"host{i:02d}"][0]) for i in range(20)}
+    ys = {round(pos[f"host{i:02d}"][1]) for i in range(20)}
+
+    assert len(xs) < 20
+    assert len(ys) > 1
+    assert min(ys) > pos["router"][1]
+
+
+def test_posiciones_jerarquicas_agrupa_las_hojas_por_interfaz():
+    grafo = _arbol([("router", "b-wifi", "wlan1"), ("router", "a-cable", "ether4"),
+                    ("router", "c-wifi", "wlan1")])
+
+    pos = posiciones_jerarquicas(grafo)
+    orden = sorted(["a-cable", "b-wifi", "c-wifi"], key=lambda n: (pos[n][1], pos[n][0]))
+
+    assert orden == ["a-cable", "b-wifi", "c-wifi"]   # ether4 < wlan1
+
+
+def test_posiciones_jerarquicas_no_hay_dos_nodos_en_el_mismo_punto():
+    enlaces = [("upstream", "router", None), ("router", "ap", "ether2"), ("router", "udm", "ether3")]
+    enlaces += [("ap", f"ap-host{i}", None) for i in range(9)]
+    enlaces += [("udm", f"udm-host{i}", None) for i in range(3)]
+    enlaces += [("router", f"wifi{i}", "wlan1") for i in range(8)]
+    grafo = _arbol(enlaces)
+
+    pos = posiciones_jerarquicas(grafo)
+
+    assert set(pos) == set(grafo.nodes)
+    assert len({(round(x), round(y)) for x, y in pos.values()}) == grafo.number_of_nodes()
+
+
+def test_posiciones_jerarquicas_varias_raices_lado_a_lado():
+    """El nodo "Red <rango>" de los hosts sin ubicar es otra raíz: no debe
+    pisar al árbol principal."""
+    grafo = _arbol([("upstream", "router", None), ("router", "pc", "ether2"),
+                    ("Red 192.0.2.0/24", "perdido", None)])
+
+    pos = posiciones_jerarquicas(grafo)
+    principal = [pos[n][0] for n in ("upstream", "router", "pc")]
+    suelto = [pos[n][0] for n in ("Red 192.0.2.0/24", "perdido")]
+
+    assert max(principal) < min(suelto) or max(suelto) < min(principal)
+
+
+def test_posiciones_jerarquicas_es_determinista():
+    grafo = _arbol([("router", f"h{i}", "ether2") for i in range(7)])
+
+    assert posiciones_jerarquicas(grafo) == posiciones_jerarquicas(grafo)
+
+
+def _nodos_del_html(html: str) -> dict:
+    datos = html.split("nodes = new vis.DataSet(")[1].split(");")[0]
+    return {nodo["id"]: nodo for nodo in json.loads(datos)}
+
+
+def _topologia_minima():
+    equipo = {"nombre": "Router", "plataforma": "", "version": "", "mac": None,
+              "consultado": True, "upstream": False}
+    return {
+        "equipos": {"192.168.1.1": equipo},
+        "enlaces": [],
+        "redes": {},
+        "ubicaciones": {"02:00:00:00:00:10": {"ip": "192.168.1.10", "padre": "192.168.1.1",
+                                              "interfaz": "ether2"}},
+    }
+
+
+def test_exportar_html_con_topologia_usa_el_layout_jerarquico(tmp_path):
+    grafo = construir_grafo({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24",
+                            topologia=_topologia_minima())
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    nodos = _nodos_del_html(salida.read_text(encoding="utf-8"))
+    assert nodos["192.168.1.1"]["y"] < nodos["192.168.1.10"]["y"]
+    assert nodos["192.168.1.1"]["x"] == nodos["192.168.1.10"]["x"]
+
+
+def test_exportar_html_con_topologia_etiqueta_las_aristas_con_la_interfaz(tmp_path):
+    grafo = construir_grafo({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24",
+                            topologia=_topologia_minima())
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    aristas = json.loads(html.split("edges = new vis.DataSet(")[1].split(");")[0])
+    assert [a.get("label") for a in aristas] == ["ether2"]
+
+
+def test_exportar_html_con_topologia_una_sola_etiqueta_por_puerto(tmp_path):
+    """8 móviles por wlan1 no deben dar 8 etiquetas "wlan1" iguales: basta
+    una por padre+interfaz (cada host lo dice además en su tooltip)."""
+    topologia = _topologia_minima()
+    topologia["ubicaciones"] = {
+        f"02:00:00:00:00:{i:02x}": {"ip": f"192.168.1.{i}", "padre": "192.168.1.1", "interfaz": "wlan1"}
+        for i in range(10, 18)
+    }
+    resultados = {f"192.168.1.{i}": _resultado_fake() for i in range(10, 18)}
+    grafo = construir_grafo(resultados, "192.168.1.0/24", topologia=topologia)
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    html = salida.read_text(encoding="utf-8")
+    aristas = json.loads(html.split("edges = new vis.DataSet(")[1].split(");")[0])
+    assert [a.get("label") for a in aristas].count("wlan1") == 1
+    assert len(aristas) == 8
+
+
+def test_exportar_html_sin_hostname_no_repite_la_ip_en_la_etiqueta(tmp_path):
+    grafo = construir_grafo({"192.168.1.10": _resultado_fake(hostname="")}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    assert _nodos_del_html(salida.read_text(encoding="utf-8"))["192.168.1.10"]["label"] == "192.168.1.10"
+
+
+def test_exportar_html_ajusta_la_vista_al_cargar(tmp_path):
+    """El encuadre inicial no puede depender de la simulación física: en el
+    árbol todos los nodos son fijos y las aristas no son 'dynamic', así que
+    vis-network nunca terminaba una estabilización que lo disparase."""
+    grafo = construir_grafo({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24",
+                            topologia=_topologia_minima())
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    assert 'network.once("afterDrawing"' in salida.read_text(encoding="utf-8")

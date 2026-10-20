@@ -56,7 +56,7 @@ src/topology_scanner/
 ├── scanner.py      # Todo lo de nmap: descubrimiento (fase 1, ping scan) + escaneo completo (fase 2)
 ├── classifier.py   # clasificar_dispositivo(vendor) -> categoría, iconos por categoría
 ├── graph.py        # construir_grafo(resultados, rango, topologia=None) -> networkx.Graph (estrella, o árbol real con topología SNMP)
-├── export.py       # exportar_html (pyvis + iconos Font Awesome vía CDN), exportar_texto, exportar_diff_texto, exportar_csv
+├── export.py       # exportar_html (pyvis; círculo, o árbol por niveles con topología SNMP), exportar_texto, exportar_diff_texto, exportar_csv
 ├── history.py      # registrar_y_comparar(resultados, rango, db_path) -> guarda en SQLite y compara con el escaneo anterior
 ├── snmp.py         # topología real por SNMP (roadmap 6, en curso): consulta con pysnmp, parsers puros e inferir_topologia (quién cuelga de quién)
 ├── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)

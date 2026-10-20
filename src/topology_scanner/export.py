@@ -78,8 +78,115 @@ def posiciones_circulares(n: int) -> list:
     return posiciones
 
 
+# Layout jerárquico (grafo con topología SNMP): un nivel por profundidad del
+# árbol, y las hojas de un mismo padre en un bloque de COLUMNAS_HOJAS
+# columnas para que 20 hosts colgando de un router no den un árbol de 20 de
+# ancho. vis-network usa y creciente hacia abajo, así que la raíz va arriba.
+SEPARACION_X = 170
+SEPARACION_NIVEL_Y = 240
+SEPARACION_FILA_HOJAS_Y = 130
+COLUMNAS_HOJAS = 4
+
+# Etiqueta de interfaz en las aristas: con fondo del color del lienzo para
+# que se lea encima de la línea (sin él, vis pinta un contorno blanco).
+FUENTE_ETIQUETA_ARISTA = {"color": "#bbbbbb", "size": 13, "strokeWidth": 0, "background": "#1e1e1e"}
+
+# En el árbol, aristas curvas que salen y llegan en vertical: con rectas, las
+# que van del padre a la 2ª/3ª fila de un bloque de hojas atraviesan a las de
+# la 1ª fila.
+# Encuadra todo el grafo tras el primer dibujado. Antes el encuadre venía de
+# rebote al terminar la simulación física (las aristas 'dynamic' por defecto
+# tienen nodos de apoyo que simular); en el árbol no hay nada que simular y
+# la vista se quedaba centrada en la raíz. `network` es la variable global
+# que crea la plantilla de pyvis.
+SCRIPT_AJUSTAR_VISTA = '<script>network.once("afterDrawing", function () { network.fit(); });</script>'
+
+ARISTA_CURVA_VERTICAL = {"enabled": True, "type": "cubicBezier", "forceDirection": "vertical", "roundness": 0.6}
+
+
+def posiciones_jerarquicas(grafo: nx.Graph) -> dict:
+    """{nodo: (x, y)} para un grafo cuyos nodos llevan `padre` (None o
+    ausente en las raíces), como el que genera graph.py con topología.
+
+    Cada nodo ocupa un hueco horizontal tan ancho como su subárbol y queda
+    centrado sobre sus hijos. Los hijos con descendientes van primero, uno
+    al lado del otro; las hojas, después, en un bloque de pocas columnas.
+    Dentro de cada grupo se ordena por interfaz (los hosts del mismo puerto
+    quedan juntos) y luego por id, para que el resultado sea determinista."""
+    hijos: dict = {nodo: [] for nodo in grafo.nodes}
+    raices = []
+    for nodo, atributos in grafo.nodes(data=True):
+        padre = atributos.get("padre")
+        if padre is not None and padre in hijos and padre != nodo:
+            hijos[padre].append(nodo)
+        else:
+            raices.append(nodo)
+
+    def orden(padre, hijo):
+        interfaz = (grafo.get_edge_data(padre, hijo) or {}).get("interfaz") or ""
+        return (interfaz, str(hijo))
+
+    for padre, lista in hijos.items():
+        lista.sort(key=lambda hijo, padre=padre: orden(padre, hijo))
+
+    anchos: dict = {}
+
+    def ancho(nodo) -> float:
+        if nodo not in anchos:
+            anchos[nodo] = SEPARACION_X   # provisional: corta un ciclo si lo hubiera
+            subarboles = [h for h in hijos[nodo] if hijos[h]]
+            hojas = [h for h in hijos[nodo] if not hijos[h]]
+            contenido = sum(ancho(s) for s in subarboles) + min(len(hojas), COLUMNAS_HOJAS) * SEPARACION_X
+            anchos[nodo] = max(SEPARACION_X, contenido)
+        return anchos[nodo]
+
+    posiciones: dict = {}
+
+    def colocar(nodo, izquierda: float, y: float):
+        if nodo in posiciones:
+            return
+        posiciones[nodo] = (izquierda + ancho(nodo) / 2, y)   # provisional, por si hay ciclo
+        subarboles = [h for h in hijos[nodo] if hijos[h]]
+        hojas = [h for h in hijos[nodo] if not hijos[h]]
+        columnas = min(len(hojas), COLUMNAS_HOJAS)
+        contenido = sum(ancho(s) for s in subarboles) + columnas * SEPARACION_X
+        x = izquierda + (ancho(nodo) - contenido) / 2
+        y_hijos = y + SEPARACION_NIVEL_Y
+
+        centros = []
+        for subarbol in subarboles:
+            colocar(subarbol, x, y_hijos)
+            centros.append(posiciones[subarbol][0])
+            x += ancho(subarbol)
+        for i, hoja in enumerate(hojas):
+            fila, columna = divmod(i, columnas)
+            posiciones[hoja] = (x + SEPARACION_X * (columna + 0.5), y_hijos + fila * SEPARACION_FILA_HOJAS_Y)
+        if hojas:
+            centros.append(x + columnas * SEPARACION_X / 2)
+
+        if centros:
+            posiciones[nodo] = ((centros[0] + centros[-1]) / 2, y)
+
+    # El nodo "Red <rango>" (hosts sin ubicar) va después del árbol principal
+    raices.sort(key=lambda nodo: (grafo.nodes[nodo].get("tipo") == "red", str(nodo)))
+    total = sum(ancho(raiz) for raiz in raices) + SEPARACION_X * max(len(raices) - 1, 0)
+    izquierda = -total / 2
+    for raiz in raices:
+        colocar(raiz, izquierda, 0)
+        izquierda += ancho(raiz) + SEPARACION_X
+    # Red de seguridad: un ciclo de `padre` (graph.py no los genera) dejaría
+    # nodos inalcanzables desde las raíces; se colocan aparte en vez de
+    # quedarse sin posición.
+    for nodo in grafo.nodes:
+        if nodo not in posiciones:
+            colocar(nodo, izquierda, 0)
+            izquierda += ancho(nodo) + SEPARACION_X
+    return posiciones
+
+
 def _generar_leyenda_html() -> str:
-    """Panel fijo (esquina inferior izquierda) con el icono/color/nombre de
+    """Panel fijo (esquina superior izquierda: en el árbol siempre queda
+    vacía; abajo tapaba la primera columna de hosts) con el icono/color/nombre de
     cada categoría conocida, reutilizando ICONOS_POR_CATEGORIA de
     classifier.py como única fuente de verdad - no una lista aparte que
     se pueda desincronizar si se añade una categoría nueva."""
@@ -96,7 +203,7 @@ def _generar_leyenda_html() -> str:
         f'Puerto sensible abierto</div>'
     )
     return (
-        '<div id="leyenda" style="position:fixed; bottom:16px; left:16px; '
+        '<div id="leyenda" style="position:fixed; top:16px; left:16px; '
         'background:rgba(30,30,30,0.9); color:white; padding:10px 14px; '
         'border-radius:6px; font-family:sans-serif; font-size:13px; z-index:1000;">'
         '<div style="font-weight:bold; margin-bottom:6px;">Leyenda</div>'
@@ -116,6 +223,10 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
     arrastre manual ni el zoom (los sigue dando vis-network por debajo),
     solo impide que el nodo se mueva solo.
 
+    Si el grafo trae equipos de red (topología SNMP, ver graph.py) se usa
+    posiciones_jerarquicas en vez del círculo, y cada arista lleva como
+    etiqueta la interfaz por la que cuelga el nodo (ether2, wlan1...).
+
     cdn_resources="remote": con el "local" por defecto, pyvis enlaza
     lib/bindings/utils.js por ruta relativa y solo copia esa carpeta en
     write_html (aquí se usa generate_html), así que el HTML dependía de que
@@ -123,12 +234,16 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
     red_visual = Network(height="800px", width="100%", bgcolor="#1e1e1e", font_color="white",
                          cdn_resources="remote")
 
-    nodos_host = [(nodo, at) for nodo, at in grafo.nodes(data=True) if at.get("tipo") != "red"]
-    posiciones = dict(zip(
-        (nodo for nodo, _ in nodos_host),
-        posiciones_circulares(len(nodos_host)),
-        strict=True,
-    ))
+    es_arbol = any(at.get("tipo") == "equipo" for _, at in grafo.nodes(data=True))
+    if es_arbol:
+        posiciones = posiciones_jerarquicas(grafo)
+    else:
+        nodos_host = [(nodo, at) for nodo, at in grafo.nodes(data=True) if at.get("tipo") != "red"]
+        posiciones = dict(zip(
+            (nodo for nodo, _ in nodos_host),
+            posiciones_circulares(len(nodos_host)),
+            strict=True,
+        ))
 
     for nodo, atributos in grafo.nodes(data=True):
         if atributos.get("tipo") == "red":
@@ -139,12 +254,15 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
                 icon={"face": "'Font Awesome 5 Free'", "code": "\uf6ff", "size": 60,
                       "color": "#e74c3c", "weight": "900"},
                 title=atributos.get("titulo", ""),
-                x=0, y=0, physics=False,
+                # En la estrella el hub va en el centro; en el árbol, donde diga el layout
+                x=posiciones.get(nodo, (0, 0))[0], y=posiciones.get(nodo, (0, 0))[1], physics=False,
             )
         else:
             categoria = atributos.get("categoria", "desconocido")
             icono = icono_para_categoria(categoria)
-            etiqueta = atributos.get("hostname") or nodo
+            # Sin hostname, la IP una sola vez (antes salía "IP (IP)")
+            hostname = atributos.get("hostname")
+            etiqueta = f"{hostname}\n({nodo})" if hostname else str(nodo)
             tiene_alerta = bool(atributos.get("alertas"))
             color_icono = COLOR_ALERTA if tiene_alerta else icono["color"]
             if tiene_alerta:
@@ -152,7 +270,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
             x, y = posiciones[nodo]
             red_visual.add_node(
                 nodo,
-                label=f"{etiqueta}\n({nodo})",
+                label=etiqueta,
                 shape="icon",
                 icon={"face": icono["face"], "code": icono["code"], "size": 40,
                       "color": color_icono, "weight": icono["weight"]},
@@ -160,12 +278,21 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
                 x=x, y=y, physics=False,
             )
 
-    for origen, destino in grafo.edges():
-        red_visual.add_edge(origen, destino)
+    # Una sola etiqueta por padre+interfaz: con 8 móviles por wlan1, ocho
+    # etiquetas "wlan1" iguales solo ensucian (cada host la lleva en su tooltip).
+    puertos_etiquetados = set()
+    for origen, destino, datos in grafo.edges(data=True):
+        opciones = {"smooth": ARISTA_CURVA_VERTICAL} if es_arbol else {}
+        interfaz = datos.get("interfaz")
+        padre = grafo.nodes[destino].get("padre", origen)
+        if interfaz and (padre, interfaz) not in puertos_etiquetados:
+            puertos_etiquetados.add((padre, interfaz))
+            opciones.update(label=interfaz, font=FUENTE_ETIQUETA_ARISTA)
+        red_visual.add_edge(origen, destino, **opciones)
 
     html = red_visual.generate_html(archivo_salida, notebook=False)
     html = html.replace("</head>", f"{CDN_FONTAWESOME}{CSS_PANTALLA_COMPLETA}</head>")
-    html = html.replace("</body>", f"{_generar_leyenda_html()}</body>")
+    html = html.replace("</body>", f"{_generar_leyenda_html()}{SCRIPT_AJUSTAR_VISTA}</body>")
 
     with open(archivo_salida, "w", encoding="utf-8") as f:
         f.write(html)
