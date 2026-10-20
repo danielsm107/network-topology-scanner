@@ -77,6 +77,18 @@ def test_exportar_html_inyecta_el_cdn_de_fontawesome(tmp_path):
     assert "font-awesome" in salida.read_text(encoding="utf-8")
 
 
+def test_exportar_html_no_depende_de_la_carpeta_lib_local(tmp_path):
+    """Con cdn_resources="local" (el defecto de pyvis) el HTML enlaza
+    lib/bindings/utils.js por ruta relativa, que solo existe si alguien ha
+    copiado esa carpeta junto al archivo de salida."""
+    grafo = construir_grafo({"192.168.1.1": _resultado_fake()}, "192.168.1.0/24")
+    salida = tmp_path / "topologia.html"
+
+    exportar_html(grafo, str(salida))
+
+    assert 'src="lib/' not in salida.read_text(encoding="utf-8")
+
+
 def test_exportar_html_ocupa_toda_la_ventana_del_navegador(tmp_path):
     """pyvis fija #mynetwork a 800px de alto por defecto; el CSS inyectado
     debe pisarlo para que el grafo se adapte a la ventana (ver CLAUDE.md)."""

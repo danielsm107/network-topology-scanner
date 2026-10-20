@@ -17,3 +17,7 @@ venv/
 # Config local de Claude Code (preferencias personales, no del proyecto -
 # settings.json sí se trackea, ese es el compartido)
 .claude/settings.local.json
+
+# Recursos JS que pyvis copia junto al HTML si se usa cdn_resources="local"
+# (export.py usa "remote", pero cualquier write_html() la regenera)
+lib/

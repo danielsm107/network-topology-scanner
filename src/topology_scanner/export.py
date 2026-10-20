@@ -114,8 +114,14 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
     grafo sale siempre ordenado en estrella/círculo alrededor del hub, sin
     depender de dónde se "asiente" la física. physics=False no quita el
     arrastre manual ni el zoom (los sigue dando vis-network por debajo),
-    solo impide que el nodo se mueva solo."""
-    red_visual = Network(height="800px", width="100%", bgcolor="#1e1e1e", font_color="white")
+    solo impide que el nodo se mueva solo.
+
+    cdn_resources="remote": con el "local" por defecto, pyvis enlaza
+    lib/bindings/utils.js por ruta relativa y solo copia esa carpeta en
+    write_html (aquí se usa generate_html), así que el HTML dependía de que
+    existiera un lib/ junto a él. En "remote" ese JS va en línea."""
+    red_visual = Network(height="800px", width="100%", bgcolor="#1e1e1e", font_color="white",
+                         cdn_resources="remote")
 
     nodos_host = [(nodo, at) for nodo, at in grafo.nodes(data=True) if at.get("tipo") != "red"]
     posiciones = dict(zip(
