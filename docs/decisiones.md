@@ -249,3 +249,9 @@ contexto completo.
   el primer dibujado: el encuadre inicial venía de rebote al terminar la
   simulación física de las aristas `dynamic` por defecto, y en el árbol no
   hay nada que simular — la vista se quedaba centrada en la raíz.
+- `parsear_fdb` descarta las entradas con `dot1dTpFdbStatus` invalid(2) o
+  self(4). Se vio al dibujar el árbol con datos reales: 4 "hosts sin IP"
+  con MACs consecutivas de MikroTik eran las MACs de los puertos del propio
+  hAP (estado self), que BRIDGE-MIB lista junto a los hosts aprendidos. Si
+  el equipo no implementa la tabla de estado, no se filtra por eso (mejor
+  algún falso positivo que quedarse sin tabla MAC).

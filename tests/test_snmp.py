@@ -18,6 +18,7 @@ import pytest
 
 from topology_scanner.snmp import (
     OID_ARP,
+    OID_FDB_ESTADO,
     OID_FDB_PUERTO,
     OID_IF_NAME,
     OID_PUERTO_A_IFINDEX,
@@ -173,6 +174,39 @@ def test_parsear_fdb_descarta_puerto_0_mac_nula_y_puertos_sin_interfaz():
     ]
 
     assert parsear_fdb(filas_fdb, _filas_puerto_a_ifindex()) == [{"mac": MAC_PC, "if_index": 4}]
+
+
+def test_parsear_fdb_descarta_las_macs_propias_del_equipo():
+    """dot1dTpFdbStatus: learned(3) es un host de verdad; self(4) es la MAC
+    de un puerto del propio switch/router (el hAP mete ahí la de cada uno
+    de sus puertos, que salían como "hosts" en el grafo); invalid(2) es
+    basura. Las demás (other, mgmt) se conservan."""
+    mac_propia = "02:00:00:00:f9:7b"
+    filas_fdb = [
+        (f"{OID_FDB_PUERTO}.{_mac_en_oid(MAC_PC)}", 1),
+        (f"{OID_FDB_PUERTO}.{_mac_en_oid(mac_propia)}", 1),
+        (f"{OID_FDB_PUERTO}.{_mac_en_oid(MAC_MOVIL)}", 6),
+        (f"{OID_FDB_PUERTO}.{_mac_en_oid(MAC_UDM)}", 3),
+    ]
+    filas_estado = [
+        (f"{OID_FDB_ESTADO}.{_mac_en_oid(MAC_PC)}", 3),
+        (f"{OID_FDB_ESTADO}.{_mac_en_oid(mac_propia)}", 4),
+        (f"{OID_FDB_ESTADO}.{_mac_en_oid(MAC_MOVIL)}", 2),
+        (f"{OID_FDB_ESTADO}.{_mac_en_oid(MAC_UDM)}", 5),
+    ]
+
+    assert parsear_fdb(filas_fdb, _filas_puerto_a_ifindex(), filas_estado) == [
+        {"mac": MAC_PC, "if_index": 4},
+        {"mac": MAC_UDM, "if_index": 5},
+    ]
+
+
+def test_parsear_fdb_sin_tabla_de_estado_conserva_todo():
+    """Un equipo que no implemente dot1dTpFdbStatus no debe quedarse sin
+    tabla MAC: sin estado, no se descarta nada por ese motivo."""
+    filas_fdb = [(f"{OID_FDB_PUERTO}.{_mac_en_oid(MAC_PC)}", 1)]
+
+    assert parsear_fdb(filas_fdb, _filas_puerto_a_ifindex(), []) == [{"mac": MAC_PC, "if_index": 4}]
 
 
 # --- Vecinos MikroTik (mtxrNeighborTable) ------------------------------------
@@ -540,3 +574,18 @@ def test_inferir_topologia_varios_routers_consultados_sin_duplicar_enlaces():
     assert topologia["ubicaciones"]["02:00:00:00:01:10"] == {"ip": "10.0.10.10", "padre": "192.0.2.44",
                                                             "interfaz": "eth1"}
     assert topologia["ubicaciones"][MAC_UDM_OTRA] == {"ip": None, "padre": "192.0.2.44", "interfaz": "eth1"}
+
+
+@patch("topology_scanner.snmp._recorrer")
+def test_consultar_equipo_filtra_las_macs_propias_con_la_tabla_de_estado(mock_recorrer):
+    mac_propia = "02:00:00:00:f9:7b"
+    mock_recorrer.return_value = {
+        OID_PUERTO_A_IFINDEX: [(f"{OID_PUERTO_A_IFINDEX}.1", 4)],
+        OID_FDB_PUERTO: [(f"{OID_FDB_PUERTO}.{_mac_en_oid(MAC_PC)}", 1),
+                         (f"{OID_FDB_PUERTO}.{_mac_en_oid(mac_propia)}", 1)],
+        OID_FDB_ESTADO: [(f"{OID_FDB_ESTADO}.{_mac_en_oid(MAC_PC)}", 3),
+                         (f"{OID_FDB_ESTADO}.{_mac_en_oid(mac_propia)}", 4)],
+    }
+
+    assert consultar_equipo("192.0.2.1", "community")["fdb"] == [{"mac": MAC_PC, "if_index": 4}]
+    assert OID_FDB_ESTADO in TABLAS_A_CONSULTAR

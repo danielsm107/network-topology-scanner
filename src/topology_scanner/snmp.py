@@ -47,9 +47,14 @@ OID_IF_NAME = "1.3.6.1.2.1.31.1.1.1.1"
 OID_ARP = "1.3.6.1.2.1.4.22.1.2"
 # IP-FORWARD-MIB: ipCidrRouteNextHop, índice = destino.máscara.tos.siguiente_salto
 OID_RUTAS = "1.3.6.1.2.1.4.24.4.1.4"
-# BRIDGE-MIB: dot1dTpFdbPort (índice = MAC en decimal) y dot1dBasePortIfIndex
+# BRIDGE-MIB: dot1dTpFdbPort y dot1dTpFdbStatus (índice = MAC en decimal) y
+# dot1dBasePortIfIndex
 OID_FDB_PUERTO = "1.3.6.1.2.1.17.4.3.1.2"
+OID_FDB_ESTADO = "1.3.6.1.2.1.17.4.3.1.3"
 OID_PUERTO_A_IFINDEX = "1.3.6.1.2.1.17.1.4.1.2"
+# dot1dTpFdbStatus: invalid(2) es basura y self(4) la MAC de un puerto del
+# propio equipo (el hAP mete la de cada uno de sus puertos); no son hosts.
+_ESTADOS_FDB_DESCARTADOS = {2, 4}
 # MIKROTIK-MIB: mtxrNeighborTableEntry, índice = columna.fila
 OID_VECINOS_MIKROTIK = "1.3.6.1.4.1.14988.1.1.11.1.1"
 
@@ -58,7 +63,7 @@ _COLUMNAS_VECINOS_MIKROTIK = {2: "ip", 3: "mac", 4: "version", 5: "plataforma", 
 # sysName va primero a propósito: si no responde, el equipo no responde.
 TABLAS_A_CONSULTAR = (
     OID_SYS_NAME, OID_IF_NAME, OID_ARP, OID_RUTAS,
-    OID_FDB_PUERTO, OID_PUERTO_A_IFINDEX, OID_VECINOS_MIKROTIK,
+    OID_FDB_PUERTO, OID_FDB_ESTADO, OID_PUERTO_A_IFINDEX, OID_VECINOS_MIKROTIK,
 )
 
 
@@ -80,7 +85,7 @@ def consultar_equipo(ip: str, community: str, timeout: float = 2.0, reintentos: 
         "interfaces": parsear_interfaces(filas(OID_IF_NAME)),
         "arp": parsear_arp(filas(OID_ARP)),
         "rutas": parsear_rutas(filas(OID_RUTAS)),
-        "fdb": parsear_fdb(filas(OID_FDB_PUERTO), filas(OID_PUERTO_A_IFINDEX)),
+        "fdb": parsear_fdb(filas(OID_FDB_PUERTO), filas(OID_PUERTO_A_IFINDEX), filas(OID_FDB_ESTADO)),
         "vecinos": parsear_vecinos_mikrotik(filas(OID_VECINOS_MIKROTIK)),
     }
 
@@ -251,20 +256,26 @@ def parsear_rutas(filas: Iterable[Fila]) -> list[dict]:
     return rutas
 
 
-def parsear_fdb(filas_fdb: Iterable[Fila], filas_puerto_a_ifindex: Iterable[Fila]) -> list[dict]:
+def parsear_fdb(filas_fdb: Iterable[Fila], filas_puerto_a_ifindex: Iterable[Fila],
+                filas_estado: Iterable[Fila] = ()) -> list[dict]:
     """Tabla MAC del bridge: [{"mac", "if_index"}] (en qué interfaz se ve
     cada MAC). BRIDGE-MIB da el puerto del bridge, no la interfaz, así que
     se traduce con dot1dBasePortIfIndex. Se descartan el puerto 0 (el propio
-    bridge), la MAC nula y los puertos que no se pueden traducir."""
+    bridge), la MAC nula, los puertos que no se pueden traducir y, si el
+    equipo da dot1dTpFdbStatus, las entradas invalid/self (las MACs de sus
+    propios puertos no son hosts). Sin tabla de estado no se filtra por eso."""
     puerto_a_ifindex = {
         indice[0]: valor
         for indice, valor in _filas_de(filas_puerto_a_ifindex, OID_PUERTO_A_IFINDEX)
         if len(indice) == 1 and isinstance(valor, int)
     }
+    estado_por_mac = {tuple(indice): valor for indice, valor in _filas_de(filas_estado, OID_FDB_ESTADO)}
 
     entradas = []
     for indice, puerto in _filas_de(filas_fdb, OID_FDB_PUERTO):
         if len(indice) != 6 or not any(indice) or not all(0 <= b <= 255 for b in indice):
+            continue
+        if estado_por_mac.get(tuple(indice)) in _ESTADOS_FDB_DESCARTADOS:
             continue
         if_index = puerto_a_ifindex.get(puerto)
         if if_index is None:
