@@ -13,7 +13,6 @@ formato de diccionario que produce scanner.py (resultados[ip] con
 import sqlite3
 from contextlib import closing
 from datetime import datetime
-from typing import Optional
 
 from .classifier import PUERTOS_SENSIBLES
 
@@ -95,7 +94,7 @@ def _guardar_escaneo(conn: sqlite3.Connection, resultados: dict, rango: str):
             )
 
 
-def _comparar(resultados: dict, anterior: Optional[dict]) -> dict:
+def _comparar(resultados: dict, anterior: dict | None) -> dict:
     if anterior is None:
         return {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
 

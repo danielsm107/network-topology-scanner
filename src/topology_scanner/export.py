@@ -127,6 +127,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
     posiciones = dict(zip(
         (nodo for nodo, _ in nodos_host),
         posiciones_circulares(len(nodos_host)),
+        strict=True,
     ))
 
     for nodo, atributos in grafo.nodes(data=True):

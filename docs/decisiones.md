@@ -172,3 +172,12 @@ contexto completo.
   estaba commiteada a mano en la raíz del repo. En `"remote"` ese JS va en
   línea (vis-network ya se cargaba de todas formas desde cdnjs), así que
   `lib/` se quitó del repo y está en `.gitignore`.
+- El mínimo es **Python 3.10** (antes 3.9): pysnmp 7, necesario para la
+  topología por SNMP, exige `>=3.10`, y 3.9 está fuera de soporte desde
+  octubre de 2025. Se prefirió subir el mínimo del proyecto entero a tener
+  un extra `[snmp]` que solo se instala en algunas versiones. Con
+  `target-version = "py310"`, ruff pasa los `Optional[X]` a `X | None` y
+  pide `strict=` en `zip()`: se usa `strict=True` porque los `zip` de hosts
+  con `posiciones_circulares(len(hosts))` tienen siempre la misma longitud,
+  y si dejaran de tenerla es mejor un error que un host que desaparece del
+  grafo en silencio.

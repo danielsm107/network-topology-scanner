@@ -40,7 +40,6 @@ import threading
 import time
 from collections import Counter
 from datetime import datetime
-from typing import Optional
 
 try:
     import streamlit as st
@@ -71,7 +70,7 @@ from topology_scanner.scanner import (
 )
 
 
-def _detectar_rango_local() -> Optional[str]:
+def _detectar_rango_local() -> str | None:
     """Detecta el rango CIDR (asumiendo /24) de la interfaz de red principal
     del equipo, sin necesidad de admin/sudo. Truco estándar: abrir un socket
     UDP "conectado" a una IP externa no envía ningún paquete, solo hace que
@@ -282,7 +281,7 @@ def _generar_chips_categorias_html(resultados: dict, limite: int = 8) -> str:
     return "".join(chips)
 
 
-def _generar_kpis_html(resultados: dict, rango: str, diff: Optional[dict], accent: str) -> str:
+def _generar_kpis_html(resultados: dict, rango: str, diff: dict | None, accent: str) -> str:
     """HTML de la fila de KPIs (hosts, puertos sensibles, cambios,
     categorías) que sustituye a los st.metric() de antes. El KPI de
     "Cambios" no fabrica una comparación si es el primer escaneo de este
@@ -657,11 +656,11 @@ def _generar_topologia_html(resultados: dict, rango: str, accent: str) -> str:
             f'stroke="{"#ff5c5c" if datos.get("alertas") else accent}" stroke-opacity="0.55" '
             f'stroke-width="2.4" stroke-linecap="round"/>'
         )
-        for (_, datos), (x, y) in zip(hosts, posiciones)
+        for (_, datos), (x, y) in zip(hosts, posiciones, strict=True)
     )
 
     nodos_html = []
-    for (ip, datos), (x, y) in zip(hosts, posiciones):
+    for (ip, datos), (x, y) in zip(hosts, posiciones, strict=True):
         categoria = datos.get("categoria", "desconocido")
         icono = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])
         alertas = datos.get("alertas", [])
@@ -1209,7 +1208,7 @@ _SVG_RELOJ = (
 )
 
 
-def _tiempo_relativo(fecha_iso: str, ahora: Optional[datetime] = None) -> str:
+def _tiempo_relativo(fecha_iso: str, ahora: datetime | None = None) -> str:
     """Convierte el ISO datetime que guarda history.py en un texto relativo
     corto ("hace 2 días") para las filas del historial del sidebar. Acepta
     `ahora` para que los tests no dependan del reloj real."""

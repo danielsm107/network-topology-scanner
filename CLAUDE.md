@@ -19,7 +19,7 @@ historial de commits (features pequeñas, un commit por feature).
 
 ## Stack
 
-- Python 3.9+, paquete instalable (`pyproject.toml`, layout `src/`)
+- Python 3.10+, paquete instalable (`pyproject.toml`, layout `src/`)
 - `python-nmap` (wrapper de nmap), `networkx` (grafo), `pyvis` (export HTML interactivo)
 - `streamlit` (extra opcional `[web]`) para la interfaz web, `webapp.py`
 - Tests con `pytest` + `unittest.mock` (mockean `nmap.PortScanner`, no requieren red real ni nmap instalado).
@@ -46,7 +46,7 @@ El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
 (`sudo` en Linux, terminal de administrador en Windows).
 
 CI (`.github/workflows/ci.yml`) ejecuta `ruff check src/ tests/` + `pytest`
-en Python 3.9 y 3.12 en cada push/PR a `main` — ambos tienen que pasar.
+en Python 3.10 y 3.12 en cada push/PR a `main` — ambos tienen que pasar.
 
 ## Estructura
 
@@ -150,7 +150,7 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
    `docs/decisiones.md`): sidebar, topología en SVG propio con pan/zoom,
    log de escaneo en vivo, paginación del inventario.
 8. ~~**CI con GitHub Actions**~~ — hecho (`.github/workflows/ci.yml`, pytest +
-   ruff en 3.9/3.12, badge en el README).
+   ruff en 3.10/3.12, badge en el README).
 
 ## Forma de trabajar preferida
 
