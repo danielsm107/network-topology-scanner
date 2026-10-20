@@ -25,6 +25,7 @@ pytest.importorskip("streamlit", reason='pip install "topology-scanner[web]" par
 from topology_scanner.classifier import ICONOS_POR_CATEGORIA
 from topology_scanner.history import HistoryError
 from topology_scanner.scanner import ScannerError
+from topology_scanner.snmp import VARIABLE_COMMUNITY
 from topology_scanner.webapp import (
     _argumentos_nmap_desde_formulario,
     _compactar_html,
@@ -47,6 +48,7 @@ from topology_scanner.webapp import (
     _pagina_de_resultados,
     _procesar_salida_nmap,
     _total_paginas,
+    _validar_snmp,
 )
 
 
@@ -708,7 +710,7 @@ def test_la_app_carga_sin_excepciones():
     assert not at.exception
     assert any("Network Topology Scanner" in md.value for md in at.main.markdown)
     assert len(at.sidebar.text_input) == 1
-    assert len(at.sidebar.toggle) == 3
+    assert len(at.sidebar.toggle) == 4  # rápido, SO, historial, SNMP
     assert len(at.sidebar.button) == 3  # Escanear, Parar escaneo, Detectar mi red
     # El estado vacío (sin escaneo ni resultado) vive en el panel principal,
     # no en el sidebar.
@@ -770,3 +772,162 @@ def test_la_app_detecta_mi_red_al_pulsar_el_boton():
 
     assert not at.exception
     assert at.text_input[0].value == "192.168.1.0/24"
+
+
+# === Topología SNMP en la web ===============================================
+
+def _topologia_fake():
+    """Formato de snmp.inferir_topologia (escrito a mano, como en test_graph)."""
+    def equipo(nombre, consultado=False, upstream=False):
+        return {"nombre": nombre, "plataforma": "MikroTik", "version": "6.49", "mac": None,
+                "consultado": consultado, "upstream": upstream}
+    return {
+        "equipos": {"192.0.2.1": equipo("Router-Casa", consultado=True), "192.0.2.254": equipo("AP-Interior")},
+        "enlaces": [{"padre": "192.0.2.1", "hijo": "192.0.2.254", "interfaz_padre": "ether2", "interfaz_hijo": None}],
+        "redes": {},
+        "ubicaciones": {
+            "02:00:00:00:00:10": {"ip": "192.0.2.10", "padre": "192.0.2.254", "interfaz": None},
+            "02:00:00:00:00:11": {"ip": "192.0.2.11", "padre": "192.0.2.1", "interfaz": "wlan1"},
+            "02:00:00:00:00:12": {"ip": "192.0.2.12", "padre": "192.0.2.1", "interfaz": "wlan1"},
+            "02:00:00:00:00:99": {"ip": None, "padre": "192.0.2.1", "interfaz": "ether4"},
+        },
+    }
+
+
+def _resultados_fake_arbol():
+    return {ip: _resultado_fake(hostname="") for ip in ("192.0.2.10", "192.0.2.11", "192.0.2.12")}
+
+
+def test_validar_snmp_desactivado_no_hace_nada():
+    assert _validar_snmp(False, "", "") == (None, None)
+
+
+def test_validar_snmp_ips_y_community_correctas(monkeypatch):
+    monkeypatch.delenv(VARIABLE_COMMUNITY, raising=False)
+
+    assert _validar_snmp(True, "192.0.2.1, 192.0.2.2", "secreta") == (
+        {"ips": ["192.0.2.1", "192.0.2.2"], "community": "secreta"}, None,
+    )
+
+
+def test_validar_snmp_ip_no_valida_es_un_error():
+    configuracion, error = _validar_snmp(True, "192.0.2.1,router-casa", "secreta")
+
+    assert configuracion is None
+    assert "router-casa" in error
+
+
+def test_validar_snmp_sin_ips_es_un_error():
+    assert _validar_snmp(True, " , ", "secreta")[1] is not None
+
+
+def test_validar_snmp_sin_community_usa_la_variable_de_entorno(monkeypatch):
+    monkeypatch.setenv(VARIABLE_COMMUNITY, "de-entorno")
+
+    configuracion, error = _validar_snmp(True, "192.0.2.1", "")
+
+    assert error is None
+    assert configuracion["community"] == "de-entorno"
+
+
+def test_validar_snmp_sin_community_ni_variable_es_un_error(monkeypatch):
+    monkeypatch.delenv(VARIABLE_COMMUNITY, raising=False)
+
+    configuracion, error = _validar_snmp(True, "192.0.2.1", "")
+
+    assert configuracion is None
+    assert VARIABLE_COMMUNITY in error
+
+
+@patch("topology_scanner.webapp.obtener_topologia")
+@patch("topology_scanner.webapp.exportar_html")
+@patch("topology_scanner.webapp.construir_grafo")
+def test_finalizar_resultados_con_snmp_guarda_topologia_y_avisos(
+    mock_construir_grafo, mock_exportar_html, mock_obtener,
+):
+    mock_obtener.return_value = (_topologia_fake(), ["192.0.2.2 no responde por SNMP"])
+    resultados = {"192.0.2.10": _resultado_fake()}
+
+    resultado = _finalizar_resultados(resultados, "192.0.2.0/24", guardar_historial=False,
+                                      snmp={"ips": ["192.0.2.1", "192.0.2.2"], "community": "secreta"})
+
+    mock_obtener.assert_called_once_with(["192.0.2.1", "192.0.2.2"], "secreta")
+    mock_construir_grafo.assert_called_once_with(resultados, "192.0.2.0/24", topologia=_topologia_fake())
+    assert resultado["topologia"] == _topologia_fake()
+    assert resultado["avisos_snmp"] == ["192.0.2.2 no responde por SNMP"]
+    assert "secreta" not in str(resultado)   # la community no se queda en session_state
+
+
+@patch("topology_scanner.webapp.obtener_topologia")
+@patch("topology_scanner.webapp.exportar_html")
+@patch("topology_scanner.webapp.construir_grafo")
+def test_finalizar_resultados_sin_snmp_no_consulta_nada(mock_construir_grafo, mock_exportar_html, mock_obtener):
+    resultado = _finalizar_resultados({"192.0.2.10": _resultado_fake()}, "192.0.2.0/24", guardar_historial=False)
+
+    mock_obtener.assert_not_called()
+    assert resultado["topologia"] is None
+    assert resultado["avisos_snmp"] == []
+
+
+def test_generar_topologia_html_con_topologia_dibuja_el_arbol():
+    html = _generar_topologia_html(_resultados_fake_arbol(), rango="192.0.2.0/24", accent="#00D2D3",
+                                   topologia=_topologia_fake())
+
+    # 2 equipos + 3 hosts de nmap + 1 visto solo por SNMP; sin nodo de red
+    assert html.count('class="topo-node-wrap"') == 6
+    assert '<div class="topo-hub"' not in html
+    assert "Router-Casa" in html and "AP-Interior" in html
+    assert html.count("<path ") == 5          # una arista por nodo que no es raíz
+    assert html.count(">wlan1</text>") == 1   # una etiqueta por padre+puerto
+    assert ">ether2</text>" in html
+    assert "solo por SNMP" in html
+
+
+def test_generar_topologia_html_con_topologia_los_equipos_se_distinguen():
+    html = _generar_topologia_html(_resultados_fake_arbol(), rango="192.0.2.0/24", accent="#00D2D3",
+                                   topologia=_topologia_fake())
+
+    assert html.count('class="topo-node equipo"') == 2
+
+
+def test_generar_topologia_html_escapa_los_nombres():
+    """La identidad SNMP la define cada equipo y el hostname sale del DNS
+    inverso: no deben poder inyectar HTML en la página."""
+    topologia = _topologia_fake()
+    topologia["equipos"]["192.0.2.254"]["nombre"] = "<img src=x onerror=alert(1)>"
+    resultados = _resultados_fake_arbol()
+    resultados["192.0.2.10"]["hostname"] = "<script>x</script>"
+
+    html = _generar_topologia_html(resultados, rango="192.0.2.0/24", accent="#00D2D3", topologia=topologia)
+
+    assert "<img src=x" not in html
+    assert "<script>x</script>" not in html
+    assert "&lt;img src=x" in html
+
+
+def test_la_app_muestra_los_campos_snmp_al_activar_el_interruptor():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    interruptor = next(t for t in at.sidebar.toggle if "SNMP" in t.label)
+    interruptor.set_value(True).run()
+
+    assert not at.exception
+    assert len(at.sidebar.text_input) == 3   # rango + IPs SNMP + community
+
+
+def test_la_app_avisa_de_una_ip_snmp_no_valida_antes_de_escanear():
+    """La validación de SNMP va antes que la del rango: si falla, no se
+    llega a lanzar nmap (aquí el rango está vacío, así que en ningún caso
+    se escanearía nada de verdad)."""
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    next(t for t in at.sidebar.toggle if "SNMP" in t.label).set_value(True).run()
+    next(t for t in at.sidebar.text_input if "Routers" in t.label).set_value("router-casa").run()
+    next(b for b in at.button if b.label == "▶ Escanear").click().run()
+
+    assert not at.exception
+    assert any("router-casa" in w.value for w in at.warning)

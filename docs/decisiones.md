@@ -271,3 +271,19 @@ contexto completo.
   recompone con `encode("latin-1").decode("utf-8")` solo si eso forma
   UTF-8 válido: ASCII no cambia y un "Société" bien decodificado no pasa
   la prueba, así que se queda igual.
+- SNMP en `webapp.py`: interruptor en el sidebar + IPs + community en un
+  `text_input(type="password")`; si se deja vacía, `TOPOLOGY_SNMP_COMMUNITY`
+  (`VARIABLE_COMMUNITY` vive en `snmp.py`, compartida con el CLI). Se valida
+  **antes** que el rango y antes de lanzar nmap (`_validar_snmp`, pura). La
+  orquestación es la misma función que usa el CLI (`snmp.obtener_topologia`,
+  que devuelve los avisos en vez de loguearlos para que la web los pinte con
+  `st.warning`). La community viaja en `parametros_pendientes` solo hasta
+  `_finalizar_resultados` y se borra en el `finally` del fragmento de
+  progreso: no queda en `st.session_state["resultado"]`. El árbol del panel
+  reutiliza `construir_grafo` + `posiciones_jerarquicas` (mismo layout que
+  el HTML del CLI). Se partió `_generar_topologia_html` en piezas
+  compartidas por círculo y árbol (`_nodo_topologia_html`,
+  `_hub_topologia_html`, `_documento_topologia_html`), y el nodo escapa
+  todo el texto con `html.escape`: la identidad SNMP la define cada equipo
+  y el hostname sale del DNS inverso. Ojo: el resto del panel (inventario,
+  cambios, historial) todavía mete esos textos sin escapar.

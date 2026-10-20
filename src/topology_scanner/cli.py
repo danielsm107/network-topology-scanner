@@ -26,7 +26,7 @@ try:
         ScannerError,
         escanear_red,
     )
-    from .snmp import obtener_topologia, parsear_lista_ips
+    from .snmp import VARIABLE_COMMUNITY, obtener_topologia, parsear_lista_ips
 except RuntimeError as e:
     sys.exit(str(e))
 
@@ -36,10 +36,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("topology_scanner")
-
-# La community SNMP va por variable de entorno, nunca como argumento: los
-# argumentos se ven en `ps` y quedan en el historial de la shell.
-VARIABLE_COMMUNITY = "TOPOLOGY_SNMP_COMMUNITY"
 
 
 def _lista_de_ips(valor: str) -> list:

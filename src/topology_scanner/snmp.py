@@ -456,6 +456,12 @@ def inferir_topologia(equipos_consultados: list[dict]) -> dict:
 
 # --- Orquestación (compartida por cli.py y webapp.py) ------------------------
 
+# La community va por variable de entorno, nunca como argumento del CLI: los
+# argumentos se ven en `ps` y quedan en el historial de la shell. La web la
+# usa también como valor por defecto si el campo se deja vacío.
+VARIABLE_COMMUNITY = "TOPOLOGY_SNMP_COMMUNITY"
+
+
 def parsear_lista_ips(texto: str) -> list[str]:
     """"192.0.2.1, 192.0.2.2" -> ["192.0.2.1", "192.0.2.2"]. Lanza
     ValueError si alguna no es una IPv4 (cada interfaz lo muestra a su

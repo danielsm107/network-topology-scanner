@@ -40,6 +40,7 @@ import threading
 import time
 from collections import Counter
 from datetime import datetime
+from html import escape
 
 try:
     import streamlit as st
@@ -52,7 +53,13 @@ import nmap
 
 from topology_scanner import __version__
 from topology_scanner.classifier import ICONOS_POR_CATEGORIA, PUERTOS_SENSIBLES
-from topology_scanner.export import CDN_FONTAWESOME, exportar_csv, exportar_html, posiciones_circulares
+from topology_scanner.export import (
+    CDN_FONTAWESOME,
+    exportar_csv,
+    exportar_html,
+    posiciones_circulares,
+    posiciones_jerarquicas,
+)
 from topology_scanner.graph import construir_grafo
 from topology_scanner.history import HistoryError, listar_escaneos_recientes, registrar_y_comparar
 
@@ -68,6 +75,28 @@ from topology_scanner.scanner import (
     descubrir_hosts_vivos,
     parsear_host,
 )
+from topology_scanner.snmp import VARIABLE_COMMUNITY, obtener_topologia, parsear_lista_ips
+
+
+def _validar_snmp(activado: bool, texto_ips: str, community: str) -> tuple[dict | None, str | None]:
+    """Valida el formulario de SNMP antes de lanzar nmap (mismo criterio que
+    el CLI: no tiene sentido descubrir un error tras minutos de escaneo).
+    Devuelve (configuracion, error): ({"ips", "community"}, None) si es
+    válido, (None, mensaje) si no, y (None, None) si SNMP está desactivado.
+    Si el campo de community está vacío se usa TOPOLOGY_SNMP_COMMUNITY."""
+    if not activado:
+        return None, None
+    try:
+        ips = parsear_lista_ips(texto_ips)
+    except ValueError as e:
+        return None, f"Topología SNMP: {e}."
+    if not ips:
+        return None, "Topología SNMP: indica al menos la IP de un router o switch."
+    community = community or os.environ.get(VARIABLE_COMMUNITY, "")
+    if not community:
+        return None, (f"Topología SNMP: indica la community, o déjala en la variable de entorno "
+                      f"{VARIABLE_COMMUNITY} antes de arrancar la web.")
+    return {"ips": ips, "community": community}, None
 
 
 def _detectar_rango_local() -> str | None:
@@ -195,16 +224,21 @@ def _procesar_salida_nmap(salida_xml: bytes) -> dict:
     return {host: parsear_host(nm[host]) for host in nm.all_hosts()}
 
 
-def _finalizar_resultados(resultados: dict, rango: str, guardar_historial: bool) -> dict:
+def _finalizar_resultados(resultados: dict, rango: str, guardar_historial: bool, snmp: dict | None = None) -> dict:
     """A partir de resultados ya escaneados (formato de scanner.py), hace
-    historial + grafo + export HTML. No usa sys.exit ni deja escapar
-    excepciones de historial/export - un fallo aquí no debe tirar el
-    servidor entero, la UI decide cómo mostrarlo.
+    historial + topología SNMP (si se pide) + grafo + export HTML. No usa
+    sys.exit ni deja escapar excepciones de historial/export/SNMP - un
+    fallo aquí no debe tirar el servidor entero, la UI decide cómo mostrarlo.
 
-    Devuelve: {"resultados": dict, "html": str|None, "diff": dict|None, "rango": str}
+    `snmp` = {"ips", "community"} (ver _validar_snmp). La community se usa
+    aquí y no viaja en el resultado, que se queda en session_state.
+
+    Devuelve: {"resultados": dict, "html": str|None, "diff": dict|None, "rango": str,
+               "topologia": dict|None, "avisos_snmp": list[str]}
     """
     if not resultados:
-        return {"resultados": {}, "html": None, "diff": None, "rango": rango}
+        return {"resultados": {}, "html": None, "diff": None, "rango": rango,
+                "topologia": None, "avisos_snmp": []}
 
     diff = None
     if guardar_historial:
@@ -213,7 +247,11 @@ def _finalizar_resultados(resultados: dict, rango: str, guardar_historial: bool)
         except HistoryError:
             diff = None  # perder el historial no es fatal, solo no se muestra el diff
 
-    grafo = construir_grafo(resultados, rango)
+    # Sin respuesta SNMP, topologia=None y se dibuja la estrella (los avisos
+    # explican por qué); mismo criterio que el CLI.
+    topologia, avisos_snmp = obtener_topologia(snmp["ips"], snmp["community"]) if snmp else (None, [])
+
+    grafo = construir_grafo(resultados, rango, topologia=topologia)
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
         archivo_html = f.name
     try:
@@ -227,7 +265,8 @@ def _finalizar_resultados(resultados: dict, rango: str, guardar_historial: bool)
         # .html huérfano en el directorio temporal del sistema para siempre.
         os.remove(archivo_html)
 
-    return {"resultados": resultados, "html": html, "diff": diff, "rango": rango}
+    return {"resultados": resultados, "html": html, "diff": diff, "rango": rango,
+            "topologia": topologia, "avisos_snmp": avisos_snmp}
 
 
 def _generar_csv_bytes(resultados: dict) -> bytes:
@@ -560,6 +599,13 @@ html, body {{ margin: 0; padding: 0; background: #091018; overflow: hidden; }}
     justify-content: center; font-size: 16px; margin: 0 auto; position: relative;
 }}
 .topo-node-label {{ margin-top: 5px; font-size: 10px; color: #B8C2CC; white-space: nowrap; }}
+/* Equipos de red (topología SNMP): cuadrados redondeados, como el hub, para
+   distinguirlos de los hosts de un vistazo */
+.topo-node.equipo {{ border-radius: 12px; width: 50px; height: 50px; font-size: 19px; }}
+.topo-edge-label {{
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #7C8A9A; text-anchor: middle;
+    paint-order: stroke; stroke: #091018; stroke-width: 4px;
+}}
 .topo-alert-ring {{
     position: absolute; top: 50%; left: 50%; width: 54px; height: 54px;
     transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid #ff5c5c;
@@ -603,7 +649,7 @@ def _generar_leyenda_topologia_html() -> str:
     return f'<div class="legend-bar">{items}</div>'
 
 
-def _generar_topologia_html(resultados: dict, rango: str, accent: str) -> str:
+def _generar_topologia_html(resultados: dict, rango: str, accent: str, topologia: dict | None = None) -> str:
     """Documento HTML autocontenido (doctype/head/body/script) con el panel
     de topología dibujado a mano - pensado para st.components.v1.html, no
     para st.markdown.
@@ -628,6 +674,9 @@ def _generar_topologia_html(resultados: dict, rango: str, accent: str) -> str:
     con los glyphs de Font Awesome de ICONOS_POR_CATEGORIA (los mismos que
     ya usa export.py) en vez de redibujar a mano 10 iconos SVG nuevos -
     misma fuente de verdad, muchísimo menos código nuevo."""
+    if topologia is not None:
+        return _generar_arbol_html(resultados, rango, accent, topologia)
+
     hosts = sorted(resultados.items())
     posiciones = posiciones_circulares(len(hosts))
 
@@ -659,46 +708,150 @@ def _generar_topologia_html(resultados: dict, rango: str, accent: str) -> str:
         for (_, datos), (x, y) in zip(hosts, posiciones, strict=True)
     )
 
+    nodos_html = [
+        _nodo_topologia_html(
+            cx + x, cy + y, etiqueta=ip, categoria=datos.get("categoria", "desconocido"),
+            alertas=datos.get("alertas", []),
+            sub=" · ".join(filter(None, [datos.get("hostname"), datos.get("vendor"),
+                                          datos.get("categoria", "desconocido")])),
+        )
+        for (ip, datos), (x, y) in zip(hosts, posiciones, strict=True)
+    ]
+    nodos_html.append(_hub_topologia_html(cx, cy, rango))
+
+    return _documento_topologia_html(ancho, alto, anillos_svg + lineas_svg, "".join(nodos_html), accent)
+
+
+def _generar_arbol_html(resultados: dict, rango: str, accent: str, topologia: dict) -> str:
+    """Variante en árbol del panel de topología, cuando hay topología SNMP.
+    El grafo y el layout son los mismos que usa el HTML del CLI
+    (graph.construir_grafo con topología + export.posiciones_jerarquicas):
+    no hay un segundo algoritmo de layout que mantener. Aristas en curva
+    vertical y una etiqueta de interfaz por padre+puerto, por los mismos
+    motivos que en export.py (ver docs/decisiones.md)."""
+    grafo = construir_grafo(resultados, rango, topologia=topologia)
+    posiciones = posiciones_jerarquicas(grafo)
+
+    xs = [x for x, _ in posiciones.values()]
+    ys = [y for _, y in posiciones.values()]
+    margen = NODE_R + MARGEN_TOPOLOGIA
+    dx, dy = margen - min(xs, default=0), margen - min(ys, default=0)
+    ancho = max(xs, default=0) - min(xs, default=0) + 2 * margen
+    alto = max(ys, default=0) - min(ys, default=0) + 2 * margen
+
+    def punto(nodo):
+        x, y = posiciones[nodo]
+        return x + dx, y + dy
+
+    def nombre(nodo):
+        return grafo.nodes[nodo].get("hostname") or str(nodo)
+
+    aristas_svg, etiquetas_svg = [], []
+    puertos_etiquetados = set()
+    for nodo, atributos in grafo.nodes(data=True):
+        padre = atributos.get("padre")
+        if padre is None or not grafo.has_edge(padre, nodo):
+            continue
+        (px, py), (hx, hy) = punto(padre), punto(nodo)
+        medio = (py + hy) / 2
+        alerta = bool(atributos.get("alertas"))
+        aristas_svg.append(
+            f'<path d="M {px:.1f} {py:.1f} C {px:.1f} {medio:.1f}, {hx:.1f} {medio:.1f}, {hx:.1f} {hy:.1f}" '
+            f'fill="none" stroke="{"rgba(255,92,92,0.45)" if alerta else accent + "59"}" stroke-width="1.4"/>'
+        )
+        interfaz = grafo.edges[padre, nodo].get("interfaz")
+        if interfaz and (padre, interfaz) not in puertos_etiquetados:
+            puertos_etiquetados.add((padre, interfaz))
+            etiquetas_svg.append(
+                f'<text x="{(px + hx) / 2:.1f}" y="{medio:.1f}" class="topo-edge-label">{escape(interfaz)}</text>'
+            )
+
     nodos_html = []
-    for (ip, datos), (x, y) in zip(hosts, posiciones, strict=True):
-        categoria = datos.get("categoria", "desconocido")
-        icono = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])
-        alertas = datos.get("alertas", [])
-        color = "#ff5c5c" if alertas else icono["color"]
-        sub = " · ".join(filter(None, [datos.get("hostname"), datos.get("vendor"), categoria]))
+    for nodo, atributos in grafo.nodes(data=True):
+        x, y = punto(nodo)
+        if atributos.get("tipo") == "red":
+            nodos_html.append(_hub_topologia_html(x, y, rango))
+            continue
+        datos_nmap = resultados.get(nodo, {})
+        es_equipo = atributos.get("tipo") == "equipo"
+        categoria = atributos.get("categoria", "desconocido")
+        sub = " · ".join(filter(None, [atributos.get("hostname"), datos_nmap.get("vendor"), categoria]))
+        lineas = []
+        padre = atributos.get("padre")
+        if padre is not None and grafo.has_edge(padre, nodo):
+            interfaz = grafo.edges[padre, nodo].get("interfaz")
+            lineas.append(f"↳ {nombre(padre)}" + (f" · {interfaz}" if interfaz else ""))
+        if atributos.get("solo_snmp"):
+            lineas.append("visto solo por SNMP (no detectado por nmap)")
+        if atributos.get("upstream"):
+            lineas.append("puerta de enlace · no consultado por SNMP")
+        nodos_html.append(_nodo_topologia_html(
+            x, y, etiqueta=nombre(nodo) if es_equipo else str(nodo), categoria=categoria,
+            alertas=atributos.get("alertas", []), sub=sub, lineas=lineas, equipo=es_equipo,
+        ))
 
-        # Con muchos hosts vivos, las etiquetas permanentes con hostname +
-        # fabricante se amontonaban - ahora solo la IP queda visible bajo
-        # el nodo y el resto se mueve al tooltip al pasar el ratón, en
-        # todos los nodos (antes solo en los que tenían alerta). El zoom
-        # (ver JS más abajo) es lo que de verdad soluciona el amontonado
-        # en redes grandes, no el espaciado.
-        if alertas:
-            primera = alertas[0]
-            alerta_extra = '<div class="topo-alert-ring"></div><div class="topo-alert-badge">!</div>'
-            alerta_linea = f'<div class="tooltip-alert">⚠ {primera["puerto"]} · {primera["motivo"]}</div>'
-            borde_tooltip, color_titulo = "rgba(255,92,92,0.4)", "#ff8a80"
-        else:
-            alerta_extra = alerta_linea = ""
-            borde_tooltip, color_titulo = "rgba(227,232,238,0.14)", "#E3E8EE"
+    return _documento_topologia_html(ancho, alto, "".join(aristas_svg) + "".join(etiquetas_svg),
+                                     "".join(nodos_html), accent)
 
-        nodos_html.append(f"""
-        <div class="topo-node-wrap" style="left:{cx + x:.1f}px; top:{cy + y:.1f}px;">
-          <div class="topo-node" style="border-color:{color};">
+
+def _nodo_topologia_html(x: float, y: float, etiqueta: str, categoria: str, alertas: list, sub: str,
+                         lineas: list | None = None, equipo: bool = False) -> str:
+    """Un nodo del panel de topología (icono + etiqueta + tooltip),
+    compartido por el círculo y el árbol. Todo el texto se escapa: el
+    hostname sale del DNS inverso, el fabricante de nmap y la identidad de
+    los equipos de red la define cada equipo por SNMP."""
+    icono = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])
+    color = "#ff5c5c" if alertas else icono["color"]
+
+    # Con muchos hosts vivos, las etiquetas permanentes con hostname +
+    # fabricante se amontonaban - solo la etiqueta corta queda visible bajo
+    # el nodo y el resto se mueve al tooltip al pasar el ratón. El zoom
+    # (ver JS del documento) es lo que de verdad soluciona el amontonado
+    # en redes grandes, no el espaciado.
+    if alertas:
+        primera = alertas[0]
+        alerta_extra = '<div class="topo-alert-ring"></div><div class="topo-alert-badge">!</div>'
+        alerta_linea = f'<div class="tooltip-alert">⚠ {primera["puerto"]} · {escape(primera["motivo"])}</div>'
+        borde_tooltip, color_titulo = "rgba(255,92,92,0.4)", "#ff8a80"
+    else:
+        alerta_extra = alerta_linea = ""
+        borde_tooltip, color_titulo = "rgba(227,232,238,0.14)", "#E3E8EE"
+    extra = "".join(f'<div class="muted mono">{escape(linea)}</div>' for linea in lineas or [])
+    clase_nodo = "topo-node equipo" if equipo else "topo-node"
+
+    return f"""
+        <div class="topo-node-wrap" style="left:{x:.1f}px; top:{y:.1f}px;">
+          <div class="{clase_nodo}" style="border-color:{color};">
             <span style="font-family:{icono["face"]}; font-weight:{icono["weight"]}; color:{color};">
               {icono["code"]}
             </span>
             {alerta_extra}
           </div>
-          <div class="topo-node-label mono">{ip}</div>
+          <div class="topo-node-label mono">{escape(etiqueta)}</div>
           <div class="tooltip-card" style="border-color:{borde_tooltip};">
-            <div class="tooltip-title" style="color:{color_titulo};">{ip}</div>
-            <div class="muted mono">{sub}</div>
+            <div class="tooltip-title" style="color:{color_titulo};">{escape(etiqueta)}</div>
+            <div class="muted mono">{escape(sub)}</div>
+            {extra}
             {alerta_linea}
           </div>
         </div>
-        """)
+        """
 
+
+def _hub_topologia_html(x: float, y: float, rango: str) -> str:
+    sufijo = "/" + rango.rsplit("/", 1)[-1] if "/" in rango else rango
+    return f"""
+      <div class="topo-hub" style="left:{x}px; top:{y}px;">
+        <span style="font-family:{_ICONO_HUB["face"]}; font-weight:{_ICONO_HUB["weight"]};">
+          {_ICONO_HUB["code"]}
+        </span>
+        <div class="topo-hub-label mono">{escape(sufijo)}</div>
+      </div>"""
+
+
+def _documento_topologia_html(ancho: float, alto: float, svg: str, nodos_html: str, accent: str) -> str:
+    """Documento autocontenido (head con fuentes/Font Awesome + lienzo +
+    script de pan/zoom), común al círculo y al árbol."""
     return f"""<!doctype html>
 <html>
 <head>
@@ -712,14 +865,8 @@ def _generar_topologia_html(resultados: dict, rango: str, accent: str) -> str:
 <div class="topo-card">
   <div id="topo-viewport">
     <div id="topo-canvas" style="width:{ancho}px; height:{alto}px;">
-      <svg viewBox="0 0 {ancho} {alto}" class="topo-svg">{anillos_svg}{lineas_svg}</svg>
-      <div class="topo-hub" style="left:{cx}px; top:{cy}px;">
-        <span style="font-family:{_ICONO_HUB["face"]}; font-weight:{_ICONO_HUB["weight"]};">
-          {_ICONO_HUB["code"]}
-        </span>
-        <div class="topo-hub-label mono">{"/" + rango.rsplit("/", 1)[-1] if "/" in rango else rango}</div>
-      </div>
-      {"".join(nodos_html)}
+      <svg viewBox="0 0 {ancho} {alto}" class="topo-svg">{svg}</svg>
+      {nodos_html}
     </div>
     <div class="topo-hint mono">rueda = zoom · arrastra = mover · doble clic = restablecer</div>
   </div>
@@ -779,9 +926,14 @@ def _mostrar_resultado(resultado: dict, accent: str):
     diff = resultado["diff"]
     st.markdown(_generar_kpis_html(resultados, resultado["rango"], diff, accent), unsafe_allow_html=True)
 
+    # .get(): un resultado guardado en session_state por una versión
+    # anterior de la app no trae estas claves.
+    for aviso in resultado.get("avisos_snmp", []):
+        st.warning(aviso)
+
     st.subheader("Topología")
     st.components.v1.html(
-        _generar_topologia_html(resultados, resultado["rango"], accent),
+        _generar_topologia_html(resultados, resultado["rango"], accent, topologia=resultado.get("topologia")),
         height=ALTURA_VIEWPORT_TOPOLOGIA + 90,
         scrolling=False,
     )
@@ -863,13 +1015,17 @@ def _fragmento_progreso():
                 st.session_state.resultado = None
             else:
                 st.session_state.resultado = _finalizar_resultados(
-                    resultados, parametros["rango"], parametros["guardar_historial"]
+                    resultados, parametros["rango"], parametros["guardar_historial"],
+                    snmp=parametros.get("snmp"),
                 )
                 # Sin esto, un escaneo nuevo con menos hosts que el anterior
                 # podía dejar pagina_inventario apuntando a una página que ya
                 # no existe (tabla vacía hasta que el usuario pulsara "Anterior").
                 st.session_state.pagina_inventario = 1
     finally:
+        # La community ya no hace falta: no se deja en session_state más
+        # tiempo del imprescindible (también si se canceló o falló nmap).
+        parametros.pop("snmp", None)
         # La XML temporal (creada antes de lanzar nmap, ver main()) ya no
         # hace falta pase lo que pase - igual que los .html/.csv temporales
         # de _finalizar_resultados/_generar_csv_bytes, sin este cleanup se
@@ -1416,6 +1572,28 @@ def main():
         )
 
         st.divider()
+        st.markdown('<div class="section-eyebrow">Topología SNMP</div>', unsafe_allow_html=True)
+        usar_snmp = st.toggle(
+            "Topología real por SNMP",
+            disabled=escaneando,
+            help="Consulta tus routers/switches (SNMP v2c, solo lectura) para dibujar quién "
+                 "cuelga de quién en vez de la estrella. Requiere el extra [snmp]",
+        )
+        ips_snmp = community_snmp = ""
+        if usar_snmp:
+            ips_snmp = st.text_input(
+                "Routers/switches (IPs)", placeholder="192.168.1.1, 192.168.1.2", disabled=escaneando
+            )
+            # type="password": la community no se ve en pantalla. Vacía, se
+            # usa la variable de entorno (la misma que el CLI).
+            community_snmp = st.text_input(
+                "Community (solo lectura)", type="password", disabled=escaneando,
+                help=f"Si la dejas vacía se usa la variable de entorno {VARIABLE_COMMUNITY}",
+            )
+            if not community_snmp and os.environ.get(VARIABLE_COMMUNITY):
+                st.caption(f"Se usará la community de {VARIABLE_COMMUNITY}.")
+
+        st.divider()
         enviado = st.button("▶ Escanear", disabled=escaneando, type="primary", use_container_width=True)
         parar = st.button("⏹ Parar escaneo", disabled=not escaneando, use_container_width=True)
 
@@ -1443,7 +1621,12 @@ def main():
             st.warning("No se pudo detectar la red automáticamente. Indícala a mano.")
 
     if enviado and not escaneando:
-        if not rango:
+        # SNMP se valida antes que nada: un error aquí no debe descubrirse
+        # después de minutos de nmap (mismo criterio que el CLI).
+        configuracion_snmp, error_snmp = _validar_snmp(usar_snmp, ips_snmp, community_snmp)
+        if error_snmp:
+            st.warning(error_snmp)
+        elif not rango:
             st.warning("Indica un rango de red en notación CIDR (ej: 192.168.1.0/24).")
         else:
             try:
@@ -1477,6 +1660,7 @@ def main():
                         "hosts_vivos": len(vivos),
                         "argumentos_nmap": argumentos_nmap,
                         "hora_inicio": time.time(),
+                        "snmp": configuracion_snmp,
                     }
                     st.session_state.cancelado = False
                     st.rerun()

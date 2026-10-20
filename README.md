@@ -97,7 +97,9 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 Requires the `[web]` extra (see Installation). Form with automatic detection
 of your local network, real cancellable scanning (kills the actual nmap
 process, not just the UI), results table, CSV download and the embedded
-graph.
+graph. The "Real topology via SNMP" switch in the sidebar draws the tree
+described below (the community field is a password input; leave it empty
+to use `TOPOLOGY_SNMP_COMMUNITY`).
 
 ```bash
 topology-scanner-web
@@ -139,7 +141,7 @@ in your shell history). On Windows PowerShell:
 
 **Current limitations**: SNMP v2c only; device-to-device links come from
 MikroTik's neighbor table (other vendors still contribute routes, ARP and
-MAC table); the web interface doesn't use SNMP yet.
+MAC table).
 
 ## Device classification
 
@@ -170,5 +172,5 @@ run without a real network or the nmap binary installed.
 - [x] Web interface with Streamlit
 - [x] CI: run tests + ruff on every push
 - [x] Real topology via SNMP against routers/switches, CLI (instead of the approximate star layout)
-- [ ] SNMP in the web interface
+- [x] SNMP in the web interface
 - [ ] SNMPv3 and the standard LLDP-MIB for non-MikroTik devices
