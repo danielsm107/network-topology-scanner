@@ -13,15 +13,21 @@ buena primera aproximación visual.
 # Palabras clave (en minúsculas) que suelen aparecer en el nombre del fabricante
 CATEGORIA_POR_VENDOR = {
     "router": [
-        "mikrotik", "ubiquiti", "tp-link", "d-link", "netgear", "asus",
+        # MikroTik registra sus MACs como "Routerboard.com"
+        "mikrotik", "routerboard", "ubiquiti", "tp-link", "d-link", "netgear", "asus",
         "cisco", "huawei technologies",
     ],
     "firewall": ["fortinet"],
     "vm": ["vmware", "proxmox", "qemu", "virtualbox", "xen"],
     "nas": ["synology", "qnap", "western digital", "buffalo"],
     "printer": ["brother", "canon", "epson", "lexmark", "xerox"],
-    "camera": ["axis communications", "hikvision", "dahua", "reolink"],
-    "iot": ["raspberry pi", "espressif", "sonoff", "shelly", "tuya"],
+    "camera": ["axis communications", "hikvision", "ezviz", "dahua", "reolink"],
+    "iot": [
+        "raspberry pi", "espressif", "sonoff", "shelly", "tuya",
+        "ajax systems",          # alarmas
+        "amazon technologies",   # Echo, Fire TV
+        "bouffalo",              # chips WiFi de enchufes/bombillas
+    ],
     "mobile": ["samsung electronics", "xiaomi", "oneplus", "huawei device"],
     "apple": ["apple, inc", "apple inc"],
     "pc": [

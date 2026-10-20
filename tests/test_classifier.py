@@ -27,6 +27,31 @@ def test_apple_es_apple():
     assert clasificar_dispositivo("Apple, Inc.") == "apple"
 
 
+# Nombres exactos que dio nmap en una red doméstica real y que antes
+# salían como "desconocido".
+
+def test_routerboard_es_router():
+    """Las MACs de MikroTik vienen con el vendor "Routerboard.com", no
+    "MikroTik": los routers salían como desconocidos en la estrella."""
+    assert clasificar_dispositivo("Routerboard.com") == "router"
+
+
+def test_ezviz_es_camara():
+    assert clasificar_dispositivo("Hangzhou Ezviz Software") == "camera"
+
+
+def test_dispositivos_domesticos_son_iot():
+    assert clasificar_dispositivo("Ajax Systems") == "iot"            # alarmas
+    assert clasificar_dispositivo("Amazon Technologies") == "iot"     # Echo, Fire TV
+    assert clasificar_dispositivo("Bouffalo Lab (Nanjing)") == "iot"  # chips WiFi de enchufes/bombillas
+
+
+def test_bouffalo_no_se_confunde_con_buffalo():
+    """"buffalo" (NAS) no es subcadena de "bouffalo", pero mejor fijarlo."""
+    assert clasificar_dispositivo("Bouffalo Lab (Nanjing)") != "nas"
+    assert clasificar_dispositivo("Buffalo.inc") == "nas"
+
+
 def test_vendor_no_reconocido_es_desconocido():
     assert clasificar_dispositivo("Fabricante Inventado XYZ") == "desconocido"
 
