@@ -255,3 +255,11 @@ contexto completo.
   hAP (estado self), que BRIDGE-MIB lista junto a los hosts aprendidos. Si
   el equipo no implementa la tabla de estado, no se filtra por eso (mejor
   algún falso positivo que quedarse sin tabla MAC).
+- `cli.py --snmp IP[,IP...]`: la community se lee de la variable de entorno
+  `TOPOLOGY_SNMP_COMMUNITY`, nunca de un argumento (se vería en `ps` y en
+  el historial de la shell; en Linux, `sudo -E` para que llegue). Si falta,
+  `parser.error` **antes** de escanear: no tiene sentido descubrirlo tras
+  minutos de nmap. Las IPs de `--snmp` se validan en argparse. Un equipo
+  que no responde se salta con un aviso; si no responde ninguno, se dibuja
+  la estrella (mismo criterio que `HistoryError`). La consulta SNMP va
+  después del escaneo de nmap y antes de construir el grafo.

@@ -2,11 +2,13 @@
 cli.py
 ------
 Punto de entrada de línea de comandos. Solo orquesta: parsea argumentos,
-llama a scanner -> graph -> export. La lógica real vive en esos módulos.
+llama a scanner (+ snmp) -> graph -> export. La lógica real vive en esos módulos.
 """
 
 import argparse
+import ipaddress
 import logging
+import os
 import sys
 
 try:
@@ -25,6 +27,7 @@ try:
         ScannerError,
         escanear_red,
     )
+    from .snmp import SnmpError, consultar_equipo, inferir_topologia
 except RuntimeError as e:
     sys.exit(str(e))
 
@@ -34,6 +37,21 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("topology_scanner")
+
+# La community SNMP va por variable de entorno, nunca como argumento: los
+# argumentos se ven en `ps` y quedan en el historial de la shell.
+VARIABLE_COMMUNITY = "TOPOLOGY_SNMP_COMMUNITY"
+
+
+def _lista_de_ips(valor: str) -> list:
+    """Tipo de argparse para --snmp: "192.168.1.1, 192.168.1.2" -> lista."""
+    ips = [parte.strip() for parte in valor.split(",") if parte.strip()]
+    for ip in ips:
+        try:
+            ipaddress.IPv4Address(ip)
+        except ValueError as e:
+            raise argparse.ArgumentTypeError(f"'{ip}' no es una IPv4 válida") from e
+    return ips
 
 
 def construir_parser() -> argparse.ArgumentParser:
@@ -82,6 +100,12 @@ def construir_parser() -> argparse.ArgumentParser:
         "--sin-historial", action="store_true",
         help="No guarda este escaneo en el historial ni compara con el anterior"
     )
+    parser.add_argument(
+        "--snmp", type=_lista_de_ips, default=None, metavar="IP[,IP...]",
+        help="Routers/switches a consultar por SNMP v2c para dibujar la topología real (árbol) "
+             f"en vez de la estrella. La community se lee de la variable de entorno "
+             f"{VARIABLE_COMMUNITY}. Requiere el extra [snmp]"
+    )
     return parser
 
 
@@ -107,6 +131,12 @@ def main():
 
     argumentos_nmap = _resolver_argumentos_nmap(args, parser)
 
+    # Antes de escanear: sin community no hay SNMP, y no tiene sentido
+    # descubrirlo después de un escaneo de nmap que puede tardar minutos.
+    community = os.environ.get(VARIABLE_COMMUNITY, "")
+    if args.snmp and not community:
+        parser.error(f"--snmp necesita la community en la variable de entorno {VARIABLE_COMMUNITY}.")
+
     try:
         resultados = escanear_red(args.rango, args.ports, argumentos_nmap, dos_fases=not args.sin_2_fases)
     except ScannerError as e:
@@ -130,11 +160,34 @@ def main():
             # ha funcionado: se avisa y se sigue con el grafo/export normal.
             log.warning(str(e))
 
-    grafo = construir_grafo(resultados, args.rango)
+    topologia = _obtener_topologia(args.snmp, community) if args.snmp else None
+    grafo = construir_grafo(resultados, args.rango, topologia=topologia)
     try:
         exportar_html(grafo, args.output)
     except ExportError as e:
         sys.exit(str(e))
+
+
+def _obtener_topologia(ips: list, community: str) -> dict | None:
+    """Consulta cada equipo por SNMP e infiere la topología. Un equipo que
+    no responde se salta con un aviso; si no responde ninguno, se devuelve
+    None y se dibuja la estrella: el escaneo de nmap ya ha funcionado y
+    perder la topología no es motivo para no generar nada (mismo criterio
+    que con el historial)."""
+    equipos = []
+    for ip in ips:
+        log.info(f"Consultando {ip} por SNMP...")
+        try:
+            equipos.append(consultar_equipo(ip, community))
+        except SnmpError as e:
+            log.warning(str(e))
+    if not equipos:
+        log.warning("Ningún equipo ha respondido por SNMP: se dibuja la topología en estrella.")
+        return None
+    topologia = inferir_topologia(equipos)
+    log.info(f"Topología SNMP: {len(topologia['equipos'])} equipos de red, "
+             f"{len(topologia['ubicaciones'])} hosts ubicados")
+    return topologia
 
 
 if __name__ == "__main__":

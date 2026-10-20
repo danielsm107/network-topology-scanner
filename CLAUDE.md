@@ -77,8 +77,10 @@ El registro completo, con el porqué y los bugs que motivó cada una, está en
 nueva.** Aquí solo va lo que hay que tener presente al editar:
 
 **Alcance (limitaciones aceptadas, no bugs)**
-- La topología es una **estrella aproximada** (hub = red), no la física real
-  (eso sería SNMP, roadmap 6).
+- Sin `--snmp`, la topología es una **estrella aproximada** (hub = red), no
+  la física real. Con `--snmp`, árbol real a partir de las tablas de los
+  routers (solo CLI; la web aún no). Si SNMP falla, se avisa y se dibuja la
+  estrella: nunca aborta un escaneo de nmap que sí ha funcionado.
 - Categoría por MAC = **heurística por palabras clave** sobre el vendor
   (`CATEGORIA_POR_VENDOR`). Solo funciona en el mismo segmento L2.
 - Escaneo en 2 fases (ping scan → escaneo completo solo de vivos); `-O`
@@ -140,9 +142,10 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
    usaba a pelo en todos los iconos — salía en blanco tanto en los nodos
    del grafo como en la leyenda. Ahora cada categoría lleva su propio
    `face`/`weight` en `ICONOS_POR_CATEGORIA`.
-6. **Topología real vía SNMP** — consultar tablas ARP/CDP/LLDP de los
-   MikroTik/Fortinet del mantenedor para topología real en vez de estrella
-   aproximada. La feature más compleja, dejar para el final.
+6. ~~**Topología real vía SNMP**~~ — hecho en el CLI (`snmp.py`, flag
+   `--snmp`, community en `TOPOLOGY_SNMP_COMMUNITY`, extra `[snmp]`),
+   validado contra el MikroTik hAP ac2 del mantenedor. Pendiente: llevarlo
+   a `webapp.py`, SNMPv3 y la LLDP-MIB estándar para otros fabricantes.
 7. ~~**Interfaz web con Streamlit**~~ — hecho (`webapp.py`, extra opcional
    `[web]`, entry point `topology-scanner-web`). Formulario con detección
    automática del rango local (botón "Detectar mi red", truco de socket

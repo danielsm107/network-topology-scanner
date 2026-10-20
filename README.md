@@ -7,8 +7,10 @@ vendor (via MAC) and device type, and generates an interactive HTML topology
 graph with icons per category (router, PC, NAS, printer, etc). Flags hosts
 with sensitive open ports in red (Telnet, SMB, RDP, FTP, VNC), stores every
 scan in SQLite to diff against the previous one (new/dropped hosts, ports
-that changed), and can export the inventory to CSV. Available as a CLI or as
-a local web interface (Streamlit, optional).
+that changed), and can export the inventory to CSV. Optionally queries your
+routers/switches over SNMP to draw the **real topology** (which host hangs
+from which switch port or access point) instead of an approximate star.
+Available as a CLI or as a local web interface (Streamlit, optional).
 
 ![Command Center dashboard](docs/screenshots/dashboard.png)
 ![Inventory and changes](docs/screenshots/inventario.png)
@@ -30,13 +32,16 @@ network-topology-scanner/
 │   ├── graph.py            # Graph construction (networkx)
 │   ├── export.py           # HTML export (pyvis), text and CSV
 │   ├── history.py          # Scan history in SQLite (diff vs. the previous scan)
+│   ├── snmp.py             # Real topology via SNMP (ARP, routes, MAC table, neighbors)
 │   ├── cli.py               # Command-line interface
 │   └── webapp.py            # Web interface (Streamlit, optional)
 ├── tests/                   # pytest, with nmap mocks (no real network needed)
-└── pyproject.toml           # single source of dependencies (pip install -e ".[dev,web]")
+└── pyproject.toml           # single source of dependencies (pip install -e ".[dev,web,snmp]")
 ```
 
 ## Installation
+
+Requires Python 3.10+.
 
 ```bash
 # System dependency
@@ -53,6 +58,9 @@ pip install -e ".[dev]"
 
 # Optional, only if you want the web interface
 pip install -e ".[web]"
+
+# Optional, only if you want the real topology via SNMP
+pip install -e ".[snmp]"
 ```
 
 ## Usage
@@ -61,6 +69,10 @@ pip install -e ".[web]"
 sudo topology-scanner 192.168.1.0/24
 sudo topology-scanner 192.168.1.0/24 --rapido
 sudo topology-scanner 192.168.1.0/24 --con-so --output my_network.html
+
+# Real topology: query the router(s) over SNMP (see below)
+export TOPOLOGY_SNMP_COMMUNITY='your-read-only-community'
+sudo -E topology-scanner 192.168.1.0/24 --snmp 192.168.1.1
 
 # Alternative without the installed entry point:
 sudo python3 -m topology_scanner 192.168.1.0/24
@@ -78,6 +90,7 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 | `--csv`           | Also exports a CSV inventory to the given path                     | disabled               |
 | `--history-db`    | SQLite file where scan history is stored                           | `historial.db`         |
 | `--sin-historial` | Skips saving the scan to history / diffing against the previous one | disabled              |
+| `--snmp`          | Routers/switches to query over SNMP v2c (comma-separated IPs)      | disabled (star layout) |
 
 ## Web interface
 
@@ -91,6 +104,42 @@ topology-scanner-web
 # or, without the installed entry point:
 streamlit run src/topology_scanner/webapp.py
 ```
+
+## Real topology via SNMP
+
+By default the graph is an approximate star: nmap knows *which* hosts are
+alive, not *how* they are connected. With `--snmp`, the scanner reads a few
+standard tables from your routers/switches and builds a tree instead:
+
+| SNMP table | What it tells | Used for |
+|---|---|---|
+| Routes (`ipCidrRouteTable`) | "10.0.10.0/24 is behind 192.168.1.44" | Upstream gateway, downstream routers and their subnets |
+| Neighbors (MikroTik `mtxrNeighborTable`, MNDP/LLDP/CDP) | "Access point X is on my ether2" | Links between network devices |
+| MAC table (`BRIDGE-MIB`) | "MAC aa:bb:… is on port wlan1" | Which port each host is on |
+| ARP (`ipNetToMediaTable`) | "192.168.1.20 is aa:bb:…" | Matching MACs to the IPs nmap found |
+
+Hosts seen on a port that leads to another network device hang from that
+device; hosts that only SNMP sees (not detected by nmap) are shown too —
+an unknown device on a switch port is exactly what you want to notice. If no
+device answers, the scan still finishes with the star layout.
+
+**Setup** (MikroTik RouterOS example — read-only, restricted to the
+scanning machine):
+
+```
+/snmp community add name=<long-random-string> addresses=<scanner-ip>/32 read-access=yes write-access=no
+/snmp community set [find name=public] disabled=yes
+/snmp set enabled=yes
+```
+
+The community is read from the `TOPOLOGY_SNMP_COMMUNITY` environment
+variable, never from a command-line argument (arguments show up in `ps` and
+in your shell history). On Windows PowerShell:
+`$env:TOPOLOGY_SNMP_COMMUNITY = "..."`.
+
+**Current limitations**: SNMP v2c only; device-to-device links come from
+MikroTik's neighbor table (other vendors still contribute routes, ARP and
+MAC table); the web interface doesn't use SNMP yet.
 
 ## Device classification
 
@@ -120,4 +169,6 @@ run without a real network or the nmap binary installed.
 - [x] Visual icon/color legend in the HTML
 - [x] Web interface with Streamlit
 - [x] CI: run tests + ruff on every push
-- [ ] Real topology via SNMP against switches/routers (instead of the approximate star layout)
+- [x] Real topology via SNMP against routers/switches, CLI (instead of the approximate star layout)
+- [ ] SNMP in the web interface
+- [ ] SNMPv3 and the standard LLDP-MIB for non-MikroTik devices

@@ -1,17 +1,19 @@
 """
 Tests de cli.py: la orquestación de errores (que main() convierta las
-excepciones de scanner/export en sys.exit con mensaje claro) y la
-combinación de flags de construir_parser()/_resolver_argumentos_nmap().
+excepciones de scanner/export en sys.exit con mensaje claro), la
+combinación de flags de construir_parser()/_resolver_argumentos_nmap() y
+la topología opcional por SNMP (--snmp + TOPOLOGY_SNMP_COMMUNITY).
 """
 
 from unittest.mock import patch
 
 import pytest
 
-from topology_scanner.cli import _resolver_argumentos_nmap, construir_parser, main
+from topology_scanner.cli import VARIABLE_COMMUNITY, _resolver_argumentos_nmap, construir_parser, main
 from topology_scanner.export import ExportError
 from topology_scanner.history import HistoryError
 from topology_scanner.scanner import ScannerError
+from topology_scanner.snmp import SnmpError
 
 
 def _run_main_con_argv(argv):
@@ -192,3 +194,119 @@ def test_rapido_con_nmap_args_es_un_error_no_un_override_silencioso():
     args = _parsear(["192.168.1.0/24", "--rapido", "--nmap-args", "-p 22"])
     with pytest.raises(SystemExit):
         _resolver_argumentos_nmap(args, parser)
+
+
+# === Topología por SNMP (--snmp) ============================================
+
+def test_snmp_acepta_una_lista_de_ips_separadas_por_comas():
+    args = construir_parser().parse_args(["192.168.1.0/24", "--snmp", "192.168.1.1, 192.168.1.2"])
+
+    assert args.snmp == ["192.168.1.1", "192.168.1.2"]
+
+
+def test_snmp_por_defecto_no_consulta_nada():
+    assert construir_parser().parse_args(["192.168.1.0/24"]).snmp is None
+
+
+def test_snmp_con_una_ip_no_valida_es_un_error():
+    with pytest.raises(SystemExit):
+        construir_parser().parse_args(["192.168.1.0/24", "--snmp", "192.168.1.1,router-casa"])
+
+
+@patch("topology_scanner.cli.escanear_red")
+def test_snmp_sin_community_falla_antes_de_escanear(mock_escanear_red, monkeypatch, capsys):
+    """La community va por variable de entorno, nunca como argumento (se
+    vería en `ps` y en el historial de la shell). Si falta, se avisa antes
+    de lanzar un escaneo de nmap que puede tardar minutos."""
+    monkeypatch.delenv(VARIABLE_COMMUNITY, raising=False)
+
+    with pytest.raises(SystemExit):
+        _run_main_con_argv(["192.168.1.0/24", "--snmp", "192.168.1.1"])
+
+    mock_escanear_red.assert_not_called()
+    assert VARIABLE_COMMUNITY in capsys.readouterr().err
+
+
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.inferir_topologia")
+@patch("topology_scanner.cli.consultar_equipo")
+@patch("topology_scanner.cli.escanear_red")
+def test_snmp_consulta_los_equipos_y_pasa_la_topologia_al_grafo(
+    mock_escanear_red, mock_consultar, mock_inferir, mock_construir_grafo,
+    mock_exportar_texto, mock_exportar_html, monkeypatch,
+):
+    monkeypatch.setenv(VARIABLE_COMMUNITY, "community-de-prueba")
+    mock_escanear_red.return_value = _resultado_dummy()
+    mock_consultar.side_effect = lambda ip, community: {"ip": ip}
+    topologia = {"equipos": {}, "enlaces": [], "redes": {}, "ubicaciones": {}}
+    mock_inferir.return_value = topologia
+
+    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1,192.168.1.2"])
+
+    assert [c.args for c in mock_consultar.call_args_list] == [
+        ("192.168.1.1", "community-de-prueba"), ("192.168.1.2", "community-de-prueba"),
+    ]
+    mock_inferir.assert_called_once_with([{"ip": "192.168.1.1"}, {"ip": "192.168.1.2"}])
+    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), "192.168.1.0/24", topologia=topologia)
+
+
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.inferir_topologia")
+@patch("topology_scanner.cli.consultar_equipo")
+@patch("topology_scanner.cli.escanear_red")
+def test_snmp_un_equipo_que_no_responde_se_salta_y_se_sigue_con_los_demas(
+    mock_escanear_red, mock_consultar, mock_inferir, mock_construir_grafo,
+    mock_exportar_texto, mock_exportar_html, monkeypatch, caplog,
+):
+    monkeypatch.setenv(VARIABLE_COMMUNITY, "community-de-prueba")
+    mock_escanear_red.return_value = _resultado_dummy()
+    mock_consultar.side_effect = [SnmpError("192.168.1.1 no responde por SNMP"), {"ip": "192.168.1.2"}]
+
+    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1,192.168.1.2"])
+
+    mock_inferir.assert_called_once_with([{"ip": "192.168.1.2"}])
+    assert "no responde" in caplog.text
+
+
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.inferir_topologia")
+@patch("topology_scanner.cli.consultar_equipo")
+@patch("topology_scanner.cli.escanear_red")
+def test_snmp_si_no_responde_ninguno_se_dibuja_la_estrella(
+    mock_escanear_red, mock_consultar, mock_inferir, mock_construir_grafo,
+    mock_exportar_texto, mock_exportar_html, monkeypatch, caplog,
+):
+    """Mismo criterio que el historial: el escaneo de nmap ya ha funcionado,
+    perder la topología SNMP no es motivo para no generar nada."""
+    monkeypatch.setenv(VARIABLE_COMMUNITY, "community-de-prueba")
+    mock_escanear_red.return_value = _resultado_dummy()
+    mock_consultar.side_effect = SnmpError("192.168.1.1 no responde por SNMP")
+
+    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1"])
+
+    mock_inferir.assert_not_called()
+    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), "192.168.1.0/24", topologia=None)
+    mock_exportar_html.assert_called_once()
+    assert "estrella" in caplog.text
+
+
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.consultar_equipo")
+@patch("topology_scanner.cli.escanear_red")
+def test_sin_snmp_no_se_consulta_nada(
+    mock_escanear_red, mock_consultar, mock_construir_grafo, mock_exportar_texto, mock_exportar_html,
+):
+    mock_escanear_red.return_value = _resultado_dummy()
+
+    _run_main_con_argv(["192.168.1.0/24", "--sin-historial"])
+
+    mock_consultar.assert_not_called()
+    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), "192.168.1.0/24", topologia=None)
