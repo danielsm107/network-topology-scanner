@@ -220,3 +220,17 @@ contexto completo.
   ven, gana la ubicación con interfaz. La ARP no sirve para decir en qué
   puerto está nada dentro de un bridge (diría "Bridge LAN" para todos):
   solo se usa para etiquetar enlaces cuando no hay vecino ni tabla MAC.
+- `graph.construir_grafo(resultados, rango, topologia=None)`: sin
+  topología, la estrella de siempre (mismo código, solo se extrajo
+  `_atributos_host`). Con topología, árbol real: los equipos de red son
+  nodos `tipo="equipo"` (con los datos de nmap si también los escaneó;
+  categoría `router` si nmap no la sabe) y cada host de nmap se cuelga
+  por IP, si no por MAC (en minúsculas: nmap las da en mayúsculas), si no
+  del router de su red remota (la más específica). Solo si algo no encaja
+  en nada aparece el nodo "Red <rango>", y sin enlazar al árbol. Los hosts
+  que solo ha visto SNMP (en la ARP/tabla MAC pero no detectados por nmap,
+  o sin IP) **se muestran**, con `solo_snmp=True` e id = IP o MAC: un
+  equipo desconocido en un puerto es justo lo interesante para seguridad.
+  Todo nodo lleva `padre` (None en las raíces) para el layout por niveles,
+  y las aristas `interfaz` (la del padre, o la del hijo si es la única que
+  se conoce).
