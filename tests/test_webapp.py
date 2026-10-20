@@ -743,13 +743,28 @@ def test_la_app_detecta_mi_red_al_pulsar_el_boton():
     absolutos en webapp.py), así que mockear
     "topology_scanner.webapp._detectar_rango_local" no llega a afectar lo
     que AppTest ejecuta. socket.socket sí es el mismo objeto cacheado en
-    sys.modules independientemente de quién lo importe."""
+    sys.modules independientemente de quién lo importe.
+
+    Solo se falsea el socket UDP (SOCK_DGRAM) del truco de detección: el
+    resto se delega en el socket real, porque asyncio (Python 3.13+) crea
+    sockets TCP internos durante la pasada de AppTest y con un mock global
+    revienta en socketpair()."""
+    import socket
+
     from streamlit.testing.v1 import AppTest
+
+    socket_real = socket.socket
+    socket_udp_falso = MagicMock()
+    socket_udp_falso.__enter__.return_value.getsockname.return_value = ("192.168.1.42", 0)
+
+    def socket_selectivo(family=socket.AF_INET, type=socket.SOCK_STREAM, *args, **kwargs):
+        if type == socket.SOCK_DGRAM:
+            return socket_udp_falso
+        return socket_real(family, type, *args, **kwargs)
 
     at = AppTest.from_file("../src/topology_scanner/webapp.py")
     at.run()
-    with patch("socket.socket") as mock_socket_cls:
-        mock_socket_cls.return_value.__enter__.return_value.getsockname.return_value = ("192.168.1.42", 0)
+    with patch("socket.socket", side_effect=socket_selectivo):
         boton_detectar = next(b for b in at.button if b.label == "Detectar mi red automáticamente")
         boton_detectar.click().run()
 
