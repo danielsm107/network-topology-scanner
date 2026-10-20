@@ -57,6 +57,7 @@ src/topology_scanner/
 ├── graph.py        # construir_grafo(resultados, rango) -> networkx.Graph (topología en estrella)
 ├── export.py       # exportar_html (pyvis + iconos Font Awesome vía CDN), exportar_texto, exportar_diff_texto, exportar_csv
 ├── history.py      # registrar_y_comparar(resultados, rango, db_path) -> guarda en SQLite y compara con el escaneo anterior
+├── snmp.py         # topología real por SNMP (roadmap 6, en curso): de momento solo parsers puros de tablas ARP/rutas/bridge/vecinos
 ├── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
 └── webapp.py       # interfaz Streamlit (opcional): mismo pipeline, con escaneo cancelable
 tests/               # un test_<modulo>.py por módulo

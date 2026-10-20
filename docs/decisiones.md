@@ -181,3 +181,15 @@ contexto completo.
   con `posiciones_circulares(len(hosts))` tienen siempre la misma longitud,
   y si dejaran de tenerla es mejor un error que un host que desaparece del
   grafo en silencio.
+- `snmp.py` (topología por SNMP, roadmap 6) separa **consulta** (red,
+  pysnmp) de **parseo** (funciones puras). Los parsers reciben filas
+  `(oid_completo, valor)` con el valor ya en tipo nativo (`bytes`/`int`),
+  no tipos de pysnmp: se testean sin red y sin la librería. Cada parser
+  decide el tipo de cada columna por el OID — el script de reconocimiento
+  inicial adivinaba por longitud y mostraba `ether1` (6 bytes) como si fuera
+  una MAC. Los tests usan la estructura real de un MikroTik hAP ac2 (RouterOS
+  v6) anonimizada (IPs de documentación, MACs `02:00:00:…`). Rutas desde
+  `ipCidrRouteTable` (destino y máscara van en el índice) en vez de la
+  antigua `ipRouteTable`. De vecinos, de momento solo la tabla propia de
+  MikroTik (`mtxrNeighborTable`, trae IP e identidad); la `LLDP-MIB`
+  estándar queda para cuando haya equipos de otros fabricantes.
