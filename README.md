@@ -70,6 +70,9 @@ sudo topology-scanner 192.168.1.0/24
 sudo topology-scanner 192.168.1.0/24 --rapido
 sudo topology-scanner 192.168.1.0/24 --con-so --output my_network.html
 
+# Several ranges at once (e.g. your LAN and a homelab subnet behind another router)
+sudo topology-scanner 192.168.1.0/24 10.0.10.0/24
+
 # Real topology: query the router(s) over SNMP (see below)
 export TOPOLOGY_SNMP_COMMUNITY='your-read-only-community'
 sudo -E topology-scanner 192.168.1.0/24 --snmp 192.168.1.1
@@ -80,7 +83,7 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 
 | Flag              | Description                                                     | Default              |
 |-------------------|-------------------------------------------------------------------|-----------------------|
-| `range`           | CIDR range to scan                                                 | (required)            |
+| `range`           | CIDR range(s) to scan, space-separated; history is kept per range  | (required)            |
 | `--ports`         | Ports to scan (nmap format)                                        | common ports           |
 | `--nmap-args`     | Extra arguments passed to nmap                                     | `-sV -T4`             |
 | `--output`        | Output HTML file name                                              | `topologia_red.html`  |

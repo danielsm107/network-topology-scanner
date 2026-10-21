@@ -20,6 +20,7 @@ try:
     )
     from .graph import construir_grafo
     from .history import DB_POR_DEFECTO, HistoryError, registrar_y_comparar
+    from .rangos import parsear_rangos, repartir_por_rango
     from .scanner import (
         DEFAULT_NMAP_ARGS,
         PUERTOS_POR_DEFECTO,
@@ -51,7 +52,11 @@ def construir_parser() -> argparse.ArgumentParser:
         prog="topology-scanner",
         description="Escanea una red y genera un grafo de topología interactivo."
     )
-    parser.add_argument("rango", help="Rango de red en notación CIDR, ej: 192.168.1.0/24")
+    parser.add_argument(
+        "rango", nargs="+",
+        help="Rango(s) de red, ej: 192.168.1.0/24. Varios separados por espacios (cada uno IP o CIDR) "
+             "se escanean juntos y el historial se guarda por rango"
+    )
     parser.add_argument(
         "--ports", default=PUERTOS_POR_DEFECTO,
         help="Puertos a escanear (formato nmap, ej: '22,80,443' o '1-1000')"
@@ -123,6 +128,13 @@ def main():
 
     argumentos_nmap = _resolver_argumentos_nmap(args, parser)
 
+    # Separados por espacios, no por comas: "192.168.1.1,5" es sintaxis de
+    # nmap (las IPs .1 y .5) y partirlo la rompería.
+    try:
+        rangos = parsear_rangos(args.rango)
+    except ValueError as e:
+        parser.error(str(e))
+
     # Antes de escanear: sin community no hay SNMP, y no tiene sentido
     # descubrirlo después de un escaneo de nmap que puede tardar minutos.
     community = os.environ.get(VARIABLE_COMMUNITY, "")
@@ -130,7 +142,8 @@ def main():
         parser.error(f"--snmp necesita la community en la variable de entorno {VARIABLE_COMMUNITY}.")
 
     try:
-        resultados = escanear_red(args.rango, args.ports, argumentos_nmap, dos_fases=not args.sin_2_fases)
+        # nmap acepta varios objetivos separados por espacios en una sola pasada
+        resultados = escanear_red(" ".join(rangos), args.ports, argumentos_nmap, dos_fases=not args.sin_2_fases)
     except ScannerError as e:
         sys.exit(str(e))
 
@@ -144,16 +157,20 @@ def main():
         exportar_csv(resultados, args.csv)
 
     if not args.sin_historial:
-        try:
-            diff = registrar_y_comparar(resultados, args.rango, db_path=args.history_db)
-            exportar_diff_texto(diff)
-        except HistoryError as e:
-            # Perder el historial no es motivo para tirar un escaneo que sí
-            # ha funcionado: se avisa y se sigue con el grafo/export normal.
-            log.warning(str(e))
+        # Un registro por rango: cada uno se compara con su propio escaneo
+        # anterior (rangos distintos no se mezclan), así que un rango que
+        # antes se escaneaba solo sigue comparándose bien.
+        for rango, resultados_rango in repartir_por_rango(resultados, rangos).items():
+            try:
+                diff = registrar_y_comparar(resultados_rango, rango, db_path=args.history_db)
+                exportar_diff_texto(diff, rango=rango if len(rangos) > 1 else None)
+            except HistoryError as e:
+                # Perder el historial no es motivo para tirar un escaneo que sí
+                # ha funcionado: se avisa y se sigue con el grafo/export normal.
+                log.warning(str(e))
 
     topologia = _obtener_topologia(args.snmp, community) if args.snmp else None
-    grafo = construir_grafo(resultados, args.rango, topologia=topologia)
+    grafo = construir_grafo(resultados, rangos, topologia=topologia)
     try:
         exportar_html(grafo, args.output)
     except ExportError as e:

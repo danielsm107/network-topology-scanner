@@ -40,6 +40,7 @@ pytest tests/ --cov=topology_scanner            # cobertura
 ruff check src/ tests/                          # lint (lo mismo que ejecuta CI)
 
 topology-scanner 192.168.1.0/24 [--rapido] [--con-so] [--output x.html] [--csv x.csv]
+topology-scanner 192.168.1.0/24 10.0.10.0/24 [--snmp 192.168.1.1]   # varios rangos a la vez
 topology-scanner-web                            # o: streamlit run src/topology_scanner/webapp.py
 ```
 
@@ -58,6 +59,7 @@ src/topology_scanner/
 ├── graph.py        # construir_grafo(resultados, rango, topologia=None) -> networkx.Graph (estrella, o árbol real con topología SNMP)
 ├── export.py       # exportar_html (pyvis; círculo, o árbol por niveles con topología SNMP), exportar_texto, exportar_diff_texto, exportar_csv
 ├── history.py      # registrar_y_comparar(resultados, rango, db_path) -> guarda en SQLite y compara con el escaneo anterior
+├── rangos.py       # varios rangos: parsear_rangos (validación), rango_de / repartir_por_rango (qué host es de qué rango)
 ├── snmp.py         # topología real por SNMP (roadmap 6, en curso): consulta con pysnmp, parsers puros e inferir_topologia (quién cuelga de quién)
 ├── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
 └── webapp.py       # interfaz Streamlit (opcional): mismo pipeline, con escaneo cancelable
@@ -102,6 +104,11 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 **Trampas conocidas**
 - `history.py`: compara solo contra el último escaneo **del mismo rango**, purga
   más allá de `mantener_ultimos` (50), y un `HistoryError` se loguea pero no aborta.
+  Con varios rangos, `cli.py` reparte los resultados (`rangos.repartir_por_rango`)
+  y registra uno por rango: nunca se guarda "a b" como si fuera un rango.
+- Varios rangos van como **argumentos separados**, nunca partiendo por comas:
+  `192.168.1.1,5` es sintaxis de nmap (.1 y .5). Con uno solo se admite cualquier
+  sintaxis de nmap; con varios, cada uno tiene que ser IP o CIDR.
 - `export.exportar_html`: CSS inyectado a mano (`100vh`, ocultar el
   `<center><h1>` vacío de pyvis), `x`/`y` + `physics=False` por nodo, y
   `cdn_resources="remote"` para no depender de una carpeta `lib/` local.

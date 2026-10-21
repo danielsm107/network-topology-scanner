@@ -234,7 +234,10 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
     red_visual = Network(height="800px", width="100%", bgcolor="#1e1e1e", font_color="white",
                          cdn_resources="remote")
 
-    es_arbol = any(at.get("tipo") == "equipo" for _, at in grafo.nodes(data=True))
+    # Por niveles también con varios rangos en estrella: en el círculo todos
+    # los centros irían al origen; así cada rango sale como su propia estrella.
+    tipos = [at.get("tipo") for _, at in grafo.nodes(data=True)]
+    es_arbol = "equipo" in tipos or tipos.count("red") > 1
     if es_arbol:
         posiciones = posiciones_jerarquicas(grafo)
     else:
@@ -347,11 +350,12 @@ def exportar_csv(resultados: dict, archivo_salida: str):
     log.info(f"Inventario exportado a: {archivo_salida}")
 
 
-def exportar_diff_texto(diff: dict):
+def exportar_diff_texto(diff: dict, rango: str | None = None):
     """Resumen en texto plano de los cambios respecto al escaneo anterior
-    del mismo rango (ver history.registrar_y_comparar)."""
+    del mismo rango (ver history.registrar_y_comparar). Con varios rangos se
+    imprime uno por rango, con el rango en la cabecera."""
     print("-" * 60)
-    print("HISTORIAL")
+    print(f"HISTORIAL - {rango}" if rango else "HISTORIAL")
     print("-" * 60)
 
     if diff["primera_vez"]:

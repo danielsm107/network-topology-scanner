@@ -12,31 +12,38 @@ Dos modos:
 
 Cada nodo que no es el central lleva `padre` (el nodo del que cuelga, None
 en las raíces) para que el layout pueda dibujarlo por niveles.
+
+`rango` puede ser un texto (un rango) o una lista (varios, ver rangos.py):
+en la estrella hay un nodo central por rango, y cada host cuelga del suyo.
 """
 
 import ipaddress
 
 import networkx as nx
 
+from .rangos import rango_de
 
-def construir_grafo(resultados: dict, rango: str, topologia: dict | None = None) -> nx.Graph:
+
+def construir_grafo(resultados: dict, rango: str | list[str], topologia: dict | None = None) -> nx.Graph:
+    rangos = [rango] if isinstance(rango, str) else list(rango)
     if topologia is None:
-        return _grafo_estrella(resultados, rango)
-    return _grafo_topologia(resultados, rango, topologia)
+        return _grafo_estrella(resultados, rangos)
+    return _grafo_topologia(resultados, rangos, topologia)
 
 
-def _grafo_estrella(resultados: dict, rango: str) -> nx.Graph:
+def _grafo_estrella(resultados: dict, rangos: list[str]) -> nx.Graph:
     """
-    Construye un grafo simple: un nodo central representa la red escaneada
-    y el resto de hosts cuelgan de él (topología en estrella aproximada,
-    no la topología física real — para eso está el modo con topología).
+    Construye un grafo simple: un nodo central por rango escaneado y los
+    hosts colgando del suyo (topología en estrella aproximada, no la
+    topología física real — para eso está el modo con topología).
     """
     grafo = nx.Graph()
 
-    nodo_red = _nodo_red(rango)
-    grafo.add_node(nodo_red, tipo="red", titulo=f"Rango escaneado: {rango}")
+    for rango in rangos:
+        grafo.add_node(_nodo_red(rango), tipo="red", titulo=f"Rango escaneado: {rango}")
 
     for ip, datos in resultados.items():
+        nodo_red = _nodo_red(rango_de(ip, rangos))
         grafo.add_node(ip, **_atributos_host(ip, datos), padre=nodo_red)
         grafo.add_edge(nodo_red, ip)
 
@@ -76,7 +83,7 @@ def _atributos_host(ip: str, datos: dict) -> dict:
     }
 
 
-def _grafo_topologia(resultados: dict, rango: str, topologia: dict) -> nx.Graph:
+def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx.Graph:
     grafo = nx.Graph()
     equipos = topologia["equipos"]
     ubicaciones = topologia["ubicaciones"]
@@ -123,6 +130,7 @@ def _grafo_topologia(resultados: dict, rango: str, topologia: dict) -> nx.Graph:
         elif (router := _router_de_red(ip, topologia["redes"])) is not None:
             colgar(ip, router, None)
         else:
+            rango = rango_de(ip, rangos)
             nodo_red = _nodo_red(rango)
             if nodo_red not in grafo:
                 grafo.add_node(nodo_red, tipo="red", titulo=f"Rango escaneado: {rango}\n"

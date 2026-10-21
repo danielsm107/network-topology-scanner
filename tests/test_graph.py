@@ -199,3 +199,38 @@ def test_hosts_vistos_solo_por_snmp_tambien_se_muestran():
     assert grafo.has_edge("192.0.2.1", "02:00:00:00:00:88")
     assert "no detectado por nmap" in solo_mac["titulo"]
     assert "ether5" in solo_mac["titulo"]
+
+
+# === Varios rangos ==========================================================
+
+def test_varios_rangos_en_estrella_un_centro_por_rango():
+    resultados = {
+        "192.168.181.10": _resultado_fake(),
+        "192.168.181.20": _resultado_fake(),
+        "10.0.10.10": _resultado_fake(hostname="proxmox"),
+    }
+
+    grafo = construir_grafo(resultados, ["192.168.181.0/24", "10.0.10.0/24"])
+
+    assert grafo.has_edge("Red 192.168.181.0/24", "192.168.181.10")
+    assert grafo.has_edge("Red 192.168.181.0/24", "192.168.181.20")
+    assert grafo.has_edge("Red 10.0.10.0/24", "10.0.10.10")
+    assert grafo.nodes["10.0.10.10"]["padre"] == "Red 10.0.10.0/24"
+    assert grafo.number_of_nodes() == 5
+
+
+def test_un_rango_como_lista_es_igual_que_como_texto():
+    resultados = {"192.168.1.10": _resultado_fake()}
+
+    con_lista = construir_grafo(resultados, ["192.168.1.0/24"])
+    con_texto = construir_grafo(resultados, "192.168.1.0/24")
+
+    assert set(con_lista.nodes) == set(con_texto.nodes) == {"Red 192.168.1.0/24", "192.168.1.10"}
+
+
+def test_con_topologia_el_host_sin_ubicar_cuelga_del_centro_de_su_rango():
+    grafo = construir_grafo({"203.0.113.5": _resultado_fake()}, ["192.0.2.0/24", "203.0.113.0/24"],
+                            topologia=_topologia())
+
+    assert grafo.has_edge("Red 203.0.113.0/24", "203.0.113.5")
+    assert "Red 192.0.2.0/24" not in grafo.nodes   # sin hosts sin ubicar en ese rango

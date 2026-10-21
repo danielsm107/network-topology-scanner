@@ -294,3 +294,17 @@ contexto completo.
   vio al añadir SNMP (la identidad de los equipos la define cada equipo).
   Hay un test por panel con un valor malicioso. Los mensajes de
   `st.warning`/`st.error` no lo necesitan: Streamlit no interpreta HTML ahí.
+- Varios rangos por ejecución (`topology-scanner A B`): módulo nuevo
+  `rangos.py`, puro, porque "a qué rango pertenece cada IP" lo necesitan
+  CLI, historial y grafo y no es cosa de nmap. nmap recibe todos los
+  objetivos de una vez (python-nmap ya acepta varios separados por
+  espacios). Se pasan como **argumentos separados**, no partiendo por
+  comas: `192.168.1.1,5` es sintaxis de nmap. Con un solo objetivo se
+  admite cualquier sintaxis de nmap, como antes; con varios, cada uno tiene
+  que ser IP o CIDR para poder repartir los hosts (`parsear_rangos`, error
+  antes de escanear). El historial se guarda **por rango**
+  (`repartir_por_rango`, incluidos los rangos sin hosts, para que salgan
+  sus caídos): así se respeta "rangos distintos no se mezclan" y un rango
+  que antes se escaneaba solo sigue comparándose con su historia. En la
+  estrella hay un centro por rango, y con más de uno `exportar_html` usa el
+  layout por niveles (en el círculo todos los centros irían al origen).

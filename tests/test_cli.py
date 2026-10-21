@@ -80,7 +80,7 @@ def test_main_guarda_historial_y_muestra_el_diff(
     mock_registrar.assert_called_once_with(
         mock_escanear_red.return_value, "192.168.1.0/24", db_path="db_de_prueba.sqlite"
     )
-    mock_exportar_diff.assert_called_once_with(diff_falso)
+    mock_exportar_diff.assert_called_once_with(diff_falso, rango=None)
 
 
 @patch("topology_scanner.cli.exportar_diff_texto")
@@ -249,7 +249,7 @@ def test_snmp_consulta_los_equipos_y_pasa_la_topologia_al_grafo(
         ("192.168.1.1", "community-de-prueba"), ("192.168.1.2", "community-de-prueba"),
     ]
     mock_inferir.assert_called_once_with([{"ip": "192.168.1.1"}, {"ip": "192.168.1.2"}])
-    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), "192.168.1.0/24", topologia=topologia)
+    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), ["192.168.1.0/24"], topologia=topologia)
 
 
 @patch("topology_scanner.cli.exportar_html")
@@ -291,7 +291,7 @@ def test_snmp_si_no_responde_ninguno_se_dibuja_la_estrella(
     _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1"])
 
     mock_inferir.assert_not_called()
-    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), "192.168.1.0/24", topologia=None)
+    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), ["192.168.1.0/24"], topologia=None)
     mock_exportar_html.assert_called_once()
     assert "estrella" in caplog.text
 
@@ -309,4 +309,68 @@ def test_sin_snmp_no_se_consulta_nada(
     _run_main_con_argv(["192.168.1.0/24", "--sin-historial"])
 
     mock_consultar.assert_not_called()
-    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), "192.168.1.0/24", topologia=None)
+    mock_construir_grafo.assert_called_once_with(_resultado_dummy(), ["192.168.1.0/24"], topologia=None)
+
+
+# === Varios rangos ==========================================================
+
+def test_acepta_varios_rangos_como_argumentos():
+    args = construir_parser().parse_args(["192.168.181.0/24", "10.0.10.0/24"])
+
+    assert args.rango == ["192.168.181.0/24", "10.0.10.0/24"]
+
+
+@patch("topology_scanner.cli.escanear_red")
+def test_varios_rangos_con_uno_no_valido_falla_antes_de_escanear(mock_escanear_red, capsys):
+    with pytest.raises(SystemExit):
+        _run_main_con_argv(["10.0.10.0/24", "192.168.1.1-50"])
+
+    mock_escanear_red.assert_not_called()
+    assert "192.168.1.1-50" in capsys.readouterr().err
+
+
+@patch("topology_scanner.cli.exportar_diff_texto")
+@patch("topology_scanner.cli.registrar_y_comparar")
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.escanear_red")
+def test_varios_rangos_se_escanean_juntos_y_el_historial_va_por_rango(
+    mock_escanear_red, mock_construir_grafo, mock_exportar_texto,
+    mock_exportar_html, mock_registrar, mock_exportar_diff,
+):
+    """nmap recibe todos los objetivos de una vez; el historial guarda y
+    compara cada rango por separado (rangos distintos no se mezclan), así
+    que un rango que antes se escaneaba solo sigue comparándose bien."""
+    lan_a = {"192.168.181.10": _resultado_dummy()["192.168.1.10"]}
+    lan_b = {"10.0.10.10": _resultado_dummy()["192.168.1.10"]}
+    mock_escanear_red.return_value = {**lan_a, **lan_b}
+    mock_registrar.return_value = {"primera_vez": True}
+
+    _run_main_con_argv(["192.168.181.0/24", "10.0.10.0/24"])
+
+    assert mock_escanear_red.call_args.args[0] == "192.168.181.0/24 10.0.10.0/24"
+    assert [c.args[:2] for c in mock_registrar.call_args_list] == [
+        (lan_a, "192.168.181.0/24"), (lan_b, "10.0.10.0/24"),
+    ]
+    assert [c.kwargs.get("rango") for c in mock_exportar_diff.call_args_list] == ["192.168.181.0/24", "10.0.10.0/24"]
+    assert mock_construir_grafo.call_args.args[1] == ["192.168.181.0/24", "10.0.10.0/24"]
+
+
+@patch("topology_scanner.cli.exportar_diff_texto")
+@patch("topology_scanner.cli.registrar_y_comparar")
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.escanear_red")
+def test_un_solo_rango_no_cambia_la_salida_del_historial(
+    mock_escanear_red, mock_construir_grafo, mock_exportar_texto,
+    mock_exportar_html, mock_registrar, mock_exportar_diff,
+):
+    mock_escanear_red.return_value = _resultado_dummy()
+    mock_registrar.return_value = {"primera_vez": True}
+
+    _run_main_con_argv(["192.168.1.0/24"])
+
+    mock_registrar.assert_called_once()
+    assert mock_exportar_diff.call_args.kwargs.get("rango") is None
