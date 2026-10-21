@@ -611,3 +611,13 @@ def test_exportar_diff_texto_con_rango_lo_indica_en_la_cabecera(capsys):
                         rango="10.0.10.0/24")
 
     assert "HISTORIAL - 10.0.10.0/24" in capsys.readouterr().out
+
+
+def test_posiciones_jerarquicas_ordena_las_ips_como_numeros():
+    """Ordenadas como texto salía .1, .10, .11, .2... (visto en una red real)."""
+    grafo = _arbol([("router", f"192.0.2.{i}", "wlan1") for i in (10, 2, 1, 11)])
+
+    pos = posiciones_jerarquicas(grafo)
+    orden = sorted((n for n in grafo.nodes if n != "router"), key=lambda n: (pos[n][1], pos[n][0]))
+
+    assert orden == ["192.0.2.1", "192.0.2.2", "192.0.2.10", "192.0.2.11"]

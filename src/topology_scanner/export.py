@@ -6,6 +6,7 @@ o informe de texto plano por consola.
 """
 
 import csv
+import ipaddress
 import logging
 import math
 from datetime import datetime
@@ -124,7 +125,12 @@ def posiciones_jerarquicas(grafo: nx.Graph) -> dict:
 
     def orden(padre, hijo):
         interfaz = (grafo.get_edge_data(padre, hijo) or {}).get("interfaz") or ""
-        return (interfaz, str(hijo))
+        # IPs como números (.2 antes que .10); lo que no es IP (MACs de hosts
+        # vistos solo por SNMP, nodos "Red ...") después, como texto
+        try:
+            return (interfaz, 0, int(ipaddress.ip_address(hijo)), "")
+        except ValueError:
+            return (interfaz, 1, 0, str(hijo))
 
     for padre, lista in hijos.items():
         lista.sort(key=lambda hijo, padre=padre: orden(padre, hijo))
