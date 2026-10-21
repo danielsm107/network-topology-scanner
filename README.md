@@ -102,8 +102,8 @@ of your local network, real cancellable scanning (kills the actual nmap
 process, not just the UI), results table, CSV download and the embedded
 graph. Several ranges can be scanned at once by separating them with
 spaces in the range field. The "Real topology via SNMP" switch in the sidebar draws the tree
-described below (the community field is a password input; leave it empty
-to use `TOPOLOGY_SNMP_COMMUNITY`).
+described below, over SNMP v2c or v3 (community and keys are password
+inputs; leave them empty to use the `TOPOLOGY_SNMP_*` environment variables).
 
 ```bash
 topology-scanner-web

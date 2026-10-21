@@ -81,15 +81,31 @@ from topology_scanner.scanner import (
     descubrir_hosts_vivos,
     parsear_host,
 )
-from topology_scanner.snmp import VARIABLE_COMMUNITY, obtener_topologia, parsear_lista_ips
+from topology_scanner.snmp import (
+    PROTOCOLOS_AUTH,
+    PROTOCOLOS_PRIV,
+    VARIABLE_CLAVE_AUTH_V3,
+    VARIABLE_COMMUNITY,
+    VARIABLE_USUARIO_V3,
+    CredencialesV3,
+    credenciales_desde_entorno,
+    obtener_topologia,
+    parsear_lista_ips,
+)
 
 
-def _validar_snmp(activado: bool, texto_ips: str, community: str) -> tuple[dict | None, str | None]:
+def _validar_snmp(activado: bool, texto_ips: str, community: str, *, version: str = "v2c",
+                  usuario: str = "", clave_auth: str = "", clave_priv: str = "",
+                  protocolo_auth: str = "SHA", protocolo_priv: str = "AES") -> tuple[dict | None, str | None]:
     """Valida el formulario de SNMP antes de lanzar nmap (mismo criterio que
     el CLI: no tiene sentido descubrir un error tras minutos de escaneo).
-    Devuelve (configuracion, error): ({"ips", "community"}, None) si es
+    Devuelve (configuracion, error): ({"ips", "credenciales"}, None) si es
     válido, (None, mensaje) si no, y (None, None) si SNMP está desactivado.
-    Si el campo de community está vacío se usa TOPOLOGY_SNMP_COMMUNITY."""
+
+    `credenciales` es la community (v2c) o un CredencialesV3. Con los campos
+    vacíos se usan las variables de entorno, pero solo las de la versión
+    elegida: elegir v3 y tener solo la community no debe acabar consultando
+    por v2c sin avisar."""
     if not activado:
         return None, None
     try:
@@ -98,11 +114,24 @@ def _validar_snmp(activado: bool, texto_ips: str, community: str) -> tuple[dict 
         return None, f"Topología SNMP: {e}."
     if not ips:
         return None, "Topología SNMP: indica al menos la IP de un router o switch."
-    community = community or os.environ.get(VARIABLE_COMMUNITY, "")
-    if not community:
-        return None, (f"Topología SNMP: indica la community, o déjala en la variable de entorno "
-                      f"{VARIABLE_COMMUNITY} antes de arrancar la web.")
-    return {"ips": ips, "community": community}, None
+
+    if version == "v3":
+        try:
+            if usuario:
+                credenciales = CredencialesV3(usuario, clave_auth, clave_priv, protocolo_auth, protocolo_priv)
+            else:
+                credenciales = credenciales_desde_entorno(os.environ)
+        except ValueError as e:
+            return None, f"Topología SNMP: {e}."
+        if not isinstance(credenciales, CredencialesV3):
+            return None, (f"Topología SNMP: indica el usuario SNMPv3, o déjalo en las variables de entorno "
+                          f"{VARIABLE_USUARIO_V3} y {VARIABLE_CLAVE_AUTH_V3} antes de arrancar la web.")
+    else:
+        credenciales = community or os.environ.get(VARIABLE_COMMUNITY, "")
+        if not credenciales:
+            return None, (f"Topología SNMP: indica la community, o déjala en la variable de entorno "
+                          f"{VARIABLE_COMMUNITY} antes de arrancar la web.")
+    return {"ips": ips, "credenciales": credenciales}, None
 
 
 def _validar_rangos(texto: str) -> tuple[list[str] | None, str | None]:
@@ -253,8 +282,9 @@ def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_hist
     historial se guarda por rango, como en el CLI, y los diffs se combinan
     en uno para mostrarlos (history.combinar_diffs).
 
-    `snmp` = {"ips", "community"} (ver _validar_snmp). La community se usa
-    aquí y no viaja en el resultado, que se queda en session_state.
+    `snmp` = {"ips", "credenciales"} (ver _validar_snmp). Las credenciales
+    (community o usuario v3) se usan aquí y no viajan en el resultado, que
+    se queda en session_state.
 
     Devuelve: {"resultados": dict, "html": str|None, "diff": dict|None, "rango": str,
                "rangos": list[str], "topologia": dict|None, "avisos_snmp": list[str]}
@@ -276,7 +306,7 @@ def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_hist
 
     # Sin respuesta SNMP, topologia=None y se dibuja la estrella (los avisos
     # explican por qué); mismo criterio que el CLI.
-    topologia, avisos_snmp = obtener_topologia(snmp["ips"], snmp["community"]) if snmp else (None, [])
+    topologia, avisos_snmp = obtener_topologia(snmp["ips"], snmp["credenciales"]) if snmp else (None, [])
 
     grafo = construir_grafo(resultados, rango, topologia=topologia)
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
@@ -1060,7 +1090,7 @@ def _fragmento_progreso():
                 # no existe (tabla vacía hasta que el usuario pulsara "Anterior").
                 st.session_state.pagina_inventario = 1
     finally:
-        # La community ya no hace falta: no se deja en session_state más
+        # Las credenciales ya no hacen falta: no se dejan en session_state más
         # tiempo del imprescindible (también si se canceló o falló nmap).
         parametros.pop("snmp", None)
         # La XML temporal (creada antes de lanzar nmap, ver main()) ya no
@@ -1615,22 +1645,51 @@ def main():
         usar_snmp = st.toggle(
             "Topología real por SNMP",
             disabled=escaneando,
-            help="Consulta tus routers/switches (SNMP v2c, solo lectura) para dibujar quién "
+            help="Consulta tus routers/switches (SNMP v2c o v3, solo lectura) para dibujar quién "
                  "cuelga de quién en vez de la estrella. Requiere el extra [snmp]",
         )
         ips_snmp = community_snmp = ""
+        version_snmp, campos_v3 = "v2c", {}
         if usar_snmp:
             ips_snmp = st.text_input(
                 "Routers/switches (IPs)", placeholder="192.168.1.1, 192.168.1.2", disabled=escaneando
             )
-            # type="password": la community no se ve en pantalla. Vacía, se
-            # usa la variable de entorno (la misma que el CLI).
-            community_snmp = st.text_input(
-                "Community (solo lectura)", type="password", disabled=escaneando,
-                help=f"Si la dejas vacía se usa la variable de entorno {VARIABLE_COMMUNITY}",
+            version_snmp = st.radio(
+                "Versión SNMP", ["v2c", "v3"], horizontal=True, disabled=escaneando,
+                help="v3 autentica y cifra; en v2c la community viaja en texto plano",
             )
-            if not community_snmp and os.environ.get(VARIABLE_COMMUNITY):
-                st.caption(f"Se usará la community de {VARIABLE_COMMUNITY}.")
+            # type="password": ni la community ni las claves se ven en pantalla.
+            # Vacías, se usan las variables de entorno (las mismas que el CLI).
+            if version_snmp == "v3":
+                campos_v3 = {
+                    "usuario": st.text_input(
+                        "Usuario SNMPv3", disabled=escaneando,
+                        help=f"Si lo dejas vacío se usan las variables de entorno {VARIABLE_USUARIO_V3} y "
+                             f"{VARIABLE_CLAVE_AUTH_V3}",
+                    ),
+                    "clave_auth": st.text_input("Clave de autenticación", type="password", disabled=escaneando),
+                    "clave_priv": st.text_input(
+                        "Clave de cifrado", type="password", disabled=escaneando,
+                        help="Vacía = autentica pero no cifra",
+                    ),
+                    "protocolo_auth": st.selectbox(
+                        "Autenticación", list(PROTOCOLOS_AUTH), index=list(PROTOCOLOS_AUTH).index("SHA"),
+                        disabled=escaneando,
+                    ),
+                    "protocolo_priv": st.selectbox(
+                        "Cifrado", list(PROTOCOLOS_PRIV), index=list(PROTOCOLOS_PRIV).index("AES"),
+                        disabled=escaneando,
+                    ),
+                }
+                if not campos_v3["usuario"] and os.environ.get(VARIABLE_USUARIO_V3):
+                    st.caption(f"Se usará el usuario de {VARIABLE_USUARIO_V3}.")
+            else:
+                community_snmp = st.text_input(
+                    "Community (solo lectura)", type="password", disabled=escaneando,
+                    help=f"Si la dejas vacía se usa la variable de entorno {VARIABLE_COMMUNITY}",
+                )
+                if not community_snmp and os.environ.get(VARIABLE_COMMUNITY):
+                    st.caption(f"Se usará la community de {VARIABLE_COMMUNITY}.")
 
         st.divider()
         enviado = st.button("▶ Escanear", disabled=escaneando, type="primary", use_container_width=True)
@@ -1662,7 +1721,9 @@ def main():
     if enviado and not escaneando:
         # SNMP se valida antes que nada: un error aquí no debe descubrirse
         # después de minutos de nmap (mismo criterio que el CLI).
-        configuracion_snmp, error_snmp = _validar_snmp(usar_snmp, ips_snmp, community_snmp)
+        configuracion_snmp, error_snmp = _validar_snmp(
+            usar_snmp, ips_snmp, community_snmp, version=version_snmp, **campos_v3
+        )
         rangos, error_rangos = _validar_rangos(rango)
         if error_snmp or error_rangos:
             st.warning(error_snmp or error_rangos)

@@ -27,7 +27,7 @@ pytest.importorskip("streamlit", reason='pip install "topology-scanner[web]" par
 from topology_scanner.classifier import ICONOS_POR_CATEGORIA
 from topology_scanner.history import HistoryError
 from topology_scanner.scanner import ScannerError
-from topology_scanner.snmp import VARIABLE_COMMUNITY
+from topology_scanner.snmp import VARIABLE_COMMUNITY, CredencialesV3
 from topology_scanner.webapp import (
     _argumentos_nmap_desde_formulario,
     _compactar_html,
@@ -822,7 +822,7 @@ def test_validar_snmp_ips_y_community_correctas(monkeypatch):
     monkeypatch.delenv(VARIABLE_COMMUNITY, raising=False)
 
     assert _validar_snmp(True, "192.0.2.1, 192.0.2.2", "secreta") == (
-        {"ips": ["192.0.2.1", "192.0.2.2"], "community": "secreta"}, None,
+        {"ips": ["192.0.2.1", "192.0.2.2"], "credenciales": "secreta"}, None,
     )
 
 
@@ -843,7 +843,7 @@ def test_validar_snmp_sin_community_usa_la_variable_de_entorno(monkeypatch):
     configuracion, error = _validar_snmp(True, "192.0.2.1", "")
 
     assert error is None
-    assert configuracion["community"] == "de-entorno"
+    assert configuracion["credenciales"] == "de-entorno"
 
 
 def test_validar_snmp_sin_community_ni_variable_es_un_error(monkeypatch):
@@ -865,7 +865,7 @@ def test_finalizar_resultados_con_snmp_guarda_topologia_y_avisos(
     resultados = {"192.0.2.10": _resultado_fake()}
 
     resultado = _finalizar_resultados(resultados, "192.0.2.0/24", guardar_historial=False,
-                                      snmp={"ips": ["192.0.2.1", "192.0.2.2"], "community": "secreta"})
+                                      snmp={"ips": ["192.0.2.1", "192.0.2.2"], "credenciales": "secreta"})
 
     mock_obtener.assert_called_once_with(["192.0.2.1", "192.0.2.2"], "secreta")
     mock_construir_grafo.assert_called_once_with(resultados, "192.0.2.0/24", topologia=_topologia_fake())
@@ -1061,3 +1061,73 @@ def test_la_app_avisa_de_varios_rangos_no_validos_antes_de_escanear(sin_escaneos
 
     assert not at.exception
     assert any("192.168.1.1-50" in w.value for w in at.warning)
+
+
+# === SNMPv3 en la web =======================================================
+
+@pytest.fixture
+def sin_snmp_en_entorno(monkeypatch):
+    for variable in ("TOPOLOGY_SNMP_COMMUNITY", "TOPOLOGY_SNMP_USER", "TOPOLOGY_SNMP_AUTH_KEY",
+                     "TOPOLOGY_SNMP_PRIV_KEY", "TOPOLOGY_SNMP_AUTH_PROTO", "TOPOLOGY_SNMP_PRIV_PROTO"):
+        monkeypatch.delenv(variable, raising=False)
+
+
+def test_validar_snmp_v3_con_los_campos_del_formulario(sin_snmp_en_entorno):
+    configuracion, error = _validar_snmp(True, "192.0.2.1", "", version="v3", usuario="lector",
+                                         clave_auth="clave-auth", clave_priv="clave-priv",
+                                         protocolo_auth="SHA256", protocolo_priv="AES256")
+
+    assert error is None
+    assert configuracion["credenciales"] == CredencialesV3("lector", "clave-auth", "clave-priv", "SHA256", "AES256")
+
+
+def test_validar_snmp_v3_mal_configurado_es_un_error(sin_snmp_en_entorno):
+    configuracion, error = _validar_snmp(True, "192.0.2.1", "", version="v3", usuario="lector", clave_auth="corta")
+
+    assert configuracion is None
+    assert "8 caracteres" in error
+
+
+def test_validar_snmp_v3_sin_usuario_usa_el_del_entorno(sin_snmp_en_entorno, monkeypatch):
+    monkeypatch.setenv("TOPOLOGY_SNMP_USER", "lector")
+    monkeypatch.setenv("TOPOLOGY_SNMP_AUTH_KEY", "clave-auth")
+
+    configuracion, error = _validar_snmp(True, "192.0.2.1", "", version="v3")
+
+    assert error is None
+    assert configuracion["credenciales"] == CredencialesV3("lector", "clave-auth")
+
+
+def test_validar_snmp_v3_sin_usuario_ni_en_el_entorno_es_un_error(sin_snmp_en_entorno, monkeypatch):
+    """Elegir v3 y tener solo la community en el entorno no debe acabar
+    consultando por v2c sin avisar."""
+    monkeypatch.setenv("TOPOLOGY_SNMP_COMMUNITY", "de-entorno")
+
+    configuracion, error = _validar_snmp(True, "192.0.2.1", "", version="v3")
+
+    assert configuracion is None
+    assert "TOPOLOGY_SNMP_USER" in error
+
+
+def test_validar_snmp_v2c_no_usa_un_usuario_v3_del_entorno(sin_snmp_en_entorno, monkeypatch):
+    """Y al revés: con v2c elegido, el usuario v3 del entorno no cuenta."""
+    monkeypatch.setenv("TOPOLOGY_SNMP_USER", "lector")
+    monkeypatch.setenv("TOPOLOGY_SNMP_AUTH_KEY", "clave-auth")
+
+    assert _validar_snmp(True, "192.0.2.1", "")[0] is None
+
+
+def test_la_app_muestra_los_campos_de_v3_al_elegirlo():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    next(t for t in at.sidebar.toggle if "SNMP" in t.label).set_value(True).run()
+    at.sidebar.radio[0].set_value("v3").run()
+
+    assert not at.exception
+    etiquetas = [t.label for t in at.sidebar.text_input]
+    assert any("Usuario" in e for e in etiquetas)
+    assert sum("Clave" in e for e in etiquetas) == 2
+    assert not any("Community" in e for e in etiquetas)
+    assert [s.value for s in at.sidebar.selectbox] == ["SHA", "AES"]

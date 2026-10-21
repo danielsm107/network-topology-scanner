@@ -367,3 +367,10 @@ contexto completo.
   comprueba antes de tocar la red si se pide cifrado, y `EncryptionError`
   (mismo texto que `DecryptionError`, pero local) se trata como fallo de
   este equipo, no del consultado.
+- SNMPv3 en la web: selector v2c/v3 en el sidebar; en v3, usuario, claves
+  (`type="password"`) y protocolos. La configuración guarda
+  `credenciales` (community o `CredencialesV3`) en vez de `community`, y se
+  borra igual al terminar el escaneo. Con los campos vacíos se usan las
+  variables de entorno, pero **solo las de la versión elegida**: elegir v3
+  y tener solo la community en el entorno es un error, no una consulta v2c
+  silenciosa (y al revés, con v2c no cuenta un usuario v3 del entorno).
