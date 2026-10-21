@@ -267,19 +267,14 @@ def test_procesar_salida_nmap_avisa_si_nmap_reporto_error(mock_portscanner_cls, 
     assert "Failed to resolve given hostname/IP" in caplog.text
 
 
-@patch("topology_scanner.webapp.exportar_html")
-@patch("topology_scanner.webapp.construir_grafo")
-def test_finalizar_resultados_sin_hosts_no_construye_grafo(mock_construir_grafo, mock_exportar_html):
+def test_finalizar_resultados_sin_hosts():
     resultado = _finalizar_resultados({}, "192.168.1.0/24", guardar_historial=False)
 
     assert resultado["resultados"] == {}
-    mock_construir_grafo.assert_not_called()
-    mock_exportar_html.assert_not_called()
+    assert resultado["diff"] is None
 
 
-@patch("topology_scanner.webapp.exportar_html")
-@patch("topology_scanner.webapp.construir_grafo")
-def test_finalizar_resultados_no_llama_al_historial_si_no_se_pide(mock_construir_grafo, mock_exportar_html):
+def test_finalizar_resultados_no_llama_al_historial_si_no_se_pide():
     resultados = {"192.168.1.10": _resultado_fake()}
 
     with patch("topology_scanner.webapp.registrar_y_comparar") as mock_registrar:
@@ -289,12 +284,8 @@ def test_finalizar_resultados_no_llama_al_historial_si_no_se_pide(mock_construir
     assert resultado["diff"] is None
 
 
-@patch("topology_scanner.webapp.exportar_html")
-@patch("topology_scanner.webapp.construir_grafo")
 @patch("topology_scanner.webapp.registrar_y_comparar")
-def test_finalizar_resultados_continua_si_falla_el_historial(
-    mock_registrar, mock_construir_grafo, mock_exportar_html
-):
+def test_finalizar_resultados_continua_si_falla_el_historial(mock_registrar):
     """Mismo criterio que cli.py: un fallo guardando el historial no debe
     tirar un escaneo que sí ha funcionado."""
     resultados = {"192.168.1.10": _resultado_fake()}
@@ -303,12 +294,10 @@ def test_finalizar_resultados_continua_si_falla_el_historial(
     resultado = _finalizar_resultados(resultados, "192.168.1.0/24", guardar_historial=True)
 
     assert resultado["diff"] is None
-    mock_exportar_html.assert_called_once()
+    assert resultado["resultados"] == resultados
 
 
-@patch("topology_scanner.webapp.exportar_html")
-@patch("topology_scanner.webapp.construir_grafo")
-def test_finalizar_resultados_incluye_el_rango(mock_construir_grafo, mock_exportar_html):
+def test_finalizar_resultados_incluye_el_rango():
     """La vista de resultados (KPIs) necesita el rango escaneado para el
     KPI "Hosts detectados" ("en 192.168.1.0/24") - antes no viajaba en el
     dict de resultado, solo se usaba internamente para el historial."""
@@ -319,12 +308,11 @@ def test_finalizar_resultados_incluye_el_rango(mock_construir_grafo, mock_export
     assert resultado["rango"] == "192.168.1.0/24"
 
 
-@patch("topology_scanner.webapp.exportar_html")
-@patch("topology_scanner.webapp.construir_grafo")
-def test_finalizar_resultados_borra_el_html_temporal(mock_construir_grafo, mock_exportar_html):
-    """Antes de este fix, el .html temporal (NamedTemporaryFile(delete=False))
-    nunca se borraba - cada escaneo dejaba basura en el directorio temporal
-    del sistema para siempre."""
+def test_finalizar_resultados_no_genera_el_html_de_pyvis():
+    """La web dibuja su propio SVG (_generar_topologia_html); antes además
+    generaba en cada escaneo el HTML de pyvis del CLI en un archivo temporal,
+    lo leía, lo borraba y lo devolvía en resultado["html"] sin que nadie lo
+    usara."""
     resultados = {"192.168.1.10": _resultado_fake()}
     rutas_creadas = []
     ntf_original = tempfile.NamedTemporaryFile
@@ -335,10 +323,10 @@ def test_finalizar_resultados_borra_el_html_temporal(mock_construir_grafo, mock_
         return f
 
     with patch("topology_scanner.webapp.tempfile.NamedTemporaryFile", side_effect=_capturar_ruta):
-        _finalizar_resultados(resultados, "192.168.1.0/24", guardar_historial=False)
+        resultado = _finalizar_resultados(resultados, "192.168.1.0/24", guardar_historial=False)
 
-    assert rutas_creadas
-    assert not os.path.exists(rutas_creadas[-1])
+    assert rutas_creadas == []
+    assert "html" not in resultado
 
 
 def test_generar_csv_bytes_borra_el_csv_temporal():
@@ -856,10 +844,8 @@ def test_validar_snmp_sin_community_ni_variable_es_un_error(monkeypatch):
 
 
 @patch("topology_scanner.webapp.obtener_topologia")
-@patch("topology_scanner.webapp.exportar_html")
-@patch("topology_scanner.webapp.construir_grafo")
 def test_finalizar_resultados_con_snmp_guarda_topologia_y_avisos(
-    mock_construir_grafo, mock_exportar_html, mock_obtener,
+    mock_obtener,
 ):
     mock_obtener.return_value = (_topologia_fake(), ["192.0.2.2 no responde por SNMP"])
     resultados = {"192.0.2.10": _resultado_fake()}
@@ -868,16 +854,13 @@ def test_finalizar_resultados_con_snmp_guarda_topologia_y_avisos(
                                       snmp={"ips": ["192.0.2.1", "192.0.2.2"], "credenciales": "secreta"})
 
     mock_obtener.assert_called_once_with(["192.0.2.1", "192.0.2.2"], "secreta")
-    mock_construir_grafo.assert_called_once_with(resultados, "192.0.2.0/24", topologia=_topologia_fake())
     assert resultado["topologia"] == _topologia_fake()
     assert resultado["avisos_snmp"] == ["192.0.2.2 no responde por SNMP"]
     assert "secreta" not in str(resultado)   # la community no se queda en session_state
 
 
 @patch("topology_scanner.webapp.obtener_topologia")
-@patch("topology_scanner.webapp.exportar_html")
-@patch("topology_scanner.webapp.construir_grafo")
-def test_finalizar_resultados_sin_snmp_no_consulta_nada(mock_construir_grafo, mock_exportar_html, mock_obtener):
+def test_finalizar_resultados_sin_snmp_no_consulta_nada(mock_obtener):
     resultado = _finalizar_resultados({"192.0.2.10": _resultado_fake()}, "192.0.2.0/24", guardar_historial=False)
 
     mock_obtener.assert_not_called()
@@ -1006,8 +989,7 @@ def test_progreso_escapa_el_rango_y_las_lineas_del_log():
 # === Varios rangos en la web ================================================
 
 @patch("topology_scanner.webapp.registrar_y_comparar")
-@patch("topology_scanner.webapp.exportar_html")
-def test_finalizar_resultados_con_varios_rangos_guarda_el_historial_por_rango(mock_exportar_html, mock_registrar):
+def test_finalizar_resultados_con_varios_rangos_guarda_el_historial_por_rango(mock_registrar):
     lan_a = {"192.168.50.10": _resultado_fake()}
     lan_b = {"10.0.10.10": _resultado_fake(hostname="proxmox")}
     mock_registrar.side_effect = [
@@ -1027,8 +1009,7 @@ def test_finalizar_resultados_con_varios_rangos_guarda_el_historial_por_rango(mo
     assert resultado["rango"] == "192.168.50.0/24 10.0.10.0/24"
 
 
-@patch("topology_scanner.webapp.exportar_html")
-def test_finalizar_resultados_con_un_rango_en_texto_sigue_igual(mock_exportar_html):
+def test_finalizar_resultados_con_un_rango_en_texto_sigue_igual():
     resultado = _finalizar_resultados({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24", guardar_historial=False)
 
     assert resultado["rango"] == "192.168.1.0/24"

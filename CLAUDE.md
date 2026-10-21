@@ -141,7 +141,7 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - Estilo de un widget concreto: `key="..."` + selector `.st-key-<key>`.
 - Todo texto externo (hostname, SO, rango, identidad SNMP, log de nmap) que
   se mete en HTML va con `html.escape` — hay un test por panel.
-- Temporales `.html`/`.csv` se borran en un `finally`. `pagina_inventario`
+- Temporales `.xml`/`.csv` se borran en un `finally` (el `.html` de pyvis ya no se genera en la web). `pagina_inventario`
   se resetea a 1 en cada escaneo.
 
 ## Roadmap (por orden de prioridad hablado)

@@ -374,3 +374,8 @@ contexto completo.
   variables de entorno, pero **solo las de la versión elegida**: elegir v3
   y tener solo la community en el entorno es un error, no una consulta v2c
   silenciosa (y al revés, con v2c no cuenta un usuario v3 del entorno).
+- `webapp._finalizar_resultados` ya no genera el HTML de pyvis del CLI:
+  desde que la web dibuja su propio SVG, cada escaneo construía el grafo,
+  lo exportaba a un `.html` temporal, lo leía, lo borraba y lo devolvía en
+  `resultado["html"]` sin que nadie lo usara. La entrada de más arriba
+  sobre los temporales `.html` de la web queda solo como historia.

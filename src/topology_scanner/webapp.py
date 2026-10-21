@@ -56,7 +56,6 @@ from topology_scanner.classifier import ICONOS_POR_CATEGORIA, PUERTOS_SENSIBLES
 from topology_scanner.export import (
     CDN_FONTAWESOME,
     exportar_csv,
-    exportar_html,
     posiciones_circulares,
     posiciones_jerarquicas,
 )
@@ -274,9 +273,11 @@ def _procesar_salida_nmap(salida_xml: bytes) -> dict:
 def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_historial: bool,
                           snmp: dict | None = None) -> dict:
     """A partir de resultados ya escaneados (formato de scanner.py), hace
-    historial + topología SNMP (si se pide) + grafo + export HTML. No usa
-    sys.exit ni deja escapar excepciones de historial/export/SNMP - un
-    fallo aquí no debe tirar el servidor entero, la UI decide cómo mostrarlo.
+    historial + topología SNMP (si se pide). No usa sys.exit ni deja escapar
+    excepciones de historial/SNMP - un fallo aquí no debe tirar el servidor
+    entero, la UI decide cómo mostrarlo. El grafo no se genera aquí: lo
+    dibuja _generar_topologia_html al mostrar el resultado (antes además se
+    generaba el HTML de pyvis del CLI, que la web no usaba).
 
     `rango` es un texto o una lista de rangos (ver rangos.py). Con varios, el
     historial se guarda por rango, como en el CLI, y los diffs se combinan
@@ -286,12 +287,12 @@ def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_hist
     (community o usuario v3) se usan aquí y no viajan en el resultado, que
     se queda en session_state.
 
-    Devuelve: {"resultados": dict, "html": str|None, "diff": dict|None, "rango": str,
+    Devuelve: {"resultados": dict, "diff": dict|None, "rango": str,
                "rangos": list[str], "topologia": dict|None, "avisos_snmp": list[str]}
     """
     rangos = [rango] if isinstance(rango, str) else list(rango)
     if not resultados:
-        return {"resultados": {}, "html": None, "diff": None, "rango": " ".join(rangos), "rangos": rangos,
+        return {"resultados": {}, "diff": None, "rango": " ".join(rangos), "rangos": rangos,
                 "topologia": None, "avisos_snmp": []}
 
     diff = None
@@ -308,21 +309,7 @@ def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_hist
     # explican por qué); mismo criterio que el CLI.
     topologia, avisos_snmp = obtener_topologia(snmp["ips"], snmp["credenciales"]) if snmp else (None, [])
 
-    grafo = construir_grafo(resultados, rango, topologia=topologia)
-    with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
-        archivo_html = f.name
-    try:
-        exportar_html(grafo, archivo_html)
-        with open(archivo_html, encoding="utf-8") as f:
-            html = f.read()
-    finally:
-        # NamedTemporaryFile(delete=False) porque exportar_html necesita una
-        # ruta a la que escribir, no un file object - pero eso significa que
-        # nadie lo borra solo. Sin este finally, cada escaneo dejaba un
-        # .html huérfano en el directorio temporal del sistema para siempre.
-        os.remove(archivo_html)
-
-    return {"resultados": resultados, "html": html, "diff": diff, "rango": " ".join(rangos), "rangos": rangos,
+    return {"resultados": resultados, "diff": diff, "rango": " ".join(rangos), "rangos": rangos,
             "topologia": topologia, "avisos_snmp": avisos_snmp}
 
 
