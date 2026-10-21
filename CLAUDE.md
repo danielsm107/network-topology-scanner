@@ -121,6 +121,10 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - `scanner.avisar_si_nmap_reporto_error()` tras cada `.scan()`: nmap puede
   "terminar bien" sin haber escaneado nada.
 - `.gitignore` cubre `*.html`/`*.db`/`*.csv` en bloque: pueden contener IPs/MACs reales.
+- Tests, docstrings y documentación usan datos **inventados**: IPs de documentación
+  (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) o rangos privados genéricos, y
+  MACs locales `02:00:00:…`. Nunca IPs, MACs ni nombres de la red real del mantenedor,
+  aunque se hayan usado para validar algo en vivo (el repo es público).
 
 **`webapp.py` (Streamlit)**
 - Imports **absolutos** (`streamlit run` lo ejecuta como script suelto).

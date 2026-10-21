@@ -315,9 +315,9 @@ def test_sin_snmp_no_se_consulta_nada(
 # === Varios rangos ==========================================================
 
 def test_acepta_varios_rangos_como_argumentos():
-    args = construir_parser().parse_args(["192.168.181.0/24", "10.0.10.0/24"])
+    args = construir_parser().parse_args(["192.168.50.0/24", "10.0.10.0/24"])
 
-    assert args.rango == ["192.168.181.0/24", "10.0.10.0/24"]
+    assert args.rango == ["192.168.50.0/24", "10.0.10.0/24"]
 
 
 @patch("topology_scanner.cli.escanear_red")
@@ -342,19 +342,19 @@ def test_varios_rangos_se_escanean_juntos_y_el_historial_va_por_rango(
     """nmap recibe todos los objetivos de una vez; el historial guarda y
     compara cada rango por separado (rangos distintos no se mezclan), así
     que un rango que antes se escaneaba solo sigue comparándose bien."""
-    lan_a = {"192.168.181.10": _resultado_dummy()["192.168.1.10"]}
+    lan_a = {"192.168.50.10": _resultado_dummy()["192.168.1.10"]}
     lan_b = {"10.0.10.10": _resultado_dummy()["192.168.1.10"]}
     mock_escanear_red.return_value = {**lan_a, **lan_b}
     mock_registrar.return_value = {"primera_vez": True}
 
-    _run_main_con_argv(["192.168.181.0/24", "10.0.10.0/24"])
+    _run_main_con_argv(["192.168.50.0/24", "10.0.10.0/24"])
 
-    assert mock_escanear_red.call_args.args[0] == "192.168.181.0/24 10.0.10.0/24"
+    assert mock_escanear_red.call_args.args[0] == "192.168.50.0/24 10.0.10.0/24"
     assert [c.args[:2] for c in mock_registrar.call_args_list] == [
-        (lan_a, "192.168.181.0/24"), (lan_b, "10.0.10.0/24"),
+        (lan_a, "192.168.50.0/24"), (lan_b, "10.0.10.0/24"),
     ]
-    assert [c.kwargs.get("rango") for c in mock_exportar_diff.call_args_list] == ["192.168.181.0/24", "10.0.10.0/24"]
-    assert mock_construir_grafo.call_args.args[1] == ["192.168.181.0/24", "10.0.10.0/24"]
+    assert [c.kwargs.get("rango") for c in mock_exportar_diff.call_args_list] == ["192.168.50.0/24", "10.0.10.0/24"]
+    assert mock_construir_grafo.call_args.args[1] == ["192.168.50.0/24", "10.0.10.0/24"]
 
 
 @patch("topology_scanner.cli.exportar_diff_texto")

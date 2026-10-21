@@ -411,7 +411,7 @@ def parsear_vecinos_lldp(filas_remotos: Iterable[Fila], filas_puertos_locales: I
 
 
 def _mac_en_texto(valor) -> str | None:
-    """"C4:AD:34:34:C2:88" o "c4-ad-34-34-c2-88" -> "c4:ad:34:34:c2:88"."""
+    """"02:00:00:AB:CD:EF" o "02-00-00-ab-cd-ef" -> "02:00:00:ab:cd:ef"."""
     texto = _texto(valor).replace("-", ":").lower() if isinstance(valor, bytes) else ""
     partes = texto.split(":")
     if len(partes) == 6 and all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in partes):

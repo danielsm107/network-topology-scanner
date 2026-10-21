@@ -205,15 +205,15 @@ def test_hosts_vistos_solo_por_snmp_tambien_se_muestran():
 
 def test_varios_rangos_en_estrella_un_centro_por_rango():
     resultados = {
-        "192.168.181.10": _resultado_fake(),
-        "192.168.181.20": _resultado_fake(),
+        "192.168.50.10": _resultado_fake(),
+        "192.168.50.20": _resultado_fake(),
         "10.0.10.10": _resultado_fake(hostname="proxmox"),
     }
 
-    grafo = construir_grafo(resultados, ["192.168.181.0/24", "10.0.10.0/24"])
+    grafo = construir_grafo(resultados, ["192.168.50.0/24", "10.0.10.0/24"])
 
-    assert grafo.has_edge("Red 192.168.181.0/24", "192.168.181.10")
-    assert grafo.has_edge("Red 192.168.181.0/24", "192.168.181.20")
+    assert grafo.has_edge("Red 192.168.50.0/24", "192.168.50.10")
+    assert grafo.has_edge("Red 192.168.50.0/24", "192.168.50.20")
     assert grafo.has_edge("Red 10.0.10.0/24", "10.0.10.10")
     assert grafo.nodes["10.0.10.10"]["padre"] == "Red 10.0.10.0/24"
     assert grafo.number_of_nodes() == 5
@@ -238,7 +238,7 @@ def test_con_topologia_el_host_sin_ubicar_cuelga_del_centro_de_su_rango():
 
 def test_el_nodo_central_lleva_su_rango():
     """Para que quien dibuje pueda etiquetarlo sin recortar el nombre "Red ..."."""
-    grafo = construir_grafo({"10.0.10.10": _resultado_fake()}, ["192.168.181.0/24", "10.0.10.0/24"])
+    grafo = construir_grafo({"10.0.10.10": _resultado_fake()}, ["192.168.50.0/24", "10.0.10.0/24"])
 
     assert grafo.nodes["Red 10.0.10.0/24"]["rango"] == "10.0.10.0/24"
 

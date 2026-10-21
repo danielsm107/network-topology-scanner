@@ -18,11 +18,11 @@ def test_un_solo_objetivo_se_deja_tal_cual():
 
 
 def test_varios_rangos_cidr_se_aceptan_en_orden():
-    assert parsear_rangos(["192.168.181.0/24", "10.0.10.0/24"]) == ["192.168.181.0/24", "10.0.10.0/24"]
+    assert parsear_rangos(["192.168.50.0/24", "10.0.10.0/24"]) == ["192.168.50.0/24", "10.0.10.0/24"]
 
 
 def test_varios_rangos_admiten_una_ip_suelta():
-    assert parsear_rangos(["192.168.181.0/24", "10.0.10.10"]) == ["192.168.181.0/24", "10.0.10.10"]
+    assert parsear_rangos(["192.168.50.0/24", "10.0.10.10"]) == ["192.168.50.0/24", "10.0.10.10"]
 
 
 def test_varios_rangos_quita_duplicados():
@@ -51,7 +51,7 @@ def test_rango_de_elige_el_mas_especifico():
 def test_rango_de_sin_coincidencia_es_el_primero():
     """No debería pasar (nmap solo devuelve hosts de los objetivos), pero
     un host nunca debe quedarse sin rango."""
-    assert rango_de("203.0.113.5", ["192.168.181.0/24", "10.0.10.0/24"]) == "192.168.181.0/24"
+    assert rango_de("203.0.113.5", ["192.168.50.0/24", "10.0.10.0/24"]) == "192.168.50.0/24"
 
 
 def test_rango_de_con_un_solo_objetivo_no_cidr_es_ese():
@@ -61,12 +61,12 @@ def test_rango_de_con_un_solo_objetivo_no_cidr_es_ese():
 def test_repartir_por_rango_incluye_rangos_sin_hosts():
     """Un rango sin hosts vivos también se registra en el historial (así
     sus hosts del escaneo anterior salen como caídos)."""
-    resultados = {"192.168.181.1": {"a": 1}, "10.0.10.10": {"b": 2}, "192.168.181.20": {"c": 3}}
+    resultados = {"192.168.50.1": {"a": 1}, "10.0.10.10": {"b": 2}, "192.168.50.20": {"c": 3}}
 
-    reparto = repartir_por_rango(resultados, ["192.168.181.0/24", "10.0.10.0/24", "172.16.0.0/24"])
+    reparto = repartir_por_rango(resultados, ["192.168.50.0/24", "10.0.10.0/24", "172.16.0.0/24"])
 
     assert reparto == {
-        "192.168.181.0/24": {"192.168.181.1": {"a": 1}, "192.168.181.20": {"c": 3}},
+        "192.168.50.0/24": {"192.168.50.1": {"a": 1}, "192.168.50.20": {"c": 3}},
         "10.0.10.0/24": {"10.0.10.10": {"b": 2}},
         "172.16.0.0/24": {},
     }

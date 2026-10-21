@@ -593,14 +593,14 @@ def test_exportar_html_con_varios_rangos_usa_el_layout_por_niveles(tmp_path):
     """Con un centro por rango, el círculo no sirve (todos los centros irían
     al origen): cada rango se dibuja como su propia estrella, una al lado de
     otra, con el mismo layout por niveles que el árbol SNMP."""
-    resultados = {"192.168.181.10": _resultado_fake(), "10.0.10.10": _resultado_fake()}
-    grafo = construir_grafo(resultados, ["192.168.181.0/24", "10.0.10.0/24"])
+    resultados = {"192.168.50.10": _resultado_fake(), "10.0.10.10": _resultado_fake()}
+    grafo = construir_grafo(resultados, ["192.168.50.0/24", "10.0.10.0/24"])
     salida = tmp_path / "topologia.html"
 
     exportar_html(grafo, str(salida))
 
     nodos = _nodos_del_html(salida.read_text(encoding="utf-8"))
-    centro_a, centro_b = nodos["Red 192.168.181.0/24"], nodos["Red 10.0.10.0/24"]
+    centro_a, centro_b = nodos["Red 192.168.50.0/24"], nodos["Red 10.0.10.0/24"]
     assert centro_a["y"] == centro_b["y"]
     assert centro_a["x"] != centro_b["x"]
     assert nodos["10.0.10.10"]["y"] > centro_b["y"]
