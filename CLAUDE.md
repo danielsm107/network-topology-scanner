@@ -26,6 +26,10 @@ historial de commits (features pequeñas, un commit por feature).
 - Tests con `pytest` + `unittest.mock` (mockean `nmap.PortScanner`, no requieren red real ni nmap instalado).
   Los de `webapp.py` usan además `streamlit.testing.v1.AppTest` (ejecuta el
   script sin navegador) y se saltan solos si `streamlit` no está instalado.
+  **Todo test de AppTest que pulse "Escanear" usa el fixture
+  `sin_escaneos_reales`**: AppTest ejecuta la app de verdad, y si la
+  validación que debería cortar antes de nmap falta o falla, el test lanza
+  un escaneo real (pasó una vez en la fase roja de TDD).
 - Lint con `ruff` (config en `pyproject.toml`: `line-length = 120`, reglas `E,F,I,UP,B,SIM,RUF`)
 - Entorno de trabajo: Windows + VS Code + Git Bash
 
@@ -106,6 +110,8 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
   más allá de `mantener_ultimos` (50), y un `HistoryError` se loguea pero no aborta.
   Con varios rangos, `cli.py` reparte los resultados (`rangos.repartir_por_rango`)
   y registra uno por rango: nunca se guarda "a b" como si fuera un rango.
+  La web hace lo mismo y junta los diffs con `history.combinar_diffs` para
+  mostrarlos en un solo panel.
 - Varios rangos van como **argumentos separados**, nunca partiendo por comas:
   `192.168.1.1,5` es sintaxis de nmap (.1 y .5). Con uno solo se admite cualquier
   sintaxis de nmap; con varios, cada uno tiene que ser IP o CIDR.

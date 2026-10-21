@@ -100,7 +100,8 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 Requires the `[web]` extra (see Installation). Form with automatic detection
 of your local network, real cancellable scanning (kills the actual nmap
 process, not just the UI), results table, CSV download and the embedded
-graph. The "Real topology via SNMP" switch in the sidebar draws the tree
+graph. Several ranges can be scanned at once by separating them with
+spaces in the range field. The "Real topology via SNMP" switch in the sidebar draws the tree
 described below (the community field is a password input; leave it empty
 to use `TOPOLOGY_SNMP_COMMUNITY`).
 

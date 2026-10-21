@@ -233,3 +233,20 @@ def hay_cambios(diff: dict) -> bool:
     cada uno su propio `a or b or c`, que no da un bool de verdad si el
     único operando no vacío es un dict (puertos_cambiados)."""
     return bool(diff["hosts_nuevos"] or diff["hosts_caidos"] or diff["puertos_cambiados"])
+
+
+def combinar_diffs(diffs: list[dict]) -> dict:
+    """Une los diffs de varios rangos escaneados a la vez en uno solo, con
+    el mismo formato que registrar_y_comparar (cada rango se compara con su
+    propio escaneo anterior; esto solo los junta para mostrarlos). Es
+    "primera vez" solo si lo es para todos: si un rango tiene historia y
+    otro no, sí hay algo que comparar, y el nuevo no aporta cambios."""
+    puertos_cambiados = {}
+    for diff in diffs:
+        puertos_cambiados.update(diff["puertos_cambiados"])
+    return {
+        "primera_vez": all(diff["primera_vez"] for diff in diffs),
+        "hosts_nuevos": sorted(ip for diff in diffs for ip in diff["hosts_nuevos"]),
+        "hosts_caidos": sorted(ip for diff in diffs for ip in diff["hosts_caidos"]),
+        "puertos_cambiados": puertos_cambiados,
+    }

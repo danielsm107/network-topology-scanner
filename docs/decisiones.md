@@ -308,3 +308,20 @@ contexto completo.
   que antes se escaneaba solo sigue comparándose con su historia. En la
   estrella hay un centro por rango, y con más de uno `exportar_html` usa el
   layout por niveles (en el círculo todos los centros irían al origen).
+- Varios rangos en la web: el campo de rango acepta varios separados por
+  espacios (`_validar_rangos`, pura, antes de lanzar nmap), con el mismo
+  `rangos.parsear_rangos` que el CLI. `_finalizar_resultados` guarda el
+  historial por rango y junta los diffs con `history.combinar_diffs` (es
+  "primera vez" solo si lo es para todos los rangos) para el KPI y el
+  panel de cambios. Con más de un rango el panel de topología usa el árbol
+  por niveles (un centro por rango, con el rango completo: dos "/24" no se
+  distinguirían). El nodo central lleva el atributo `rango` para no tener
+  que recortar el nombre "Red ...".
+- Fixture `sin_escaneos_reales` en `test_webapp.py`: un test de AppTest
+  que pulsaba "Escanear" confiaba en que la validación cortara antes de
+  nmap, pero en la fase roja de TDD (validación aún sin escribir) lanzó un
+  ping scan real de unos segundos, incluido un rango que no era de la red
+  del mantenedor. Ahora `nmap.PortScanner` está parcheado con un mock que
+  falla el test si se llama: un fallo de validación da un test en rojo, no
+  un escaneo. AppTest no reutiliza el módulo webapp pero sí `nmap`
+  (cacheado en `sys.modules`), así que el parche le llega.

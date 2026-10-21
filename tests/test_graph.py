@@ -234,3 +234,10 @@ def test_con_topologia_el_host_sin_ubicar_cuelga_del_centro_de_su_rango():
 
     assert grafo.has_edge("Red 203.0.113.0/24", "203.0.113.5")
     assert "Red 192.0.2.0/24" not in grafo.nodes   # sin hosts sin ubicar en ese rango
+
+
+def test_el_nodo_central_lleva_su_rango():
+    """Para que quien dibuje pueda etiquetarlo sin recortar el nombre "Red ..."."""
+    grafo = construir_grafo({"10.0.10.10": _resultado_fake()}, ["192.168.181.0/24", "10.0.10.0/24"])
+
+    assert grafo.nodes["Red 10.0.10.0/24"]["rango"] == "10.0.10.0/24"

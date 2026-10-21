@@ -66,6 +66,20 @@ def _sin_historial_real(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
 
+@pytest.fixture
+def sin_escaneos_reales():
+    """Para los tests de AppTest que pulsan "Escanear": cualquier intento de
+    usar nmap falla el test en vez de escanear de verdad. Esos tests confían
+    en que una validación corte antes de nmap, pero en la fase "roja" de TDD
+    (validación aún sin escribir) o con un bug en ella, el test llegaba a
+    lanzar un ping scan real contra los rangos del test. AppTest no reutiliza
+    el módulo webapp, pero sí `nmap` (cacheado en sys.modules), así que
+    parchear nmap.PortScanner le llega igual que el mock de socket.socket."""
+    with patch("nmap.PortScanner", side_effect=AssertionError("el test ha intentado un escaneo real")) as mock:
+        yield mock
+        mock.assert_not_called()
+
+
 def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=None):
     return {
         "estado": "up",
@@ -719,7 +733,7 @@ def test_la_app_carga_sin_excepciones():
     assert "Listo para escanear" in at.main.markdown[-1].value
 
 
-def test_la_app_avisa_si_se_escanea_sin_rango():
+def test_la_app_avisa_si_se_escanea_sin_rango(sin_escaneos_reales):
     from streamlit.testing.v1 import AppTest
 
     at = AppTest.from_file("../src/topology_scanner/webapp.py")
@@ -919,7 +933,7 @@ def test_la_app_muestra_los_campos_snmp_al_activar_el_interruptor():
     assert len(at.sidebar.text_input) == 3   # rango + IPs SNMP + community
 
 
-def test_la_app_avisa_de_una_ip_snmp_no_valida_antes_de_escanear():
+def test_la_app_avisa_de_una_ip_snmp_no_valida_antes_de_escanear(sin_escaneos_reales):
     """La validación de SNMP va antes que la del rango: si falla, no se
     llega a lanzar nmap (aquí el rango está vacío, así que en ningún caso
     se escanearía nada de verdad)."""
@@ -987,3 +1001,63 @@ def test_progreso_escapa_el_rango_y_las_lineas_del_log():
 
     _assert_escapado(html, _HTML_MALICIOSO)
     _assert_escapado(html, _HTML_MALICIOSO_SIN_ESPACIOS)
+
+
+# === Varios rangos en la web ================================================
+
+@patch("topology_scanner.webapp.registrar_y_comparar")
+@patch("topology_scanner.webapp.exportar_html")
+def test_finalizar_resultados_con_varios_rangos_guarda_el_historial_por_rango(mock_exportar_html, mock_registrar):
+    lan_a = {"192.168.181.10": _resultado_fake()}
+    lan_b = {"10.0.10.10": _resultado_fake(hostname="proxmox")}
+    mock_registrar.side_effect = [
+        {"primera_vez": False, "hosts_nuevos": ["192.168.181.10"], "hosts_caidos": [], "puertos_cambiados": {}},
+        {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}},
+    ]
+
+    resultado = _finalizar_resultados({**lan_a, **lan_b}, ["192.168.181.0/24", "10.0.10.0/24"],
+                                      guardar_historial=True)
+
+    assert [c.args[:2] for c in mock_registrar.call_args_list] == [
+        (lan_a, "192.168.181.0/24"), (lan_b, "10.0.10.0/24"),
+    ]
+    assert resultado["diff"]["hosts_nuevos"] == ["192.168.181.10"]   # diffs combinados
+    assert resultado["diff"]["primera_vez"] is False
+    assert resultado["rangos"] == ["192.168.181.0/24", "10.0.10.0/24"]
+    assert resultado["rango"] == "192.168.181.0/24 10.0.10.0/24"
+
+
+@patch("topology_scanner.webapp.exportar_html")
+def test_finalizar_resultados_con_un_rango_en_texto_sigue_igual(mock_exportar_html):
+    resultado = _finalizar_resultados({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24", guardar_historial=False)
+
+    assert resultado["rango"] == "192.168.1.0/24"
+    assert resultado["rangos"] == ["192.168.1.0/24"]
+
+
+def test_generar_topologia_html_con_varios_rangos_dibuja_un_centro_por_rango():
+    """Con dos /24 el sufijo "/24" de cada centro no los distinguiría: en
+    este modo el centro lleva el rango completo."""
+    resultados = {"192.168.181.10": _resultado_fake(), "10.0.10.10": _resultado_fake()}
+
+    html = _generar_topologia_html(resultados, rango=["192.168.181.0/24", "10.0.10.0/24"], accent="#00D2D3")
+
+    assert html.count('<div class="topo-hub"') == 2
+    assert ">192.168.181.0/24</div>" in html
+    assert ">10.0.10.0/24</div>" in html
+    assert html.count("<path ") == 2
+
+
+def test_la_app_avisa_de_varios_rangos_no_validos_antes_de_escanear(sin_escaneos_reales):
+    """Con varios rangos cada uno tiene que ser IP o CIDR. El aviso sale sin
+    llegar a lanzar nmap (el segundo rango no es válido, así que en ningún
+    caso se escanearía nada de verdad)."""
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    at.sidebar.text_input[0].set_value("10.0.10.0/24 192.168.1.1-50").run()
+    next(b for b in at.button if b.label == "▶ Escanear").click().run()
+
+    assert not at.exception
+    assert any("192.168.1.1-50" in w.value for w in at.warning)

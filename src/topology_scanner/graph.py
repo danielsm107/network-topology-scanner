@@ -40,7 +40,7 @@ def _grafo_estrella(resultados: dict, rangos: list[str]) -> nx.Graph:
     grafo = nx.Graph()
 
     for rango in rangos:
-        grafo.add_node(_nodo_red(rango), tipo="red", titulo=f"Rango escaneado: {rango}")
+        grafo.add_node(_nodo_red(rango), tipo="red", rango=rango, titulo=f"Rango escaneado: {rango}")
 
     for ip, datos in resultados.items():
         nodo_red = _nodo_red(rango_de(ip, rangos))
@@ -133,7 +133,7 @@ def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx
             rango = rango_de(ip, rangos)
             nodo_red = _nodo_red(rango)
             if nodo_red not in grafo:
-                grafo.add_node(nodo_red, tipo="red", titulo=f"Rango escaneado: {rango}\n"
+                grafo.add_node(nodo_red, tipo="red", rango=rango, titulo=f"Rango escaneado: {rango}\n"
                                "(hosts sin ubicación en la topología SNMP)")
             colgar(ip, nodo_red, None)
 

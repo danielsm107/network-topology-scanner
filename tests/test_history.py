@@ -9,6 +9,7 @@ import pytest
 
 from topology_scanner.history import (
     HistoryError,
+    combinar_diffs,
     hay_cambios,
     listar_escaneos_recientes,
     registrar_y_comparar,
@@ -271,3 +272,38 @@ def test_listar_escaneos_recientes_respeta_el_limite(tmp_path):
         registrar_y_comparar({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24", db_path=db)
 
     assert len(listar_escaneos_recientes(db_path=db, limite=3)) == 3
+
+
+# --- combinar_diffs (varios rangos en un mismo escaneo) ----------------------
+
+def _diff(primera_vez=False, nuevos=(), caidos=(), puertos=None):
+    return {"primera_vez": primera_vez, "hosts_nuevos": list(nuevos), "hosts_caidos": list(caidos),
+            "puertos_cambiados": puertos or {}}
+
+
+def test_combinar_diffs_une_los_cambios_de_cada_rango():
+    combinado = combinar_diffs([
+        _diff(nuevos=["192.168.1.20"], puertos={"192.168.1.1": {"nuevos": [23], "cerrados": [],
+                                                                "nuevos_sensibles": []}}),
+        _diff(nuevos=["10.0.10.5"], caidos=["10.0.10.9"]),
+    ])
+
+    assert combinado == {
+        "primera_vez": False,
+        "hosts_nuevos": ["10.0.10.5", "192.168.1.20"],
+        "hosts_caidos": ["10.0.10.9"],
+        "puertos_cambiados": {"192.168.1.1": {"nuevos": [23], "cerrados": [], "nuevos_sensibles": []}},
+    }
+
+
+def test_combinar_diffs_solo_es_primera_vez_si_lo_es_para_todos():
+    """Si un rango es nuevo y otro no, sí hay algo con qué comparar (el
+    rango con historia); el nuevo simplemente no aporta cambios."""
+    assert combinar_diffs([_diff(primera_vez=True), _diff(nuevos=["10.0.10.5"])])["primera_vez"] is False
+    assert combinar_diffs([_diff(primera_vez=True), _diff(primera_vez=True)])["primera_vez"] is True
+
+
+def test_combinar_un_solo_diff_lo_devuelve_igual():
+    diff = _diff(nuevos=["192.168.1.20"])
+
+    assert combinar_diffs([diff]) == diff

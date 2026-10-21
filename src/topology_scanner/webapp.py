@@ -61,7 +61,13 @@ from topology_scanner.export import (
     posiciones_jerarquicas,
 )
 from topology_scanner.graph import construir_grafo
-from topology_scanner.history import HistoryError, listar_escaneos_recientes, registrar_y_comparar
+from topology_scanner.history import (
+    HistoryError,
+    combinar_diffs,
+    listar_escaneos_recientes,
+    registrar_y_comparar,
+)
+from topology_scanner.rangos import parsear_rangos, repartir_por_rango
 
 # Imports absolutos (no relativos): streamlit run ejecuta este archivo como
 # script suelto, sin contexto de paquete, así que "from .scanner import..."
@@ -97,6 +103,18 @@ def _validar_snmp(activado: bool, texto_ips: str, community: str) -> tuple[dict 
         return None, (f"Topología SNMP: indica la community, o déjala en la variable de entorno "
                       f"{VARIABLE_COMMUNITY} antes de arrancar la web.")
     return {"ips": ips, "community": community}, None
+
+
+def _validar_rangos(texto: str) -> tuple[list[str] | None, str | None]:
+    """Rangos del formulario -> (lista, None) o (None, mensaje de error).
+    Varios van separados por espacios, no por comas (como en el CLI:
+    "192.168.1.1,5" es sintaxis de nmap). Se valida antes de lanzar nmap."""
+    if not texto.strip():
+        return None, "Indica un rango de red en notación CIDR (ej: 192.168.1.0/24)."
+    try:
+        return parsear_rangos(texto.split()), None
+    except ValueError as e:
+        return None, f"Rango no válido: {e}."
 
 
 def _detectar_rango_local() -> str | None:
@@ -224,26 +242,35 @@ def _procesar_salida_nmap(salida_xml: bytes) -> dict:
     return {host: parsear_host(nm[host]) for host in nm.all_hosts()}
 
 
-def _finalizar_resultados(resultados: dict, rango: str, guardar_historial: bool, snmp: dict | None = None) -> dict:
+def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_historial: bool,
+                          snmp: dict | None = None) -> dict:
     """A partir de resultados ya escaneados (formato de scanner.py), hace
     historial + topología SNMP (si se pide) + grafo + export HTML. No usa
     sys.exit ni deja escapar excepciones de historial/export/SNMP - un
     fallo aquí no debe tirar el servidor entero, la UI decide cómo mostrarlo.
 
+    `rango` es un texto o una lista de rangos (ver rangos.py). Con varios, el
+    historial se guarda por rango, como en el CLI, y los diffs se combinan
+    en uno para mostrarlos (history.combinar_diffs).
+
     `snmp` = {"ips", "community"} (ver _validar_snmp). La community se usa
     aquí y no viaja en el resultado, que se queda en session_state.
 
     Devuelve: {"resultados": dict, "html": str|None, "diff": dict|None, "rango": str,
-               "topologia": dict|None, "avisos_snmp": list[str]}
+               "rangos": list[str], "topologia": dict|None, "avisos_snmp": list[str]}
     """
+    rangos = [rango] if isinstance(rango, str) else list(rango)
     if not resultados:
-        return {"resultados": {}, "html": None, "diff": None, "rango": rango,
+        return {"resultados": {}, "html": None, "diff": None, "rango": " ".join(rangos), "rangos": rangos,
                 "topologia": None, "avisos_snmp": []}
 
     diff = None
     if guardar_historial:
         try:
-            diff = registrar_y_comparar(resultados, rango)
+            diff = combinar_diffs([
+                registrar_y_comparar(resultados_rango, r)
+                for r, resultados_rango in repartir_por_rango(resultados, rangos).items()
+            ])
         except HistoryError:
             diff = None  # perder el historial no es fatal, solo no se muestra el diff
 
@@ -265,7 +292,7 @@ def _finalizar_resultados(resultados: dict, rango: str, guardar_historial: bool,
         # .html huérfano en el directorio temporal del sistema para siempre.
         os.remove(archivo_html)
 
-    return {"resultados": resultados, "html": html, "diff": diff, "rango": rango,
+    return {"resultados": resultados, "html": html, "diff": diff, "rango": " ".join(rangos), "rangos": rangos,
             "topologia": topologia, "avisos_snmp": avisos_snmp}
 
 
@@ -650,7 +677,8 @@ def _generar_leyenda_topologia_html() -> str:
     return f'<div class="legend-bar">{items}</div>'
 
 
-def _generar_topologia_html(resultados: dict, rango: str, accent: str, topologia: dict | None = None) -> str:
+def _generar_topologia_html(resultados: dict, rango: str | list[str], accent: str,
+                            topologia: dict | None = None) -> str:
     """Documento HTML autocontenido (doctype/head/body/script) con el panel
     de topología dibujado a mano - pensado para st.components.v1.html, no
     para st.markdown.
@@ -675,8 +703,12 @@ def _generar_topologia_html(resultados: dict, rango: str, accent: str, topologia
     con los glyphs de Font Awesome de ICONOS_POR_CATEGORIA (los mismos que
     ya usa export.py) en vez de redibujar a mano 10 iconos SVG nuevos -
     misma fuente de verdad, muchísimo menos código nuevo."""
-    if topologia is not None:
-        return _generar_arbol_html(resultados, rango, accent, topologia)
+    # Varios rangos también van por niveles (un centro por rango, como el
+    # HTML del CLI): en el círculo solo cabe un centro.
+    rangos = [rango] if isinstance(rango, str) else list(rango)
+    if topologia is not None or len(rangos) > 1:
+        return _generar_arbol_html(resultados, rangos, accent, topologia)
+    rango = rangos[0]
 
     hosts = sorted(resultados.items())
     posiciones = posiciones_circulares(len(hosts))
@@ -723,14 +755,14 @@ def _generar_topologia_html(resultados: dict, rango: str, accent: str, topologia
     return _documento_topologia_html(ancho, alto, anillos_svg + lineas_svg, "".join(nodos_html), accent)
 
 
-def _generar_arbol_html(resultados: dict, rango: str, accent: str, topologia: dict) -> str:
+def _generar_arbol_html(resultados: dict, rangos: list[str], accent: str, topologia: dict | None) -> str:
     """Variante en árbol del panel de topología, cuando hay topología SNMP.
     El grafo y el layout son los mismos que usa el HTML del CLI
     (graph.construir_grafo con topología + export.posiciones_jerarquicas):
     no hay un segundo algoritmo de layout que mantener. Aristas en curva
     vertical y una etiqueta de interfaz por padre+puerto, por los mismos
     motivos que en export.py (ver docs/decisiones.md)."""
-    grafo = construir_grafo(resultados, rango, topologia=topologia)
+    grafo = construir_grafo(resultados, rangos, topologia=topologia)
     posiciones = posiciones_jerarquicas(grafo)
 
     xs = [x for x, _ in posiciones.values()]
@@ -771,7 +803,8 @@ def _generar_arbol_html(resultados: dict, rango: str, accent: str, topologia: di
     for nodo, atributos in grafo.nodes(data=True):
         x, y = punto(nodo)
         if atributos.get("tipo") == "red":
-            nodos_html.append(_hub_topologia_html(x, y, rango))
+            # Con varios rangos el sufijo (/24) no los distinguiría
+            nodos_html.append(_hub_topologia_html(x, y, atributos["rango"], completo=len(rangos) > 1))
             continue
         datos_nmap = resultados.get(nodo, {})
         es_equipo = atributos.get("tipo") == "equipo"
@@ -839,8 +872,9 @@ def _nodo_topologia_html(x: float, y: float, etiqueta: str, categoria: str, aler
         """
 
 
-def _hub_topologia_html(x: float, y: float, rango: str) -> str:
-    sufijo = "/" + rango.rsplit("/", 1)[-1] if "/" in rango else rango
+def _hub_topologia_html(x: float, y: float, rango: str, completo: bool = False) -> str:
+    # Con un solo rango basta el sufijo (/24); con varios hace falta el rango entero
+    sufijo = rango if completo or "/" not in rango else "/" + rango.rsplit("/", 1)[-1]
     return f"""
       <div class="topo-hub" style="left:{x}px; top:{y}px;">
         <span style="font-family:{_ICONO_HUB["face"]}; font-weight:{_ICONO_HUB["weight"]};">
@@ -934,7 +968,9 @@ def _mostrar_resultado(resultado: dict, accent: str):
 
     st.subheader("Topología")
     st.components.v1.html(
-        _generar_topologia_html(resultados, resultado["rango"], accent, topologia=resultado.get("topologia")),
+        # .get("rangos"): un resultado de una versión anterior de la app solo trae "rango"
+        _generar_topologia_html(resultados, resultado.get("rangos", resultado["rango"]), accent,
+                                topologia=resultado.get("topologia")),
         height=ALTURA_VIEWPORT_TOPOLOGIA + 90,
         scrolling=False,
     )
@@ -1016,7 +1052,7 @@ def _fragmento_progreso():
                 st.session_state.resultado = None
             else:
                 st.session_state.resultado = _finalizar_resultados(
-                    resultados, parametros["rango"], parametros["guardar_historial"],
+                    resultados, parametros["rangos"], parametros["guardar_historial"],
                     snmp=parametros.get("snmp"),
                 )
                 # Sin esto, un escaneo nuevo con menos hosts que el anterior
@@ -1550,6 +1586,8 @@ def main():
             value=st.session_state.rango_detectado,
             placeholder="192.168.1.0/24",
             disabled=escaneando,
+            help="Varios rangos a la vez separados por espacios, p. ej. 192.168.1.0/24 10.0.10.0/24 "
+                 "(el historial se guarda por rango)",
         )
         detectar = st.button(
             "Detectar mi red automáticamente",
@@ -1625,13 +1663,13 @@ def main():
         # SNMP se valida antes que nada: un error aquí no debe descubrirse
         # después de minutos de nmap (mismo criterio que el CLI).
         configuracion_snmp, error_snmp = _validar_snmp(usar_snmp, ips_snmp, community_snmp)
-        if error_snmp:
-            st.warning(error_snmp)
-        elif not rango:
-            st.warning("Indica un rango de red en notación CIDR (ej: 192.168.1.0/24).")
+        rangos, error_rangos = _validar_rangos(rango)
+        if error_snmp or error_rangos:
+            st.warning(error_snmp or error_rangos)
         else:
             try:
-                vivos = descubrir_hosts_vivos(rango)
+                # nmap acepta varios objetivos separados por espacios en una pasada
+                vivos = descubrir_hosts_vivos(" ".join(rangos))
             except ScannerError as e:
                 st.error(str(e))
                 vivos = None
@@ -1656,7 +1694,8 @@ def main():
                     st.session_state.hilo = hilo
                     st.session_state.contenedor = contenedor
                     st.session_state.parametros_pendientes = {
-                        "rango": rango,
+                        "rango": " ".join(rangos),   # texto, para el panel de progreso
+                        "rangos": rangos,            # lista, para el historial (uno por rango) y el grafo
                         "guardar_historial": guardar_historial,
                         "hosts_vivos": len(vivos),
                         "argumentos_nmap": argumentos_nmap,
