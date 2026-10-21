@@ -627,3 +627,22 @@ def test_obtener_topologia_si_no_responde_ninguno_devuelve_none(_mock_consultar,
     assert topologia is None
     mock_inferir.assert_not_called()
     assert avisos[-1].endswith("se dibuja la topología en estrella.")
+
+
+def test_inferir_topologia_ignora_las_rutas_sin_siguiente_salto():
+    """Las rutas por interfaz (túneles VPN, PPPoE...) llegan con siguiente
+    salto 0.0.0.0: no apuntan a ningún router. Sin filtrarlas, aparecía un
+    "equipo" con IP 0.0.0.0 como hijo, o como puerta de enlace upstream si
+    la ruta por defecto iba por interfaz."""
+    router = _router_casa()
+    router["rutas"] = [
+        {"red": "0.0.0.0/0", "siguiente_salto": "0.0.0.0"},        # por defecto vía PPPoE
+        {"red": "10.201.100.0/28", "siguiente_salto": "0.0.0.0"},  # vía túnel WireGuard
+        {"red": "10.0.10.0/24", "siguiente_salto": "192.0.2.44"},
+    ]
+
+    topologia = inferir_topologia([router])
+
+    assert "0.0.0.0" not in topologia["equipos"]
+    assert topologia["redes"] == {"10.0.10.0/24": "192.0.2.44"}
+    assert not any("0.0.0.0" in (e["padre"], e["hijo"]) for e in topologia["enlaces"])

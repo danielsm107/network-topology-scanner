@@ -333,6 +333,7 @@ def inferir_topologia(equipos_consultados: list[dict]) -> dict:
       consultado, se marca como `upstream`.
     - Una ruta cuyo siguiente salto está dentro de la propia red es una red
       conectada (el salto es el propio router): no apunta a otro router.
+      Tampoco una con salto 0.0.0.0 (por interfaz: túnel VPN, PPPoE...).
     - Un host visto en un puerto donde hay otro equipo de red cuelga de ese
       equipo (sin puerto: no se sabe cuál de los suyos); si no, cuelga del
       router en esa interfaz. Si varios routers lo ven, gana la ubicación
@@ -384,6 +385,9 @@ def inferir_topologia(equipos_consultados: list[dict]) -> dict:
         for ruta in router["rutas"]:
             red = ipaddress.IPv4Network(ruta["red"])
             salto = ruta["siguiente_salto"]
+            # Ruta por interfaz (túnel VPN, PPPoE...): no apunta a ningún router
+            if ipaddress.IPv4Address(salto).is_unspecified:
+                continue
             if red.prefixlen == 0:
                 pasarela = salto
             elif ipaddress.IPv4Address(salto) in red:

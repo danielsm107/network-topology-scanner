@@ -325,3 +325,8 @@ contexto completo.
   falla el test si se llama: un fallo de validación da un test en rojo, no
   un escaneo. AppTest no reutiliza el módulo webapp pero sí `nmap`
   (cacheado en `sys.modules`), así que el parche le llega.
+- `inferir_topologia` ignora las rutas con siguiente salto `0.0.0.0`
+  (rutas por interfaz: túneles VPN, PPPoE...). Sin el filtro aparecía un
+  "equipo" con IP 0.0.0.0, como hijo o como puerta de enlace upstream si la
+  ruta por defecto iba por interfaz. El hAP del mantenedor no tiene rutas
+  así; se detectó al pensar en routers con VPN (p. ej. FortiGate).
