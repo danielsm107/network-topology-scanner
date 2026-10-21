@@ -285,5 +285,12 @@ contexto completo.
   compartidas por círculo y árbol (`_nodo_topologia_html`,
   `_hub_topologia_html`, `_documento_topologia_html`), y el nodo escapa
   todo el texto con `html.escape`: la identidad SNMP la define cada equipo
-  y el hostname sale del DNS inverso. Ojo: el resto del panel (inventario,
-  cambios, historial) todavía mete esos textos sin escapar.
+  y el hostname sale del DNS inverso.
+- Todo texto externo que `webapp.py` mete en HTML pasa por `html.escape`:
+  hostname (DNS inverso: cualquiera con un PTR en la red lo controla), SO,
+  rango (lo escribe el usuario y se guarda en el historial) y las líneas
+  del log en vivo (copian lo que nmap imprime tras "Nmap scan report
+  for", que puede ser un hostname). Antes ningún panel escapaba nada; se
+  vio al añadir SNMP (la identidad de los equipos la define cada equipo).
+  Hay un test por panel con un valor malicioso. Los mensajes de
+  `st.warning`/`st.error` no lo necesitan: Streamlit no interpreta HTML ahí.

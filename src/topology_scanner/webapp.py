@@ -312,7 +312,7 @@ def _generar_chips_categorias_html(resultados: dict, limite: int = 8) -> str:
     chips = [
         f'<span class="cat-chip mono"><span class="cat-dot" style="width:7px;height:7px;'
         f'border-radius:50%;background:{ICONOS_POR_CATEGORIA.get(cat, ICONOS_POR_CATEGORIA["desconocido"])["color"]};'
-        f'display:inline-block;"></span>{cat} {n}</span>'
+        f'display:inline-block;"></span>{escape(cat)} {n}</span>'
         for cat, n in visibles
     ]
     if resto:
@@ -359,7 +359,7 @@ def _generar_kpis_html(resultados: dict, rango: str, diff: dict | None, accent: 
       </div>
     </div>
     <div class="kpi-num display">{total_hosts}</div>
-    <div class="kpi-sub mono">en {rango}</div>
+    <div class="kpi-sub mono">en {escape(rango)}</div>
   </div>
 
   <div class="kpi-card">
@@ -457,10 +457,11 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
 
         filas.append(f"""
         <tr{' class="sensitive"' if tiene_alertas else ""}>
-          <td><div class="mono" style="font-weight:500; font-size:14.5px;">{ip}</div>
-              <div class="muted mono" style="font-size:12.5px;">{datos.get("hostname") or ""}</div></td>
-          <td><div class="row-cat"><span class="cat-dot" style="background:{color}"></span>{categoria}</div></td>
-          <td class="mono muted">{datos.get("so") or "desconocido"}</td>
+          <td><div class="mono" style="font-weight:500; font-size:14.5px;">{escape(ip)}</div>
+              <div class="muted mono" style="font-size:12.5px;">{escape(datos.get("hostname") or "")}</div></td>
+          <td><div class="row-cat"><span class="cat-dot" style="background:{color}"></span>
+              {escape(categoria)}</div></td>
+          <td class="mono muted">{escape(datos.get("so") or "desconocido")}</td>
           <td>{chips_puertos}</td>
           <td>{alerta_icono}</td>
         </tr>
@@ -490,9 +491,9 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
         <div class="chg-item">
           <div class="chg-badge" style="background:rgba(46,204,113,0.15); color:#2ecc71;">+</div>
           <div>
-            <div class="mono" style="font-weight:500;">{ip}
+            <div class="mono" style="font-weight:500;">{escape(ip)}
               <span class="muted" style="font-weight:400;">nuevo</span></div>
-            <div class="muted mono" style="font-size:11px;">{sub}</div>
+            <div class="muted mono" style="font-size:11px;">{escape(sub)}</div>
           </div>
         </div>
         """)
@@ -502,7 +503,7 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
         <div class="chg-item">
           <div class="chg-badge" style="background:rgba(122,138,154,0.15); color:#8a97a6;">-</div>
           <div>
-            <div class="mono" style="font-weight:500; color:#8a97a6;">{ip}
+            <div class="mono" style="font-weight:500; color:#8a97a6;">{escape(ip)}
               <span class="muted" style="font-weight:400;">caído</span></div>
             <div class="muted mono" style="font-size:11px;">no respondió al ping scan</div>
           </div>
@@ -524,9 +525,9 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
                 </svg>
               </div>
               <div>
-                <div class="mono" style="font-weight:500; color:#ff8a80;">{ip}
+                <div class="mono" style="font-weight:500; color:#ff8a80;">{escape(ip)}
                   <span class="muted" style="font-weight:400; color:#ff8a80;">puerto nuevo</span></div>
-                <div class="muted mono" style="font-size:11px;">{puertos_txt} · {sensibles[0]["motivo"]}</div>
+                <div class="muted mono" style="font-size:11px;">{puertos_txt} · {escape(sensibles[0]["motivo"])}</div>
               </div>
             </div>
             """)
@@ -535,7 +536,7 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
             <div class="chg-item">
               <div class="chg-badge" style="background:rgba(227,232,238,0.10); color:#B8C2CC;">•</div>
               <div>
-                <div class="mono" style="font-weight:500;">{ip}
+                <div class="mono" style="font-weight:500;">{escape(ip)}
                   <span class="muted" style="font-weight:400;">puerto nuevo</span></div>
                 <div class="muted mono" style="font-size:11px;">{puertos_txt}</div>
               </div>
@@ -1396,7 +1397,7 @@ def _generar_historial_html(escaneos: list) -> str:
         filas.append(f"""
         <div class="history-row">
           <div class="history-left">
-            <div class="history-range mono">{escaneo["rango"]}</div>
+            <div class="history-range mono">{escape(escaneo["rango"])}</div>
             <div class="history-time">{_SVG_RELOJ}{_tiempo_relativo(escaneo["fecha"])}</div>
           </div>
           <div class="history-badge mono"><div class="history-dot" style="background:{color}"></div>{cifra}</div>
@@ -1422,7 +1423,7 @@ def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, t
     salida verbose de nmap (solo de la XML final, cuando el proceso entero
     termina), así que no aparecen aquí - eso ya se ve en el resultado."""
     lineas_log = "".join(
-        f'<div class="log-line"><span class="mono">{ip}</span>'
+        f'<div class="log-line"><span class="mono">{escape(ip)}</span>'
         f'<span class="muted mono">detectado</span></div>'
         for ip in log[-30:]
     )
@@ -1448,7 +1449,7 @@ def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, t
     <div class="lbl mono">Hosts vivos</div>
   </div>
   <div class="stat-chip">
-    <div class="num mono" style="font-size:16px;">{rango}</div>
+    <div class="num mono" style="font-size:16px;">{escape(rango)}</div>
     <div class="lbl mono">Rango en curso</div>
   </div>
   <div class="stat-chip">
@@ -1468,9 +1469,9 @@ def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, t
     <div class="dots"><span></span><span></span><span></span></div>
   </div>
   <div class="mono log-lines" style="display:flex; flex-direction:column;">
-    <div class="log-line cmd">&gt; descubrir_hosts_vivos({rango})</div>
+    <div class="log-line cmd">&gt; descubrir_hosts_vivos({escape(rango)})</div>
     <div class="log-line" style="color:#B8C2CC; padding-left:18px;">ping scan completo — {hosts_vivos} hosts vivos</div>
-    <div class="log-line cmd" style="margin-top:6px;">&gt; nmap {argumentos_nmap} -p ...</div>
+    <div class="log-line cmd" style="margin-top:6px;">&gt; nmap {escape(argumentos_nmap)} -p ...</div>
     {lineas_log}
     <div class="log-line" style="color:#7C8A9A;">
       escaneando puertos y servicios<span class="cursor"></span>

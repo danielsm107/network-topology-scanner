@@ -15,6 +15,8 @@ en el navegador, igual que el resto de cambios de UI de este proyecto).
 import logging
 import os
 import tempfile
+from datetime import datetime
+from html import escape
 from unittest.mock import MagicMock, patch
 
 import nmap
@@ -931,3 +933,57 @@ def test_la_app_avisa_de_una_ip_snmp_no_valida_antes_de_escanear():
 
     assert not at.exception
     assert any("router-casa" in w.value for w in at.warning)
+
+
+# === Escapado de HTML en el panel ===========================================
+#
+# Todo texto que viene de fuera se escapa antes de meterlo en HTML: el
+# hostname sale del DNS inverso (cualquiera con un PTR en la red lo
+# controla), el rango lo escribe el usuario y se guarda en el historial, y
+# el log en vivo copia lo que nmap imprime tras "Nmap scan report for".
+
+_HTML_MALICIOSO = "<img src=x onerror=alert(1)>"
+_HTML_MALICIOSO_SIN_ESPACIOS = "<img/src=x/onerror=alert(1)>"   # lo que cabe en el \S+ del log
+
+
+def _assert_escapado(html: str, valor: str):
+    assert valor not in html
+    assert escape(valor) in html
+
+
+def test_tabla_inventario_escapa_hostname_y_so():
+    datos = _resultado_fake(hostname=_HTML_MALICIOSO)
+    datos["so"] = "<b>Linux</b>"
+
+    html = _generar_tabla_inventario_html({"192.168.1.10": datos})
+
+    _assert_escapado(html, _HTML_MALICIOSO)
+    _assert_escapado(html, "<b>Linux</b>")
+
+
+def test_cambios_escapa_el_hostname_de_un_host_nuevo():
+    diff = {"primera_vez": False, "hosts_nuevos": ["192.168.1.10"], "hosts_caidos": [],
+            "puertos_cambiados": {}}
+    resultados = {"192.168.1.10": _resultado_fake(hostname=_HTML_MALICIOSO)}
+
+    _assert_escapado(_generar_cambios_html(diff, resultados), _HTML_MALICIOSO)
+
+
+def test_kpis_escapa_el_rango():
+    html = _generar_kpis_html({"192.168.1.10": _resultado_fake()}, _HTML_MALICIOSO, None, "#00D2D3")
+
+    _assert_escapado(html, _HTML_MALICIOSO)
+
+
+def test_historial_escapa_el_rango_guardado():
+    escaneos = [{"rango": _HTML_MALICIOSO, "fecha": datetime.now().isoformat(), "total_hosts": 1, "alertas": 0}]
+
+    _assert_escapado(_generar_historial_html(escaneos), _HTML_MALICIOSO)
+
+
+def test_progreso_escapa_el_rango_y_las_lineas_del_log():
+    html = _generar_progreso_html(rango=_HTML_MALICIOSO, hosts_vivos=1, argumentos_nmap="-T4",
+                                  tiempo="00:05", log=[_HTML_MALICIOSO_SIN_ESPACIOS])
+
+    _assert_escapado(html, _HTML_MALICIOSO)
+    _assert_escapado(html, _HTML_MALICIOSO_SIN_ESPACIOS)
