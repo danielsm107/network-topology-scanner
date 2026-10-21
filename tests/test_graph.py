@@ -241,3 +241,15 @@ def test_el_nodo_central_lleva_su_rango():
     grafo = construir_grafo({"10.0.10.10": _resultado_fake()}, ["192.168.181.0/24", "10.0.10.0/24"])
 
     assert grafo.nodes["Red 10.0.10.0/24"]["rango"] == "10.0.10.0/24"
+
+
+def test_enlace_entre_equipos_con_las_dos_interfaces_muestra_ambas():
+    """LLDP da el puerto del otro extremo: la arista dice por dónde sale
+    cada lado (padre ↔ hijo)."""
+    topologia = _topologia()
+    topologia["enlaces"][1]["interfaz_hijo"] = "bridge/ether1"   # router -> AP
+
+    grafo = construir_grafo({}, RANGO, topologia=topologia)
+
+    assert grafo.edges["192.0.2.1", "192.0.2.254"]["interfaz"] == "ether2 ↔ bridge/ether1"
+    assert "Conectado a: Router-Casa (ether2 ↔ bridge/ether1)" in grafo.nodes["192.0.2.254"]["titulo"]

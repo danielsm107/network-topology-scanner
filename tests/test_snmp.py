@@ -21,6 +21,9 @@ from topology_scanner.snmp import (
     OID_FDB_ESTADO,
     OID_FDB_PUERTO,
     OID_IF_NAME,
+    OID_LLDP_GESTION,
+    OID_LLDP_PUERTOS_LOCALES,
+    OID_LLDP_REMOTOS,
     OID_PUERTO_A_IFINDEX,
     OID_RUTAS,
     OID_SYS_NAME,
@@ -28,6 +31,7 @@ from topology_scanner.snmp import (
     TABLAS_A_CONSULTAR,
     SnmpError,
     _recorrer,
+    combinar_vecinos,
     consultar_equipo,
     inferir_topologia,
     obtener_topologia,
@@ -37,6 +41,7 @@ from topology_scanner.snmp import (
     parsear_lista_ips,
     parsear_nombre,
     parsear_rutas,
+    parsear_vecinos_lldp,
     parsear_vecinos_mikrotik,
 )
 
@@ -646,3 +651,132 @@ def test_inferir_topologia_ignora_las_rutas_sin_siguiente_salto():
     assert "0.0.0.0" not in topologia["equipos"]
     assert topologia["redes"] == {"10.0.10.0/24": "192.0.2.44"}
     assert not any("0.0.0.0" in (e["padre"], e["hijo"]) for e in topologia["enlaces"])
+
+
+# === LLDP-MIB estándar ======================================================
+#
+# Dos variantes: la del estándar (IEEE 802.1AB), escrita a partir de la
+# especificación, y la de RouterOS v6, que reproduce (anonimizado) lo que
+# devolvió un hAP ac2 real: puerto local siempre 0 y la IP de gestión como
+# texto en una columna, en vez de dentro del índice.
+
+def _filas_lldp_remotos(vecinos, mac_como_texto=False):
+    """vecinos = {(puerto_local, indice_remoto): (mac, puerto_remoto, nombre, descripcion)}.
+    Índice de lldpRemTable = timeMark.localPortNum.remIndex. El estándar
+    manda la MAC del chassis en 6 bytes; RouterOS v6, como texto
+    "C4:AD:34:..." (mac_como_texto=True)."""
+    filas = []
+    for (puerto_local, indice), (mac, puerto, nombre, descripcion) in vecinos.items():
+        sufijo = f"0.{puerto_local}.{indice}"
+        filas += [
+            (f"{OID_LLDP_REMOTOS}.4.{sufijo}", 4),             # chassis = macAddress(4)
+            (f"{OID_LLDP_REMOTOS}.5.{sufijo}", mac.upper().encode() if mac_como_texto else _mac(mac)),
+            (f"{OID_LLDP_REMOTOS}.6.{sufijo}", 5),             # puerto = interfaceName(5)
+            (f"{OID_LLDP_REMOTOS}.7.{sufijo}", puerto.encode()),
+            (f"{OID_LLDP_REMOTOS}.9.{sufijo}", nombre.encode()),
+            (f"{OID_LLDP_REMOTOS}.10.{sufijo}", descripcion.encode()),
+        ]
+    return filas
+
+
+def test_parsear_vecinos_lldp_formato_estandar():
+    """Puerto local por lldpLocPortTable (su número no tiene por qué ser el
+    ifIndex: se empareja por nombre con ifName) e IP de gestión dentro del
+    índice de lldpRemManAddrTable (subtipo 1 = IPv4, longitud 4, 4 bytes)."""
+    remotos = _filas_lldp_remotos({
+        (1, 7): (MAC_UPSTREAM, "ge-0/0/5", "Upstream", "Switch de ejemplo"),
+        (2, 8): (MAC_AP, "eth0", "AP-Interior", "AP de ejemplo"),
+    })
+    locales = [(f"{OID_LLDP_PUERTOS_LOCALES}.4.1", b"ether1"), (f"{OID_LLDP_PUERTOS_LOCALES}.4.2", b"ether2")]
+    gestion = [
+        (f"{OID_LLDP_GESTION}.3.0.1.7.1.4.198.51.100.2", 2),   # lldpRemManAddrIfSubtype
+        (f"{OID_LLDP_GESTION}.3.0.2.8.1.4.192.0.2.254", 2),
+    ]
+
+    vecinos = parsear_vecinos_lldp(remotos, locales, gestion, {3: "ether1", 4: "ether2"})
+
+    assert vecinos == [
+        {"ip": "198.51.100.2", "mac": MAC_UPSTREAM, "identidad": "Upstream", "plataforma": "Switch de ejemplo",
+         "version": "", "if_index": 3, "interfaz_remota": "ge-0/0/5"},
+        {"ip": "192.0.2.254", "mac": MAC_AP, "identidad": "AP-Interior", "plataforma": "AP de ejemplo",
+         "version": "", "if_index": 4, "interfaz_remota": "eth0"},
+    ]
+
+
+def test_parsear_vecinos_lldp_formato_routeros_v6():
+    remotos = _filas_lldp_remotos({
+        (0, 1): (MAC_UPSTREAM, "ether5", "Upstream", "MikroTik RouterOS 6.48.5 (long-term) RB750Gr3"),
+        (0, 2): (MAC_AP, "bridge/ether1", "AP-Interior", "MikroTik RouterOS 6.49.19 (stable) RBcAPGi-5acD2nD"),
+    }, mac_como_texto=True)
+    gestion = [
+        (f"{OID_LLDP_GESTION}.1.0.0.1", 1), (f"{OID_LLDP_GESTION}.2.0.0.1", b"198.51.100.2"),
+        (f"{OID_LLDP_GESTION}.1.0.0.2", 1), (f"{OID_LLDP_GESTION}.2.0.0.2", b"192.0.2.254"),
+    ]
+
+    vecinos = parsear_vecinos_lldp(remotos, [], gestion, {3: "ether1", 4: "ether2"})
+
+    assert [(v["ip"], v["mac"], v["if_index"], v["interfaz_remota"]) for v in vecinos] == [
+        ("198.51.100.2", MAC_UPSTREAM, None, "ether5"),        # puerto local 0: no se sabe
+        ("192.0.2.254", MAC_AP, None, "bridge/ether1"),
+    ]
+
+
+def test_parsear_vecinos_lldp_sin_ip_de_gestion_o_con_0000():
+    remotos = _filas_lldp_remotos({(0, 21): (MAC_PC, "", "", ""), (0, 22): (MAC_MOVIL, "", "", "")})
+    gestion = [(f"{OID_LLDP_GESTION}.2.0.0.21", b"0.0.0.0")]
+
+    vecinos = parsear_vecinos_lldp(remotos, [], gestion, {})
+
+    assert [v["ip"] for v in vecinos] == [None, None]
+    assert [v["interfaz_remota"] for v in vecinos] == [None, None]
+
+
+def test_combinar_vecinos_completa_con_lldp_y_anade_los_que_solo_estan_ahi():
+    """La tabla de MikroTik sabe el puerto local; LLDP, el del otro extremo
+    (y en RouterOS v6 no sabe el local). Se juntan por MAC; un vecino que
+    solo anuncia LLDP (un switch de otra marca) se añade tal cual."""
+    mikrotik = [{"ip": "192.0.2.254", "mac": MAC_AP, "identidad": "AP-Interior", "plataforma": "MikroTik",
+                 "version": "6.49.19", "if_index": 4}]
+    lldp = [
+        {"ip": "192.0.2.254", "mac": MAC_AP, "identidad": "AP-Interior", "plataforma": "MikroTik RouterOS ...",
+         "version": "", "if_index": None, "interfaz_remota": "bridge/ether1"},
+        {"ip": "192.0.2.50", "mac": "02:00:00:00:00:50", "identidad": "Switch-Garaje", "plataforma": "Otro",
+         "version": "", "if_index": 5, "interfaz_remota": "port3"},
+    ]
+
+    assert combinar_vecinos(mikrotik, lldp) == [
+        {"ip": "192.0.2.254", "mac": MAC_AP, "identidad": "AP-Interior", "plataforma": "MikroTik",
+         "version": "6.49.19", "if_index": 4, "interfaz_remota": "bridge/ether1"},
+        {"ip": "192.0.2.50", "mac": "02:00:00:00:00:50", "identidad": "Switch-Garaje", "plataforma": "Otro",
+         "version": "", "if_index": 5, "interfaz_remota": "port3"},
+    ]
+
+
+def test_inferir_topologia_usa_la_interfaz_remota_de_lldp():
+    router = _router_casa()
+    for vecino in router["vecinos"]:
+        vecino["interfaz_remota"] = {"Upstream": "ether5", "AP-Interior": "bridge/ether1"}.get(vecino["identidad"])
+
+    enlaces = {(e["padre"], e["hijo"]): e for e in inferir_topologia([router])["enlaces"]}
+
+    # El upstream es el padre: su puerto (ether5) es el del lado del padre
+    assert enlaces["198.51.100.2", "192.0.2.1"]["interfaz_padre"] == "ether5"
+    assert enlaces["198.51.100.2", "192.0.2.1"]["interfaz_hijo"] == "ether1"
+    assert enlaces["192.0.2.1", "192.0.2.254"]["interfaz_padre"] == "ether2"
+    assert enlaces["192.0.2.1", "192.0.2.254"]["interfaz_hijo"] == "bridge/ether1"
+
+
+@patch("topology_scanner.snmp._recorrer")
+def test_consultar_equipo_junta_los_vecinos_de_mikrotik_y_lldp(mock_recorrer):
+    sufijo = "0.0.2"
+    mock_recorrer.return_value = {
+        OID_LLDP_REMOTOS: [(f"{OID_LLDP_REMOTOS}.5.{sufijo}", _mac(MAC_AP)), (f"{OID_LLDP_REMOTOS}.4.{sufijo}", 4),
+                           (f"{OID_LLDP_REMOTOS}.6.{sufijo}", 5),
+                           (f"{OID_LLDP_REMOTOS}.7.{sufijo}", b"bridge/ether1"),
+                           (f"{OID_LLDP_REMOTOS}.9.{sufijo}", b"AP-Interior")],
+    }
+
+    vecinos = consultar_equipo("192.0.2.1", "community")["vecinos"]
+
+    assert [(v["identidad"], v["interfaz_remota"]) for v in vecinos] == [("AP-Interior", "bridge/ether1")]
+    assert {OID_LLDP_REMOTOS, OID_LLDP_PUERTOS_LOCALES, OID_LLDP_GESTION} <= set(TABLAS_A_CONSULTAR)

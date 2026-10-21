@@ -121,6 +121,7 @@ standard tables from your routers/switches and builds a tree instead:
 |---|---|---|
 | Routes (`ipCidrRouteTable`) | "10.0.10.0/24 is behind 192.168.1.44" | Upstream gateway, downstream routers and their subnets |
 | Neighbors (MikroTik `mtxrNeighborTable`, MNDP/LLDP/CDP) | "Access point X is on my ether2" | Links between network devices |
+| Neighbors (standard `LLDP-MIB`, any vendor) | "Switch Y sees me on its port3" | Links, with the port on **both** ends (`ether2 ↔ port3`) |
 | MAC table (`BRIDGE-MIB`) | "MAC aa:bb:… is on port wlan1" | Which port each host is on |
 | ARP (`ipNetToMediaTable`) | "192.168.1.20 is aa:bb:…" | Matching MACs to the IPs nmap found |
 
@@ -143,9 +144,10 @@ variable, never from a command-line argument (arguments show up in `ps` and
 in your shell history). On Windows PowerShell:
 `$env:TOPOLOGY_SNMP_COMMUNITY = "..."`.
 
-**Current limitations**: SNMP v2c only; device-to-device links come from
-MikroTik's neighbor table (other vendors still contribute routes, ARP and
-MAC table).
+**Current limitations**: SNMP v2c only. Links between network devices come
+from MikroTik's neighbor table and from the standard LLDP-MIB, so devices
+that don't run LLDP (or don't expose it over SNMP) are only placed by
+routes, ARP and the MAC table.
 
 ## Device classification
 
@@ -177,4 +179,5 @@ run without a real network or the nmap binary installed.
 - [x] CI: run tests + ruff on every push
 - [x] Real topology via SNMP against routers/switches, CLI (instead of the approximate star layout)
 - [x] SNMP in the web interface
-- [ ] SNMPv3 and the standard LLDP-MIB for non-MikroTik devices
+- [x] Standard LLDP-MIB (links between devices from any vendor, with the port on both ends)
+- [ ] SNMPv3

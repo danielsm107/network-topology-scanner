@@ -113,7 +113,9 @@ def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx
         grafo.add_node(ip, **atributos)
 
     for enlace in topologia["enlaces"]:
-        colgar(enlace["hijo"], enlace["padre"], enlace["interfaz_padre"] or enlace["interfaz_hijo"])
+        # Con LLDP se conocen los dos extremos: "ether2 ↔ bridge/ether1" (padre ↔ hijo)
+        extremos = [i for i in (enlace["interfaz_padre"], enlace["interfaz_hijo"]) if i]
+        colgar(enlace["hijo"], enlace["padre"], " ↔ ".join(extremos) or None)
 
     # 2. Hosts de nmap: por IP, si no por MAC, si no por la red remota a la
     #    que pertenecen; lo que no encaja en nada cuelga del nodo de red.

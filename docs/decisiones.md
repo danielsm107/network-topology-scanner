@@ -330,3 +330,18 @@ contexto completo.
   "equipo" con IP 0.0.0.0, como hijo o como puerta de enlace upstream si la
   ruta por defecto iba por interfaz. El hAP del mantenedor no tiene rutas
   así; se detectó al pensar en routers con VPN (p. ej. FortiGate).
+- Vecinos por LLDP-MIB estándar (`parsear_vecinos_lldp`), además de la
+  tabla propia de MikroTik, combinados por MAC (`combinar_vecinos`: la
+  primera fuente manda, las demás rellenan huecos). LLDP aporta el puerto
+  **del otro extremo** (`interfaz_remota`), así que los enlaces entre
+  equipos muestran ambos lados (`ether2 ↔ bridge/ether1`). RouterOS v6 no
+  sigue el estándar en tres cosas, vistas con el hAP real y cubiertas por
+  tests: el puerto local del índice es siempre 0 (no se sabe por LLDP por
+  qué puerto se ve a cada vecino; lo da la tabla de MikroTik), la IP de
+  gestión va como texto en una columna y no dentro del índice, y la MAC del
+  chassis llega como texto "C4:AD:34:..." en vez de 6 bytes. Esto último
+  no lo detectaron los tests (construidos según la especificación) sino la
+  prueba en vivo: los vecinos salían duplicados porque no se emparejaban
+  por MAC. La variante estándar (puerto local por `lldpLocPortTable`
+  emparejado por nombre con `ifName`, IP en el índice) está escrita a
+  partir de la especificación, sin un equipo real que la confirme.

@@ -160,8 +160,8 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 6. ~~**Topología real vía SNMP**~~ — hecho en el CLI (`snmp.py`, flag
    `--snmp`, community en `TOPOLOGY_SNMP_COMMUNITY`, extra `[snmp]`),
    validado contra el MikroTik hAP ac2 del mantenedor; también en la web
-   (interruptor en el sidebar). Pendiente: SNMPv3 y la LLDP-MIB estándar
-   para otros fabricantes.
+   (interruptor en el sidebar), y vecinos también por LLDP-MIB estándar
+   (cualquier fabricante). Pendiente: SNMPv3.
 7. ~~**Interfaz web con Streamlit**~~ — hecho (`webapp.py`, extra opcional
    `[web]`, entry point `topology-scanner-web`). Formulario con detección
    automática del rango local (botón "Detectar mi red", truco de socket

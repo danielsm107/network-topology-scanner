@@ -57,13 +57,25 @@ OID_PUERTO_A_IFINDEX = "1.3.6.1.2.1.17.1.4.1.2"
 _ESTADOS_FDB_DESCARTADOS = {2, 4}
 # MIKROTIK-MIB: mtxrNeighborTableEntry, índice = columna.fila
 OID_VECINOS_MIKROTIK = "1.3.6.1.4.1.14988.1.1.11.1.1"
+# LLDP-MIB (IEEE 802.1AB): vecinos de cualquier fabricante.
+# lldpRemEntry, índice = timeMark.localPortNum.remIndex
+OID_LLDP_REMOTOS = "1.0.8802.1.1.2.1.4.1.1"
+# lldpLocPortEntry, índice = localPortNum (no tiene por qué ser el ifIndex)
+OID_LLDP_PUERTOS_LOCALES = "1.0.8802.1.1.2.1.3.7.1"
+# lldpRemManAddrEntry, índice = timeMark.localPortNum.remIndex.subtipo.longitud.dirección
+OID_LLDP_GESTION = "1.0.8802.1.1.2.1.4.2.1"
 
 _COLUMNAS_VECINOS_MIKROTIK = {2: "ip", 3: "mac", 4: "version", 5: "plataforma", 6: "identidad", 8: "if_index"}
+_COLUMNAS_LLDP_REMOTOS = {4: "tipo_chassis", 5: "chassis", 6: "tipo_puerto", 7: "puerto",
+                          8: "descripcion_puerto", 9: "nombre", 10: "descripcion"}
+_LLDP_CHASSIS_MAC = 4                          # lldpChassisIdSubtype macAddress(4)
+_LLDP_PUERTO_POR_NOMBRE = {5, 7}               # lldpPortIdSubtype interfaceName(5), local(7)
 
 # sysName va primero a propósito: si no responde, el equipo no responde.
 TABLAS_A_CONSULTAR = (
     OID_SYS_NAME, OID_IF_NAME, OID_ARP, OID_RUTAS,
     OID_FDB_PUERTO, OID_FDB_ESTADO, OID_PUERTO_A_IFINDEX, OID_VECINOS_MIKROTIK,
+    OID_LLDP_REMOTOS, OID_LLDP_PUERTOS_LOCALES, OID_LLDP_GESTION,
 )
 
 
@@ -86,7 +98,13 @@ def consultar_equipo(ip: str, community: str, timeout: float = 2.0, reintentos: 
         "arp": parsear_arp(filas(OID_ARP)),
         "rutas": parsear_rutas(filas(OID_RUTAS)),
         "fdb": parsear_fdb(filas(OID_FDB_PUERTO), filas(OID_PUERTO_A_IFINDEX), filas(OID_FDB_ESTADO)),
-        "vecinos": parsear_vecinos_mikrotik(filas(OID_VECINOS_MIKROTIK)),
+        # Tabla propia de MikroTik (sabe el puerto local) + LLDP-MIB estándar
+        # (cualquier fabricante; sabe el puerto del otro extremo)
+        "vecinos": combinar_vecinos(
+            parsear_vecinos_mikrotik(filas(OID_VECINOS_MIKROTIK)),
+            parsear_vecinos_lldp(filas(OID_LLDP_REMOTOS), filas(OID_LLDP_PUERTOS_LOCALES),
+                                 filas(OID_LLDP_GESTION), parsear_interfaces(filas(OID_IF_NAME))),
+        ),
     }
 
 
@@ -312,6 +330,126 @@ def parsear_vecinos_mikrotik(filas: Iterable[Fila]) -> list[dict]:
     return vecinos
 
 
+def parsear_vecinos_lldp(filas_remotos: Iterable[Fila], filas_puertos_locales: Iterable[Fila],
+                         filas_gestion: Iterable[Fila], interfaces: dict[int, str]) -> list[dict]:
+    """Vecinos de LLDP-MIB (IEEE 802.1AB), con el mismo formato que
+    parsear_vecinos_mikrotik más `interfaz_remota` (el puerto del otro
+    extremo, que la tabla de MikroTik no da).
+
+    Admite dos variantes:
+    - Estándar (escrita a partir de la especificación): el puerto local es
+      lldpRemLocalPortNum, que se traduce a ifIndex emparejando su nombre
+      (lldpLocPortDesc) con ifName, porque su número no tiene por qué ser el
+      ifIndex; la IP de gestión va dentro del índice de lldpRemManAddrTable.
+    - RouterOS v6 (vista en un hAP ac2 real): el puerto local es siempre 0
+      (if_index queda None: no se sabe) y la IP de gestión llega como texto
+      en la columna 2 en vez de en el índice."""
+    # lldpLocPortDesc (columna 4): número de puerto local -> nombre
+    puertos_locales = {
+        puerto: _texto(valor)
+        for (columna, puerto), valor in (
+            (tuple(indice), valor)
+            for indice, valor in _filas_de(filas_puertos_locales, OID_LLDP_PUERTOS_LOCALES)
+            if len(indice) == 2
+        )
+        if columna == 4
+    }
+    if_index_por_nombre = {nombre: if_index for if_index, nombre in interfaces.items()}
+
+    por_vecino: dict[tuple, dict] = {}
+    for indice, valor in _filas_de(filas_remotos, OID_LLDP_REMOTOS):
+        if len(indice) != 4 or indice[0] not in _COLUMNAS_LLDP_REMOTOS:
+            continue
+        por_vecino.setdefault(tuple(indice[1:]), {})[_COLUMNAS_LLDP_REMOTOS[indice[0]]] = valor
+
+    ip_por_vecino: dict[tuple, str] = {}
+    for indice, valor in _filas_de(filas_gestion, OID_LLDP_GESTION):
+        if len(indice) < 4:
+            continue
+        clave, resto = tuple(indice[1:4]), indice[4:]
+        if len(resto) == 6 and resto[0] == 1 and resto[1] == 4:   # estándar: IPv4 en el índice
+            ip = ".".join(map(str, resto[2:]))
+        elif not resto and indice[0] == 2:                        # RouterOS v6: valor de la columna 2
+            ip = _ip(valor) or _ipv4_en_texto(valor)
+        else:
+            continue
+        if ip and ip != "0.0.0.0":
+            ip_por_vecino[clave] = ip
+
+    vecinos = []
+    for clave in sorted(por_vecino):
+        datos = por_vecino[clave]
+        puerto_local = clave[1]
+        nombre_local = puertos_locales.get(puerto_local)
+        if nombre_local in if_index_por_nombre:
+            if_index = if_index_por_nombre[nombre_local]
+        elif puerto_local and puerto_local in interfaces:
+            if_index = puerto_local
+        else:
+            if_index = None
+
+        # El estándar manda la MAC en 6 bytes; RouterOS v6, como texto "C4:AD:34:..."
+        if datos.get("tipo_chassis") == _LLDP_CHASSIS_MAC:
+            mac = _mac(datos.get("chassis")) or _mac_en_texto(datos.get("chassis"))
+        else:
+            mac = None
+        if datos.get("tipo_puerto") in _LLDP_PUERTO_POR_NOMBRE:
+            interfaz_remota = _texto(datos.get("puerto", b""))
+        else:
+            interfaz_remota = _texto(datos.get("descripcion_puerto", b""))
+
+        vecinos.append({
+            "ip": ip_por_vecino.get(clave),
+            "mac": mac,
+            "identidad": _texto(datos.get("nombre", b"")),
+            "plataforma": _texto(datos.get("descripcion", b"")),
+            "version": "",
+            "if_index": if_index,
+            "interfaz_remota": interfaz_remota or None,
+        })
+    return vecinos
+
+
+def _mac_en_texto(valor) -> str | None:
+    """"C4:AD:34:34:C2:88" o "c4-ad-34-34-c2-88" -> "c4:ad:34:34:c2:88"."""
+    texto = _texto(valor).replace("-", ":").lower() if isinstance(valor, bytes) else ""
+    partes = texto.split(":")
+    if len(partes) == 6 and all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in partes):
+        return texto
+    return None
+
+
+def _ipv4_en_texto(valor) -> str | None:
+    texto = _texto(valor) if isinstance(valor, bytes) else ""
+    try:
+        return str(ipaddress.IPv4Address(texto))
+    except ValueError:
+        return None
+
+
+def combinar_vecinos(*listas: list[dict]) -> list[dict]:
+    """Junta vecinos de varias fuentes (tabla de MikroTik, LLDP-MIB) por MAC,
+    o por IP si no hay MAC. La primera fuente manda; las siguientes solo
+    rellenan lo que falte (p. ej. el puerto remoto que da LLDP). Un vecino
+    que solo aparece en una fuente se añade tal cual."""
+    combinados: list[dict] = []
+    por_clave: dict[str, dict] = {}
+    for lista in listas:
+        for vecino in lista:
+            vecino = {"interfaz_remota": None, **vecino}
+            clave = vecino["mac"] or vecino["ip"]
+            existente = por_clave.get(clave) if clave else None
+            if existente is None:
+                combinados.append(vecino)
+                if clave:
+                    por_clave[clave] = vecino
+                continue
+            for campo, valor in vecino.items():
+                if existente.get(campo) in (None, "") and valor not in (None, ""):
+                    existente[campo] = valor
+    return combinados
+
+
 # --- Inferencia de topología (pura) ------------------------------------------
 
 def inferir_topologia(equipos_consultados: list[dict]) -> dict:
@@ -373,13 +511,14 @@ def inferir_topologia(equipos_consultados: list[dict]) -> dict:
         fdb_por_mac = {entrada["mac"]: entrada["if_index"] for entrada in router["fdb"]}
         mapa = interfaz_a_equipo.setdefault(ip_router, {})
 
-        # (ip, mac, ifIndex del vecino si se conoce)
-        vecinos_de_red: list[tuple[str, str | None, int | None]] = []
+        # (ip, mac, ifIndex local si se conoce, interfaz del otro extremo si se conoce)
+        vecinos_de_red: list[tuple[str, str | None, int | None, str | None]] = []
         for vecino in router["vecinos"]:
             if vecino["ip"] and vecino["identidad"]:
                 registrar(vecino["ip"], nombre=vecino["identidad"], plataforma=vecino["plataforma"],
                           version=vecino["version"], mac=vecino["mac"])
-                vecinos_de_red.append((vecino["ip"], vecino["mac"], vecino["if_index"]))
+                vecinos_de_red.append((vecino["ip"], vecino["mac"], vecino["if_index"],
+                                       vecino.get("interfaz_remota")))
 
         pasarela = None
         for ruta in router["rutas"]:
@@ -396,9 +535,9 @@ def inferir_topologia(equipos_consultados: list[dict]) -> dict:
                 redes.setdefault(str(red), salto)
             mac_salto = arp_por_ip.get(salto, {}).get("mac")
             registrar(salto, mac=mac_salto)
-            vecinos_de_red.append((salto, mac_salto, None))
+            vecinos_de_red.append((salto, mac_salto, None, None))
 
-        for ip_equipo, mac, if_vecino in vecinos_de_red:
+        for ip_equipo, mac, if_vecino, interfaz_remota in vecinos_de_red:
             if ip_equipo == ip_router:
                 continue
             # Dónde está: vecino > tabla MAC > ARP. La ARP solo sirve para
@@ -409,10 +548,12 @@ def inferir_topologia(equipos_consultados: list[dict]) -> dict:
             else:
                 if_index = arp_por_ip.get(ip_equipo, {}).get("if_index")
             interfaz = router["interfaces"].get(if_index)
+            # La interfaz remota (LLDP) es la del otro extremo: del lado del
+            # padre si el vecino es la puerta de enlace, del hijo si no.
             if ip_equipo == pasarela:
-                enlazar(ip_equipo, ip_router, None, interfaz)
+                enlazar(ip_equipo, ip_router, interfaz_remota, interfaz)
             else:
-                enlazar(ip_router, ip_equipo, interfaz, None)
+                enlazar(ip_router, ip_equipo, interfaz, interfaz_remota)
 
         if pasarela:
             pasarelas.add(pasarela)
