@@ -42,6 +42,15 @@ class SnmpError(Exception):
     """El equipo no responde por SNMP, o falta la librería."""
 
 
+class _SnmpErrorLocal(SnmpError):
+    """Fallo en este equipo, no en el consultado (p. ej. falta la librería
+    de cifrado): decir que el router "no responde" despistaría."""
+
+
+_FALTA_CRYPTOGRAPHY = ("SNMPv3 con cifrado necesita la librería 'cryptography' (pysnmp no la instala "
+                       "sola). Instálala con: pip install -e \".[snmp]\"")
+
+
 class _SnmpCredencialesError(SnmpError):
     """El equipo responde pero rechaza las credenciales (SNMPv3): no tiene
     sentido seguir con el resto de tablas."""
@@ -179,6 +188,14 @@ def _recorrer(ip: str, credenciales: Credenciales, oids: Sequence[str], timeout:
         raise SnmpError(
             "Falta la librería SNMP. Instálala con: pip install -e \".[snmp]\""
         ) from e
+    # pysnmp necesita `cryptography` para AES/DES pero no la declara como
+    # dependencia: sin ella, el cifrado falla al enviar y parecía que el
+    # equipo no respondía. Se comprueba antes de tocar la red.
+    if isinstance(credenciales, CredencialesV3) and credenciales.clave_priv:
+        try:
+            import cryptography  # noqa: F401
+        except ImportError as e:
+            raise SnmpError(_FALTA_CRYPTOGRAPHY) from e
     return asyncio.run(_recorrer_async(ip, credenciales, oids, timeout, reintentos))
 
 
@@ -201,6 +218,8 @@ async def _recorrer_async(ip, credenciales, oids, timeout, reintentos) -> dict[s
                 tablas[oid] = await _recorrer_tabla(motor, autenticacion, destino, oid)
             except _SnmpCredencialesError as e:
                 raise SnmpError(f"{ip} rechaza las credenciales SNMP: {e}.") from e
+            except _SnmpErrorLocal as e:
+                raise SnmpError(str(e)) from e
             except SnmpError as e:
                 if not tablas:
                     raise SnmpError(
@@ -244,6 +263,10 @@ def _lanzar_error(error):
     for tipo, pista in pistas.items():
         if isinstance(error, tipo):
             raise _SnmpCredencialesError(pista)
+    # Mismo texto ("Ciphering services not available") que DecryptionError,
+    # pero es local: no se ha podido cifrar la consulta en este equipo.
+    if isinstance(error, errind.EncryptionError):
+        raise _SnmpErrorLocal(_FALTA_CRYPTOGRAPHY)
     raise SnmpError(str(error))
 
 

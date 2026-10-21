@@ -359,3 +359,11 @@ contexto completo.
   `pysnmp.proto.errind`, no por texto, y abortan la consulta del equipo
   con una pista de qué revisar: el equipo sí responde, así que el mensaje
   genérico de "no responde" despistaría.
+- El extra `[snmp]` instala también `cryptography>=43`: pysnmp la usa para
+  cifrar en SNMPv3 (AES/DES, importa `cryptography.hazmat.decrepit`, de la
+  43 en adelante) pero solo la declara en su extra de desarrollo. Sin ella,
+  la primera prueba real contra el hAP falló con "Ciphering services not
+  available", y el mensaje decía que el router no respondía. Ahora se
+  comprueba antes de tocar la red si se pide cifrado, y `EncryptionError`
+  (mismo texto que `DecryptionError`, pero local) se trata como fallo de
+  este equipo, no del consultado.

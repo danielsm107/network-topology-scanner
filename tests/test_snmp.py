@@ -877,3 +877,28 @@ def test_recorrer_explica_los_errores_tipicos_de_v3(pysnmp_falso, error, pista):
     mensaje = str(excinfo.value)
     assert pista in mensaje
     assert "clave-auth-secreta" not in mensaje and "clave-priv-secreta" not in mensaje
+
+
+def test_v3_con_cifrado_sin_cryptography_da_un_error_claro_antes_de_consultar():
+    """pysnmp necesita `cryptography` para AES/DES pero no la declara como
+    dependencia: sin ella fallaba con "Ciphering services not available" y
+    el mensaje decía que el equipo no respondía (visto con un hAP real)."""
+    pytest.importorskip(MODULO_PYSNMP)
+    credenciales = CredencialesV3("lector", "clave-auth", "clave-priv")
+
+    with patch.dict(sys.modules, {"cryptography": None}), pytest.raises(SnmpError, match="cryptography") as excinfo:
+        _recorrer("192.0.2.1", credenciales, (OID_SYS_NAME,), 1, 0)
+
+    assert r"[snmp]" in str(excinfo.value)
+    assert "no responde" not in str(excinfo.value)
+
+
+def test_recorrer_un_fallo_local_de_cifrado_no_dice_que_el_equipo_no_responde(pysnmp_falso):
+    from pysnmp.proto import errind
+
+    credenciales = CredencialesV3("lector", "clave-auth", "clave-priv")
+    with pysnmp_falso([[(errind.encryptionError, 0, [])]]), pytest.raises(SnmpError) as excinfo:
+        _recorrer("192.0.2.1", credenciales, (OID_SYS_NAME,), 1, 0)
+
+    assert "cryptography" in str(excinfo.value)
+    assert "no responde" not in str(excinfo.value)

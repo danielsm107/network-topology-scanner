@@ -30,6 +30,9 @@ snmp = [
     # >=7.1: API asyncio con nombres snake_case (walk_cmd,
     # UdpTransportTarget.create) que usa snmp.py. Exige Python >=3.10.
     "pysnmp>=7.1",
+    # pysnmp la usa para cifrar en SNMPv3 (AES/DES) pero no la declara como
+    # dependencia; >=43 por cryptography.hazmat.decrepit, que es lo que importa.
+    "cryptography>=43",
 ]
 
 [project.scripts]
