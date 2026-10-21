@@ -45,6 +45,7 @@ ruff check src/ tests/                          # lint (lo mismo que ejecuta CI)
 
 topology-scanner 192.168.1.0/24 [--rapido] [--con-so] [--output x.html] [--csv x.csv]
 topology-scanner 192.168.1.0/24 10.0.10.0/24 [--snmp 192.168.1.1]   # varios rangos a la vez
+# --snmp: credenciales por entorno, TOPOLOGY_SNMP_COMMUNITY (v2c) o TOPOLOGY_SNMP_USER/_AUTH_KEY/_PRIV_KEY (v3)
 topology-scanner-web                            # o: streamlit run src/topology_scanner/webapp.py
 ```
 
@@ -64,7 +65,7 @@ src/topology_scanner/
 ├── export.py       # exportar_html (pyvis; círculo, o árbol por niveles con topología SNMP), exportar_texto, exportar_diff_texto, exportar_csv
 ├── history.py      # registrar_y_comparar(resultados, rango, db_path) -> guarda en SQLite y compara con el escaneo anterior
 ├── rangos.py       # varios rangos: parsear_rangos (validación), rango_de / repartir_por_rango (qué host es de qué rango)
-├── snmp.py         # topología real por SNMP (roadmap 6, en curso): consulta con pysnmp, parsers puros e inferir_topologia (quién cuelga de quién)
+├── snmp.py         # topología real por SNMP v2c/v3: consulta (pysnmp), parsers puros (ARP, rutas, MAC, vecinos MikroTik y LLDP) e inferir_topologia
 ├── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
 └── webapp.py       # interfaz Streamlit (opcional): mismo pipeline, con escaneo cancelable
 tests/               # un test_<modulo>.py por módulo
@@ -99,11 +100,18 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
   con `a or b or c` (devuelve un dict, no un bool; causó un `TypeError`).
 - `classifier.ICONOS_POR_CATEGORIA`: iconos de nodos y leyenda, cada uno con su
   propio `face`/`weight` (los de marca como Apple van en "Font Awesome 5 Brands").
-- `export.posiciones_circulares`: único layout, lo usan el HTML de pyvis y el
-  SVG de la web. `scanner.parsear_host`: parseo de host, lo reutiliza la web.
+- Layouts: `export.posiciones_circulares` (estrella de un rango) y
+  `export.posiciones_jerarquicas` (árbol SNMP o varios rangos). Los usan tanto el
+  HTML de pyvis como el SVG de la web: nunca un tercer algoritmo de layout.
+- `scanner.parsear_host`: parseo de host, lo reutiliza la web.
+- `snmp.obtener_topologia` / `credenciales_desde_entorno` / `VARIABLE_*` y
+  `rangos.parsear_rangos` / `repartir_por_rango`: compartidos por CLI y web.
+- `history.combinar_diffs`: juntar los diffs de varios rangos para mostrarlos.
 - Versión: `importlib.metadata` en `__init__.py`; `pyproject.toml` manda.
-- Grafo de imports permitido además del principio de arriba:
-  `scanner → classifier`, `history → classifier`, `export → history`.
+- Grafo de imports entre módulos de lógica: `scanner → classifier`,
+  `history → classifier`, `export → classifier, history`, `graph → rangos`.
+  `snmp`, `rangos` y `classifier` no importan a nadie. `cli`/`webapp` orquestan
+  e importan lo que necesiten.
 
 **Trampas conocidas**
 - `history.py`: compara solo contra el último escaneo **del mismo rango**, purga
@@ -141,7 +149,8 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - Estilo de un widget concreto: `key="..."` + selector `.st-key-<key>`.
 - Todo texto externo (hostname, SO, rango, identidad SNMP, log de nmap) que
   se mete en HTML va con `html.escape` — hay un test por panel.
-- Temporales `.xml`/`.csv` se borran en un `finally` (el `.html` de pyvis ya no se genera en la web). `pagina_inventario`
+- Temporales `.xml`/`.csv` se borran en un `finally` (el `.html` de pyvis ya no
+  se genera en la web). `pagina_inventario`
   se resetea a 1 en cada escaneo.
 
 ## Roadmap (por orden de prioridad hablado)
@@ -176,6 +185,19 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
    log de escaneo en vivo, paginación del inventario.
 8. ~~**CI con GitHub Actions**~~ — hecho (`.github/workflows/ci.yml`, pytest +
    ruff en 3.10/3.12, badge en el README).
+9. ~~**Varios rangos por ejecución**~~ — hecho (`rangos.py`; CLI y web; historial
+   por rango, un centro por rango en la estrella).
+10. ~~**Vecinos por LLDP-MIB estándar**~~ — hecho (cualquier fabricante; puerto de
+    ambos extremos en las aristas; tolera las desviaciones de RouterOS v6).
+11. ~~**SNMPv3**~~ — hecho (CLI y web; SHA + AES por defecto; `[snmp]` instala
+    también `cryptography`, que pysnmp necesita para cifrar).
+
+**Ideas pendientes** (sin orden decidido):
+- Fabricante (por OUI, con la base de datos de nmap) para los hosts que solo
+  ve SNMP, que hoy salen como "?" aunque se conoce su MAC.
+- Distinguir AP / switch / router en el árbol con las capacidades que anuncia
+  LLDP (`lldpRemSysCapEnabled`); hoy todos los equipos de red salen como router.
+- Captura del árbol SNMP para el README, con datos inventados.
 
 ## Forma de trabajar preferida
 
