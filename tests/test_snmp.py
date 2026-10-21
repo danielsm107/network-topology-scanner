@@ -29,10 +29,12 @@ from topology_scanner.snmp import (
     OID_SYS_NAME,
     OID_VECINOS_MIKROTIK,
     TABLAS_A_CONSULTAR,
+    CredencialesV3,
     SnmpError,
     _recorrer,
     combinar_vecinos,
     consultar_equipo,
+    credenciales_desde_entorno,
     inferir_topologia,
     obtener_topologia,
     parsear_arp,
@@ -780,3 +782,98 @@ def test_consultar_equipo_junta_los_vecinos_de_mikrotik_y_lldp(mock_recorrer):
 
     assert [(v["identidad"], v["interfaz_remota"]) for v in vecinos] == [("AP-Interior", "bridge/ether1")]
     assert {OID_LLDP_REMOTOS, OID_LLDP_PUERTOS_LOCALES, OID_LLDP_GESTION} <= set(TABLAS_A_CONSULTAR)
+
+
+# === SNMPv3 =================================================================
+
+def test_credenciales_v3_no_muestran_las_claves_en_el_repr():
+    """Un traceback o un log con el objeto no deben filtrar las claves."""
+    credenciales = CredencialesV3("lector", "clave-auth-secreta", "clave-priv-secreta")
+
+    assert "clave-auth-secreta" not in repr(credenciales)
+    assert "clave-priv-secreta" not in repr(credenciales)
+    assert "lector" in repr(credenciales)
+
+
+def test_credenciales_v3_por_defecto_sha_y_aes():
+    """SHA + AES-128: lo que soporta RouterOS v6."""
+    credenciales = CredencialesV3("lector", "clave-auth", "clave-priv")
+
+    assert (credenciales.protocolo_auth, credenciales.protocolo_priv) == ("SHA", "AES")
+
+
+@pytest.mark.parametrize("argumentos, mensaje", [
+    (("", "clave-auth"), "usuario"),
+    (("lector", "corta"), "8 caracteres"),
+    (("lector", "clave-auth", "corta"), "8 caracteres"),
+    (("lector", "clave-auth", "", "SHA999"), "SHA999"),
+    (("lector", "clave-auth", "clave-priv", "SHA", "ROT13"), "ROT13"),
+])
+def test_credenciales_v3_se_validan_al_crearlas(argumentos, mensaje):
+    with pytest.raises(ValueError, match=mensaje):
+        CredencialesV3(*argumentos)
+
+
+def test_credenciales_v3_los_protocolos_no_distinguen_mayusculas():
+    assert CredencialesV3("lector", "clave-auth", "", "sha256").protocolo_auth == "SHA256"
+
+
+def test_credenciales_desde_entorno_v3_si_hay_usuario():
+    entorno = {"TOPOLOGY_SNMP_USER": "lector", "TOPOLOGY_SNMP_AUTH_KEY": "clave-auth",
+               "TOPOLOGY_SNMP_PRIV_KEY": "clave-priv", "TOPOLOGY_SNMP_AUTH_PROTO": "SHA256",
+               "TOPOLOGY_SNMP_COMMUNITY": "ignorada-si-hay-v3"}
+
+    assert credenciales_desde_entorno(entorno) == CredencialesV3("lector", "clave-auth", "clave-priv", "SHA256")
+
+
+def test_credenciales_desde_entorno_v2c_con_la_community():
+    assert credenciales_desde_entorno({"TOPOLOGY_SNMP_COMMUNITY": "publica-no"}) == "publica-no"
+
+
+def test_credenciales_desde_entorno_sin_nada_es_none():
+    assert credenciales_desde_entorno({}) is None
+
+
+def test_credenciales_desde_entorno_v3_mal_configurado_es_un_error():
+    with pytest.raises(ValueError, match="8 caracteres"):
+        credenciales_desde_entorno({"TOPOLOGY_SNMP_USER": "lector", "TOPOLOGY_SNMP_AUTH_KEY": "corta"})
+
+
+def test_recorrer_con_v3_usa_usm_con_los_protocolos_elegidos(pysnmp_falso):
+    from pysnmp.hlapi.v3arch import asyncio as hlapi
+
+    credenciales = CredencialesV3("lector", "clave-auth", "clave-priv", "SHA256", "AES256")
+    with pysnmp_falso([[]]), patch(f"{MODULO_PYSNMP}.UsmUserData") as mock_usm:
+        _recorrer("192.0.2.1", credenciales, (OID_SYS_NAME,), 1, 0)
+
+    mock_usm.assert_called_once_with(
+        "lector", "clave-auth", "clave-priv",
+        authProtocol=hlapi.usmHMAC192SHA256AuthProtocol, privProtocol=hlapi.usmAesCfb256Protocol,
+    )
+
+
+def test_recorrer_con_v3_sin_clave_de_cifrado_es_auth_no_priv(pysnmp_falso):
+    from pysnmp.hlapi.v3arch import asyncio as hlapi
+
+    with pysnmp_falso([[]]), patch(f"{MODULO_PYSNMP}.UsmUserData") as mock_usm:
+        _recorrer("192.0.2.1", CredencialesV3("lector", "clave-auth"), (OID_SYS_NAME,), 1, 0)
+
+    assert mock_usm.call_args.kwargs["privProtocol"] == hlapi.usmNoPrivProtocol
+
+
+@pytest.mark.parametrize("error, pista", [
+    ("unknownUserName", "usuario"),
+    ("wrongDigest", "autenticación"),
+    ("decryptionError", "cifrado"),
+    ("unsupportedSecurityLevel", "nivel de seguridad"),
+])
+def test_recorrer_explica_los_errores_tipicos_de_v3(pysnmp_falso, error, pista):
+    from pysnmp.proto import errind
+
+    credenciales = CredencialesV3("lector", "clave-auth-secreta", "clave-priv-secreta")
+    with pysnmp_falso([[(getattr(errind, error), 0, [])]]), pytest.raises(SnmpError) as excinfo:
+        _recorrer("192.0.2.1", credenciales, (OID_SYS_NAME,), 1, 0)
+
+    mensaje = str(excinfo.value)
+    assert pista in mensaje
+    assert "clave-auth-secreta" not in mensaje and "clave-priv-secreta" not in mensaje

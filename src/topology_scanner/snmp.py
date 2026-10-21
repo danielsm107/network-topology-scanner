@@ -30,7 +30,8 @@ resto de la tabla.
 import asyncio
 import ipaddress
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 
 log = logging.getLogger("topology_scanner")
 
@@ -39,6 +40,62 @@ Fila = tuple[str, bytes | int]
 
 class SnmpError(Exception):
     """El equipo no responde por SNMP, o falta la librería."""
+
+
+class _SnmpCredencialesError(SnmpError):
+    """El equipo responde pero rechaza las credenciales (SNMPv3): no tiene
+    sentido seguir con el resto de tablas."""
+
+
+# Nombres de los protocolos en pysnmp (se resuelven al consultar, para no
+# importar pysnmp al cargar el módulo: es un extra opcional)
+PROTOCOLOS_AUTH = {
+    "MD5": "usmHMACMD5AuthProtocol", "SHA": "usmHMACSHAAuthProtocol",
+    "SHA224": "usmHMAC128SHA224AuthProtocol", "SHA256": "usmHMAC192SHA256AuthProtocol",
+    "SHA384": "usmHMAC256SHA384AuthProtocol", "SHA512": "usmHMAC384SHA512AuthProtocol",
+}
+PROTOCOLOS_PRIV = {
+    "DES": "usmDESPrivProtocol", "AES": "usmAesCfb128Protocol",
+    "AES192": "usmAesCfb192Protocol", "AES256": "usmAesCfb256Protocol",
+}
+
+
+@dataclass(frozen=True)
+class CredencialesV3:
+    """Usuario SNMPv3 (USM). Sin clave de cifrado = authNoPriv (autentica
+    pero no cifra); con ella, authPriv. Por defecto SHA + AES-128, lo que
+    soporta RouterOS v6. noAuthNoPriv no se admite: sin autenticación, v3
+    no aporta nada frente a v2c.
+
+    Las claves no salen en el repr (repr=False): un traceback o un log con
+    el objeto no las filtra."""
+    usuario: str
+    clave_auth: str = field(repr=False)
+    clave_priv: str = field(default="", repr=False)
+    protocolo_auth: str = "SHA"
+    protocolo_priv: str = "AES"
+
+    def __post_init__(self):
+        # frozen=True: los valores normalizados se asignan con object.__setattr__
+        object.__setattr__(self, "protocolo_auth", self.protocolo_auth.upper())
+        object.__setattr__(self, "protocolo_priv", self.protocolo_priv.upper())
+        if not self.usuario:
+            raise ValueError("SNMPv3: falta el usuario")
+        # Mínimo del propio estándar (RFC 3414)
+        if len(self.clave_auth) < 8:
+            raise ValueError("SNMPv3: la clave de autenticación necesita al menos 8 caracteres")
+        if self.clave_priv and len(self.clave_priv) < 8:
+            raise ValueError("SNMPv3: la clave de cifrado necesita al menos 8 caracteres")
+        if self.protocolo_auth not in PROTOCOLOS_AUTH:
+            raise ValueError(f"SNMPv3: protocolo de autenticación '{self.protocolo_auth}' no válido "
+                             f"({', '.join(PROTOCOLOS_AUTH)})")
+        if self.protocolo_priv not in PROTOCOLOS_PRIV:
+            raise ValueError(f"SNMPv3: protocolo de cifrado '{self.protocolo_priv}' no válido "
+                             f"({', '.join(PROTOCOLOS_PRIV)})")
+
+
+# community (v2c) o usuario SNMPv3
+Credenciales = str | CredencialesV3
 
 # SNMPv2-MIB / IF-MIB
 OID_SYS_NAME = "1.3.6.1.2.1.1.5"
@@ -81,12 +138,13 @@ TABLAS_A_CONSULTAR = (
 
 # --- Consulta (red) ----------------------------------------------------------
 
-def consultar_equipo(ip: str, community: str, timeout: float = 2.0, reintentos: int = 1) -> dict:
-    """Lee por SNMP v2c las tablas de un router/switch y las devuelve ya
+def consultar_equipo(ip: str, credenciales: Credenciales, timeout: float = 2.0, reintentos: int = 1) -> dict:
+    """Lee por SNMP (v2c con una community, o v3 con CredencialesV3) las
+    tablas de un router/switch y las devuelve ya
     parseadas: {"ip", "nombre", "interfaces", "arp", "rutas", "fdb", "vecinos"}.
     Lanza SnmpError si el equipo no responde. Una tabla que el equipo no
     implementa sale vacía, no es un error."""
-    tablas = _recorrer(ip, community, TABLAS_A_CONSULTAR, timeout, reintentos)
+    tablas = _recorrer(ip, credenciales, TABLAS_A_CONSULTAR, timeout, reintentos)
 
     def filas(oid: str) -> list[Fila]:
         return tablas.get(oid, [])
@@ -108,7 +166,8 @@ def consultar_equipo(ip: str, community: str, timeout: float = 2.0, reintentos: 
     }
 
 
-def _recorrer(ip: str, community: str, oids: Sequence[str], timeout: float, reintentos: int) -> dict[str, list[Fila]]:
+def _recorrer(ip: str, credenciales: Credenciales, oids: Sequence[str], timeout: float,
+              reintentos: int) -> dict[str, list[Fila]]:
     """Hace un walk de cada tabla y devuelve {oid_base: [filas]}.
     pysnmp 7 solo tiene API asyncio; se envuelve aquí con asyncio.run para
     que el resto del programa (síncrono) no tenga que saberlo."""
@@ -120,12 +179,12 @@ def _recorrer(ip: str, community: str, oids: Sequence[str], timeout: float, rein
         raise SnmpError(
             "Falta la librería SNMP. Instálala con: pip install -e \".[snmp]\""
         ) from e
-    return asyncio.run(_recorrer_async(ip, community, oids, timeout, reintentos))
+    return asyncio.run(_recorrer_async(ip, credenciales, oids, timeout, reintentos))
 
 
-async def _recorrer_async(ip, community, oids, timeout, reintentos) -> dict[str, list[Fila]]:
+async def _recorrer_async(ip, credenciales, oids, timeout, reintentos) -> dict[str, list[Fila]]:
     from pysnmp.error import PySnmpError
-    from pysnmp.hlapi.v3arch.asyncio import CommunityData, SnmpEngine, UdpTransportTarget
+    from pysnmp.hlapi.v3arch.asyncio import SnmpEngine, UdpTransportTarget
 
     motor = SnmpEngine()
     try:
@@ -133,24 +192,59 @@ async def _recorrer_async(ip, community, oids, timeout, reintentos) -> dict[str,
             destino = await UdpTransportTarget.create((ip, 161), timeout=timeout, retries=reintentos)
         except PySnmpError as e:
             raise SnmpError(f"No se puede usar {ip} como destino SNMP: {e}") from e
-        # mpModel=1 = SNMP v2c. La community nunca va en mensajes de error ni logs.
-        credenciales = CommunityData(community, mpModel=1)
+        # Ni la community ni las claves van nunca en mensajes de error ni logs.
+        autenticacion = _datos_autenticacion(credenciales)
 
         tablas: dict[str, list[Fila]] = {}
         for oid in oids:
             try:
-                tablas[oid] = await _recorrer_tabla(motor, credenciales, destino, oid)
+                tablas[oid] = await _recorrer_tabla(motor, autenticacion, destino, oid)
+            except _SnmpCredencialesError as e:
+                raise SnmpError(f"{ip} rechaza las credenciales SNMP: {e}.") from e
             except SnmpError as e:
                 if not tablas:
                     raise SnmpError(
                         f"{ip} no responde por SNMP ({e}). Revisa que SNMP esté activado, la "
-                        "community y que el equipo acepte consultas desde esta IP."
+                        "community o el usuario SNMPv3, y que el equipo acepte consultas desde esta IP."
                     ) from e
                 log.warning(f"SNMP {ip}: no se pudo leer la tabla {oid} ({e}); se sigue sin ella")
                 tablas[oid] = []
         return tablas
     finally:
         motor.close_dispatcher()
+
+
+def _datos_autenticacion(credenciales: Credenciales):
+    """community -> CommunityData (v2c); CredencialesV3 -> UsmUserData."""
+    from pysnmp.hlapi.v3arch import asyncio as hlapi
+
+    if isinstance(credenciales, CredencialesV3):
+        return hlapi.UsmUserData(
+            credenciales.usuario, credenciales.clave_auth, credenciales.clave_priv or None,
+            authProtocol=getattr(hlapi, PROTOCOLOS_AUTH[credenciales.protocolo_auth]),
+            privProtocol=(getattr(hlapi, PROTOCOLOS_PRIV[credenciales.protocolo_priv])
+                          if credenciales.clave_priv else hlapi.usmNoPrivProtocol),
+        )
+    return hlapi.CommunityData(credenciales, mpModel=1)   # mpModel=1 = v2c
+
+
+def _lanzar_error(error):
+    """Convierte el errorIndication de pysnmp en SnmpError. Los fallos de
+    credenciales de v3 llevan una pista de qué revisar (se detectan por
+    tipo, no por texto, que puede cambiar entre versiones de pysnmp)."""
+    from pysnmp.proto import errind
+
+    pistas = {
+        errind.UnknownUserName: "usuario SNMPv3 desconocido",
+        errind.WrongDigest: "clave o protocolo de autenticación incorrectos",
+        errind.DecryptionError: "clave o protocolo de cifrado incorrectos",
+        errind.UnsupportedSecurityLevel: ("el equipo no admite ese nivel de seguridad "
+                                          "(¿falta o sobra la clave de cifrado?)"),
+    }
+    for tipo, pista in pistas.items():
+        if isinstance(error, tipo):
+            raise _SnmpCredencialesError(pista)
+    raise SnmpError(str(error))
 
 
 async def _recorrer_tabla(motor, credenciales, destino, oid: str) -> list[Fila]:
@@ -163,7 +257,7 @@ async def _recorrer_tabla(motor, credenciales, destino, oid: str) -> list[Fila]:
         ObjectType(ObjectIdentity(oid)), lexicographicMode=False,
     ):
         if error:
-            raise SnmpError(str(error))
+            _lanzar_error(error)
         if estado:
             raise SnmpError(estado.prettyPrint())
         for nombre, valor in varbinds:
@@ -605,6 +699,28 @@ def inferir_topologia(equipos_consultados: list[dict]) -> dict:
 # argumentos se ven en `ps` y quedan en el historial de la shell. La web la
 # usa también como valor por defecto si el campo se deja vacío.
 VARIABLE_COMMUNITY = "TOPOLOGY_SNMP_COMMUNITY"
+# SNMPv3: si existe la de usuario se usa v3, y la community se ignora
+VARIABLE_USUARIO_V3 = "TOPOLOGY_SNMP_USER"
+VARIABLE_CLAVE_AUTH_V3 = "TOPOLOGY_SNMP_AUTH_KEY"
+VARIABLE_CLAVE_PRIV_V3 = "TOPOLOGY_SNMP_PRIV_KEY"
+VARIABLE_PROTOCOLO_AUTH_V3 = "TOPOLOGY_SNMP_AUTH_PROTO"
+VARIABLE_PROTOCOLO_PRIV_V3 = "TOPOLOGY_SNMP_PRIV_PROTO"
+
+
+def credenciales_desde_entorno(entorno: Mapping[str, str]) -> Credenciales | None:
+    """Credenciales SNMP a partir de las variables de entorno: SNMPv3 si
+    está TOPOLOGY_SNMP_USER, si no la community v2c, y None si no hay nada.
+    Lanza ValueError si el usuario v3 está mal configurado (clave corta,
+    protocolo desconocido...)."""
+    if entorno.get(VARIABLE_USUARIO_V3):
+        return CredencialesV3(
+            entorno[VARIABLE_USUARIO_V3],
+            entorno.get(VARIABLE_CLAVE_AUTH_V3, ""),
+            entorno.get(VARIABLE_CLAVE_PRIV_V3, ""),
+            entorno.get(VARIABLE_PROTOCOLO_AUTH_V3) or "SHA",
+            entorno.get(VARIABLE_PROTOCOLO_PRIV_V3) or "AES",
+        )
+    return entorno.get(VARIABLE_COMMUNITY) or None
 
 
 def parsear_lista_ips(texto: str) -> list[str]:
@@ -620,7 +736,7 @@ def parsear_lista_ips(texto: str) -> list[str]:
     return ips
 
 
-def obtener_topologia(ips: list[str], community: str) -> tuple[dict | None, list[str]]:
+def obtener_topologia(ips: list[str], credenciales: Credenciales) -> tuple[dict | None, list[str]]:
     """Consulta cada equipo e infiere la topología. Devuelve (topologia,
     avisos): un equipo que no responde se salta y se añade a los avisos; si
     no responde ninguno, topologia es None y quien llame dibuja la estrella
@@ -632,7 +748,7 @@ def obtener_topologia(ips: list[str], community: str) -> tuple[dict | None, list
     for ip in ips:
         log.info(f"Consultando {ip} por SNMP...")
         try:
-            equipos.append(consultar_equipo(ip, community))
+            equipos.append(consultar_equipo(ip, credenciales))
         except SnmpError as e:
             avisos.append(str(e))
     if not equipos:

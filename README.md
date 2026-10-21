@@ -144,7 +144,25 @@ variable, never from a command-line argument (arguments show up in `ps` and
 in your shell history). On Windows PowerShell:
 `$env:TOPOLOGY_SNMP_COMMUNITY = "..."`.
 
-**Current limitations**: SNMP v2c only. Links between network devices come
+**SNMPv3** (recommended: v2c sends the community in clear text). In RouterOS
+v6 the community name is the v3 user, and `security=private` means
+authentication + encryption:
+
+```
+/snmp community add name=<user> addresses=<scanner-ip>/32 security=private \
+    authentication-protocol=SHA1 authentication-password=<8+ chars> \
+    encryption-protocol=AES encryption-password=<8+ chars> read-access=yes write-access=no
+```
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `TOPOLOGY_SNMP_USER` | v3 user (if set, v3 is used and the community is ignored) | — |
+| `TOPOLOGY_SNMP_AUTH_KEY` | Authentication key (8+ characters) | required |
+| `TOPOLOGY_SNMP_PRIV_KEY` | Encryption key (8+ characters); empty = authenticate without encryption | — |
+| `TOPOLOGY_SNMP_AUTH_PROTO` | `MD5`, `SHA`, `SHA224`, `SHA256`, `SHA384`, `SHA512` | `SHA` |
+| `TOPOLOGY_SNMP_PRIV_PROTO` | `DES`, `AES`, `AES192`, `AES256` | `AES` |
+
+**Current limitations**: links between network devices come
 from MikroTik's neighbor table and from the standard LLDP-MIB, so devices
 that don't run LLDP (or don't expose it over SNMP) are only placed by
 routes, ARP and the MAC table.
@@ -180,4 +198,4 @@ run without a real network or the nmap binary installed.
 - [x] Real topology via SNMP against routers/switches, CLI (instead of the approximate star layout)
 - [x] SNMP in the web interface
 - [x] Standard LLDP-MIB (links between devices from any vendor, with the port on both ends)
-- [ ] SNMPv3
+- [x] SNMPv3 (authentication and encryption)

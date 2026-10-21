@@ -165,7 +165,7 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
    `--snmp`, community en `TOPOLOGY_SNMP_COMMUNITY`, extra `[snmp]`),
    validado contra el MikroTik hAP ac2 del mantenedor; también en la web
    (interruptor en el sidebar), y vecinos también por LLDP-MIB estándar
-   (cualquier fabricante). Pendiente: SNMPv3.
+   (cualquier fabricante), y SNMPv3 además de v2c.
 7. ~~**Interfaz web con Streamlit**~~ — hecho (`webapp.py`, extra opcional
    `[web]`, entry point `topology-scanner-web`). Formulario con detección
    automática del rango local (botón "Detectar mi red", truco de socket

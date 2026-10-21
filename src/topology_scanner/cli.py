@@ -27,7 +27,16 @@ try:
         ScannerError,
         escanear_red,
     )
-    from .snmp import VARIABLE_COMMUNITY, obtener_topologia, parsear_lista_ips
+    from .snmp import (
+        VARIABLE_CLAVE_AUTH_V3,
+        VARIABLE_CLAVE_PRIV_V3,
+        VARIABLE_COMMUNITY,
+        VARIABLE_USUARIO_V3,
+        Credenciales,
+        credenciales_desde_entorno,
+        obtener_topologia,
+        parsear_lista_ips,
+    )
 except RuntimeError as e:
     sys.exit(str(e))
 
@@ -99,9 +108,10 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--snmp", type=_lista_de_ips, default=None, metavar="IP[,IP...]",
-        help="Routers/switches a consultar por SNMP v2c para dibujar la topología real (árbol) "
-             f"en vez de la estrella. La community se lee de la variable de entorno "
-             f"{VARIABLE_COMMUNITY}. Requiere el extra [snmp]"
+        help="Routers/switches a consultar por SNMP para dibujar la topología real (árbol) en vez de "
+             f"la estrella. Credenciales por variables de entorno: {VARIABLE_COMMUNITY} (v2c), o "
+             f"{VARIABLE_USUARIO_V3} + {VARIABLE_CLAVE_AUTH_V3} [+ {VARIABLE_CLAVE_PRIV_V3}] (v3). "
+             "Requiere el extra [snmp]"
     )
     return parser
 
@@ -135,11 +145,17 @@ def main():
     except ValueError as e:
         parser.error(str(e))
 
-    # Antes de escanear: sin community no hay SNMP, y no tiene sentido
+    # Antes de escanear: sin credenciales no hay SNMP, y no tiene sentido
     # descubrirlo después de un escaneo de nmap que puede tardar minutos.
-    community = os.environ.get(VARIABLE_COMMUNITY, "")
-    if args.snmp and not community:
-        parser.error(f"--snmp necesita la community en la variable de entorno {VARIABLE_COMMUNITY}.")
+    credenciales = None
+    if args.snmp:
+        try:
+            credenciales = credenciales_desde_entorno(os.environ)
+        except ValueError as e:
+            parser.error(str(e))
+        if credenciales is None:
+            parser.error(f"--snmp necesita credenciales: la community en {VARIABLE_COMMUNITY} (v2c), "
+                         f"o {VARIABLE_USUARIO_V3} y {VARIABLE_CLAVE_AUTH_V3} (v3).")
 
     try:
         # nmap acepta varios objetivos separados por espacios en una sola pasada
@@ -169,7 +185,7 @@ def main():
                 # ha funcionado: se avisa y se sigue con el grafo/export normal.
                 log.warning(str(e))
 
-    topologia = _obtener_topologia(args.snmp, community) if args.snmp else None
+    topologia = _obtener_topologia(args.snmp, credenciales) if args.snmp else None
     grafo = construir_grafo(resultados, rangos, topologia=topologia)
     try:
         exportar_html(grafo, args.output)
@@ -177,9 +193,9 @@ def main():
         sys.exit(str(e))
 
 
-def _obtener_topologia(ips: list, community: str) -> dict | None:
+def _obtener_topologia(ips: list, credenciales: Credenciales) -> dict | None:
     """snmp.obtener_topologia, con los avisos al log (en la web se pintan)."""
-    topologia, avisos = obtener_topologia(ips, community)
+    topologia, avisos = obtener_topologia(ips, credenciales)
     for aviso in avisos:
         log.warning(aviso)
     return topologia

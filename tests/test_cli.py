@@ -13,7 +13,7 @@ from topology_scanner.cli import VARIABLE_COMMUNITY, _resolver_argumentos_nmap, 
 from topology_scanner.export import ExportError
 from topology_scanner.history import HistoryError
 from topology_scanner.scanner import ScannerError
-from topology_scanner.snmp import SnmpError
+from topology_scanner.snmp import CredencialesV3, SnmpError
 
 
 def _run_main_con_argv(argv):
@@ -374,3 +374,39 @@ def test_un_solo_rango_no_cambia_la_salida_del_historial(
 
     mock_registrar.assert_called_once()
     assert mock_exportar_diff.call_args.kwargs.get("rango") is None
+
+
+# === SNMPv3 =================================================================
+
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.snmp.inferir_topologia")
+@patch("topology_scanner.snmp.consultar_equipo")
+@patch("topology_scanner.cli.escanear_red")
+def test_snmp_v3_si_hay_usuario_en_el_entorno(
+    mock_escanear_red, mock_consultar, mock_inferir, mock_construir_grafo,
+    mock_exportar_texto, mock_exportar_html, monkeypatch,
+):
+    monkeypatch.setenv("TOPOLOGY_SNMP_USER", "lector")
+    monkeypatch.setenv("TOPOLOGY_SNMP_AUTH_KEY", "clave-auth")
+    monkeypatch.setenv("TOPOLOGY_SNMP_PRIV_KEY", "clave-priv")
+    mock_escanear_red.return_value = _resultado_dummy()
+    mock_consultar.return_value = {"ip": "192.168.1.1"}
+    mock_inferir.return_value = {"equipos": {}, "enlaces": [], "redes": {}, "ubicaciones": {}}
+
+    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1"])
+
+    assert mock_consultar.call_args.args == ("192.168.1.1", CredencialesV3("lector", "clave-auth", "clave-priv"))
+
+
+@patch("topology_scanner.cli.escanear_red")
+def test_snmp_v3_mal_configurado_falla_antes_de_escanear(mock_escanear_red, monkeypatch, capsys):
+    monkeypatch.setenv("TOPOLOGY_SNMP_USER", "lector")
+    monkeypatch.setenv("TOPOLOGY_SNMP_AUTH_KEY", "corta")
+
+    with pytest.raises(SystemExit):
+        _run_main_con_argv(["192.168.1.0/24", "--snmp", "192.168.1.1"])
+
+    mock_escanear_red.assert_not_called()
+    assert "8 caracteres" in capsys.readouterr().err

@@ -345,3 +345,17 @@ contexto completo.
   por MAC. La variante estándar (puerto local por `lldpLocPortTable`
   emparejado por nombre con `ifName`, IP en el índice) está escrita a
   partir de la especificación, sin un equipo real que la confirme.
+- SNMPv3: `snmp.CredencialesV3` (dataclass congelada) con usuario, claves
+  y protocolos; por defecto SHA + AES-128, lo que soporta RouterOS v6. Las
+  claves llevan `repr=False` para que un traceback o un log no las
+  muestre, y se validan al crearlas (8+ caracteres, como pide RFC 3414;
+  protocolos conocidos). Sin clave de cifrado es authNoPriv; noAuthNoPriv
+  no se admite porque no aporta nada frente a v2c. Las credenciales son
+  `str` (community v2c) o `CredencialesV3` en todo el pipeline, y
+  `credenciales_desde_entorno` (compartida con la web) elige v3 si existe
+  `TOPOLOGY_SNMP_USER`. Los fallos de credenciales de v3 (usuario
+  desconocido, clave/protocolo de autenticación o de cifrado incorrectos,
+  nivel de seguridad no soportado) se reconocen por **tipo** de
+  `pysnmp.proto.errind`, no por texto, y abortan la consulta del equipo
+  con una pista de qué revisar: el equipo sí responde, así que el mensaje
+  genérico de "no responde" despistaría.
