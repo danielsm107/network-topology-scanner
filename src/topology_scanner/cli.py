@@ -56,78 +56,90 @@ def _lista_de_ips(valor: str) -> list:
         raise argparse.ArgumentTypeError(str(e)) from e
 
 
+# Flags de la v1.0 (en español), ya publicados en PyPI: siguen funcionando
+# para no romper scripts ni crons, pero no salen en --help.
+ALIAS_EN_ESPAÑOL = {
+    "--rapido": "fast",
+    "--con-so": "os_detection",
+    "--sin-2-fases": "no_discovery",
+    "--sin-historial": "no_history",
+}
+
+
 def construir_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="topology-scanner",
-        description="Escanea una red y genera un grafo de topología interactivo."
+        description="Scans a network and generates an interactive topology graph."
     )
     parser.add_argument(
-        "rango", nargs="+",
-        help="Rango(s) de red, ej: 192.168.1.0/24. Varios separados por espacios (cada uno IP o CIDR) "
-             "se escanean juntos y el historial se guarda por rango"
+        "rango", nargs="+", metavar="range",
+        help="Network range(s), e.g. 192.168.1.0/24. Several, separated by spaces (each one an IP or CIDR), "
+             "are scanned together and history is kept per range"
     )
     parser.add_argument(
         "--ports", default=PUERTOS_POR_DEFECTO,
-        help="Puertos a escanear (formato nmap, ej: '22,80,443' o '1-1000')"
+        help="Ports to scan (nmap format, e.g. '22,80,443' or '1-1000')"
     )
     parser.add_argument(
         "--nmap-args", default=None,
-        help=f"Argumentos extra para nmap (por defecto: '{DEFAULT_NMAP_ARGS}', sin detección de "
-             "SO por velocidad). Incompatible con --rapido"
+        help=f"Extra arguments for nmap (default: '{DEFAULT_NMAP_ARGS}', no OS detection "
+             "for speed). Incompatible with --fast"
     )
     parser.add_argument(
-        "--output", default="topologia_red.html",
-        help="Nombre del archivo HTML de salida (por defecto: topologia_red.html)"
+        "--output", default="network_topology.html",
+        help="Output HTML file name (default: network_topology.html)"
     )
     parser.add_argument(
-        "--con-so", action="store_true",
-        help="Activa detección de SO (-O --osscan-guess). Es la opción más lenta de nmap. "
-             "Incompatible con --rapido"
+        "--os-detection", action="store_true",
+        help="Enables OS detection (-O --osscan-guess), the slowest nmap option. "
+             "Incompatible with --fast"
     )
     parser.add_argument(
-        "--sin-2-fases", action="store_true",
-        help="Desactiva el descubrimiento previo (ping scan) y escanea el rango completo directamente"
+        "--no-discovery", action="store_true",
+        help="Skips the preliminary ping scan and scans the whole range directly"
     )
     parser.add_argument(
-        "--rapido", action="store_true",
-        help="Preset rápido: sin detección de SO, sin versión de servicio, solo puertos comunes. "
-             "Incompatible con --con-so y --nmap-args"
+        "--fast", action="store_true",
+        help="Quick preset: no OS or service version detection, common ports only. "
+             "Incompatible with --os-detection and --nmap-args"
     )
     parser.add_argument(
-        "--csv", default=None, metavar="ARCHIVO",
-        help="Exporta también un inventario CSV (IP, hostname, MAC, vendor, categoría, SO, "
-             "puertos, alertas) a la ruta indicada. Desactivado por defecto"
+        "--csv", default=None, metavar="FILE",
+        help="Also export a CSV inventory (IP, hostname, MAC, vendor, category, OS, "
+             "ports, alerts) to the given path. Off by default"
     )
     parser.add_argument(
         "--history-db", default=DB_POR_DEFECTO,
-        help=f"Archivo SQLite donde guardar el historial de escaneos (por defecto: {DB_POR_DEFECTO})"
+        help=f"SQLite file where scan history is stored (default: {DB_POR_DEFECTO})"
     )
     parser.add_argument(
-        "--sin-historial", action="store_true",
-        help="No guarda este escaneo en el historial ni compara con el anterior"
+        "--no-history", action="store_true",
+        help="Don't save this scan to history or compare it with the previous one"
     )
     parser.add_argument(
         "--snmp", type=_lista_de_ips, default=None, metavar="IP[,IP...]",
-        help="Routers/switches a consultar por SNMP para dibujar la topología real (árbol) en vez de "
-             f"la estrella. Credenciales por variables de entorno: {VARIABLE_COMMUNITY} (v2c), o "
+        help="Routers/switches to query over SNMP to draw the real topology (a tree) instead of "
+             f"the star. Credentials via environment variables: {VARIABLE_COMMUNITY} (v2c), or "
              f"{VARIABLE_USUARIO_V3} + {VARIABLE_CLAVE_AUTH_V3} [+ {VARIABLE_CLAVE_PRIV_V3}] (v3). "
-             "Requiere el extra [snmp]"
+             "Requires the [snmp] extra"
     )
+    for alias, destino in ALIAS_EN_ESPAÑOL.items():
+        parser.add_argument(alias, dest=destino, action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
 def _resolver_argumentos_nmap(args: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
     """Decide qué argumentos de nmap usar según los flags combinados.
-    --rapido es un preset cerrado: combinarlo con --con-so o --nmap-args
+    --fast es un preset cerrado: combinarlo con --os-detection o --nmap-args
     antes se ignoraba en silencio (el último `if` pisaba a los anteriores),
     así que aquí se corta con un error claro en vez de sorprender al usuario."""
-    if args.rapido:
-        if args.con_so or args.nmap_args is not None:
-            parser.error("--rapido no se puede combinar con --con-so ni --nmap-args.")
+    if args.fast:
+        if args.os_detection or args.nmap_args is not None:
+            parser.error("--fast cannot be combined with --os-detection or --nmap-args.")
         return "-T4"
 
     argumentos_nmap = args.nmap_args if args.nmap_args is not None else DEFAULT_NMAP_ARGS
-    if args.con_so:
+    if args.os_detection:
         argumentos_nmap += " -O --osscan-guess"
     return argumentos_nmap
 
@@ -154,17 +166,17 @@ def main():
         except ValueError as e:
             parser.error(str(e))
         if credenciales is None:
-            parser.error(f"--snmp necesita credenciales: la community en {VARIABLE_COMMUNITY} (v2c), "
-                         f"o {VARIABLE_USUARIO_V3} y {VARIABLE_CLAVE_AUTH_V3} (v3).")
+            parser.error(f"--snmp needs credentials: the community in {VARIABLE_COMMUNITY} (v2c), "
+                         f"or {VARIABLE_USUARIO_V3} and {VARIABLE_CLAVE_AUTH_V3} (v3).")
 
     try:
         # nmap acepta varios objetivos separados por espacios en una sola pasada
-        resultados = escanear_red(" ".join(rangos), args.ports, argumentos_nmap, dos_fases=not args.sin_2_fases)
+        resultados = escanear_red(" ".join(rangos), args.ports, argumentos_nmap, dos_fases=not args.no_discovery)
     except ScannerError as e:
         sys.exit(str(e))
 
     if not resultados:
-        log.warning("No se detectaron hosts. Revisa el rango y los permisos (prueba con sudo).")
+        log.warning("No hosts found. Check the range and your permissions (try with sudo).")
         return
 
     exportar_texto(resultados)
@@ -172,7 +184,7 @@ def main():
     if args.csv:
         exportar_csv(resultados, args.csv)
 
-    if not args.sin_historial:
+    if not args.no_history:
         # Un registro por rango: cada uno se compara con su propio escaneo
         # anterior (rangos distintos no se mezclan), así que un rango que
         # antes se escaneaba solo sigue comparándose bien.

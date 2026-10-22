@@ -43,7 +43,7 @@ pytest tests/test_history.py::test_nombre -v    # un test concreto
 pytest tests/ --cov=topology_scanner            # cobertura
 ruff check src/ tests/ scripts/                 # lint (lo mismo que ejecuta CI)
 
-topology-scanner 192.168.1.0/24 [--rapido] [--con-so] [--output x.html] [--csv x.csv]
+topology-scanner 192.168.1.0/24 [--fast] [--os-detection] [--output x.html] [--csv x.csv]
 topology-scanner 192.168.1.0/24 10.0.10.0/24 [--snmp 192.168.1.1]   # varios rangos a la vez
 # --snmp: credenciales por entorno, TOPOLOGY_SNMP_COMMUNITY (v2c) o TOPOLOGY_SNMP_USER/_AUTH_KEY/_PRIV_KEY (v3)
 topology-scanner-web                            # o: streamlit run src/topology_scanner/webapp.py
@@ -99,7 +99,7 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - Categoría por MAC = **heurística por palabras clave** sobre el vendor
   (`CATEGORIA_POR_VENDOR`). Solo funciona en el mismo segmento L2.
 - Escaneo en 2 fases (ping scan → escaneo completo solo de vivos); `-O`
-  solo con `--con-so`. `PUERTOS_SENSIBLES` es una señal visual, no una
+  solo con `--os-detection`. `PUERTOS_SENSIBLES` es una señal visual, no una
   auditoría.
 
 **Fuentes únicas de verdad (reutilizar, no duplicar)**
@@ -164,7 +164,7 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 ## Roadmap (por orden de prioridad hablado)
 
 1. ~~**Alertas por puertos sensibles**~~ — hecho.
-2. ~~**Historial en SQLite**~~ — hecho (`history.py` + flags `--history-db`/`--sin-historial`).
+2. ~~**Historial en SQLite**~~ — hecho (`history.py` + flags `--history-db`/`--no-history`).
 3. ~~**Cruzar el historial con las alertas**~~ — hecho (`nuevos_sensibles`
    en `puertos_cambiados`, destacado en `exportar_diff_texto`).
 4. ~~**Exportar a CSV**~~ — hecho (`exportar_csv`, flag `--csv`). Columnas:

@@ -17,7 +17,7 @@ contexto completo.
   escaneo completo solo de los hosts vivos) porque escanear un /24 completo
   con `-sV -O` era demasiado lento.
 - `-O` (detección de SO) está desactivado por defecto por lentitud; se activa
-  con `--con-so`.
+  con `--os-detection` (antes `--con-so`).
 - El HTML usa `height: 100vh` + CSS inyectado a mano (no confiar solo en lo
   que genera pyvis) para que el grafo ocupe toda la ventana del navegador.
   Ojo: pyvis también mete un `<center><h1></h1></center>` vacío en el body
@@ -404,3 +404,17 @@ contexto completo.
     estrenar el pipeline sin gastar una versión real.
   - Las imágenes del README van con URL absoluta (raw.githubusercontent):
     PyPI muestra el README y no resuelve rutas relativas del repo.
+- Interfaz en inglés (v1.1), para poder enseñar el proyecto fuera (Reddit,
+  público anglohablante). Solo lo que ve el usuario: el código (funciones,
+  variables, docstrings, tests) sigue en español, porque traducirlo es una
+  refactorización enorme que nadie que use la herramienta nota. Nada de
+  i18n con selector de idioma: sobreingeniería para un proyecto sin
+  usuarios todavía. Se hace por partes, un commit por superficie (CLI,
+  web, salidas, capturas). En el CLI:
+  - Flags nuevos en inglés (`--fast`, `--os-detection`, `--no-discovery`,
+    `--no-history`). Los de la v1.0 en español siguen funcionando como
+    alias ocultos (`help=argparse.SUPPRESS`, mismo `dest`): la v1.0 ya está
+    en PyPI y romper un cron al actualizar no compensa.
+  - El HTML por defecto pasa a `network_topology.html`, pero el historial
+    sigue en `historial.db`: renombrarlo dejaría de comparar con los
+    escaneos anteriores sin avisar.

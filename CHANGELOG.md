@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The CLI is now in English: help text, messages and flag names (`--fast`,
+  `--os-detection`, `--no-discovery`, `--no-history`). The old Spanish flags
+  keep working as hidden aliases, so existing scripts don't break.
+- The default HTML output is now `network_topology.html` (was
+  `topologia_red.html`). The history database keeps its name
+  (`historial.db`) so new scans still compare against the old ones.
+
 ## [1.0.0] - 2026-10-22
 
 First public release. Earlier versions (0.x) were never published.

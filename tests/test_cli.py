@@ -47,7 +47,7 @@ def test_main_sale_con_mensaje_claro_si_falla_la_exportacion(
     mock_exportar_html.side_effect = ExportError("Falta pyvis. Instala con: pip install pyvis")
 
     with pytest.raises(SystemExit) as excinfo:
-        _run_main_con_argv(["192.168.1.0/24", "--sin-historial"])
+        _run_main_con_argv(["192.168.1.0/24", "--no-history"])
 
     assert "pyvis" in str(excinfo.value)
 
@@ -89,13 +89,13 @@ def test_main_guarda_historial_y_muestra_el_diff(
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
 @patch("topology_scanner.cli.escanear_red")
-def test_main_no_llama_al_historial_con_sin_historial(
+def test_main_no_llama_al_historial_con_no_history(
     mock_escanear_red, mock_construir_grafo, mock_exportar_texto,
     mock_exportar_html, mock_registrar, mock_exportar_diff,
 ):
     mock_escanear_red.return_value = _resultado_dummy()
 
-    _run_main_con_argv(["192.168.1.0/24", "--sin-historial"])
+    _run_main_con_argv(["192.168.1.0/24", "--no-history"])
 
     mock_registrar.assert_not_called()
     mock_exportar_diff.assert_not_called()
@@ -133,7 +133,7 @@ def test_main_exporta_csv_si_se_pide(
 ):
     mock_escanear_red.return_value = _resultado_dummy()
 
-    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--csv", "inventario.csv"])
+    _run_main_con_argv(["192.168.1.0/24", "--no-history", "--csv", "inventario.csv"])
 
     mock_exportar_csv.assert_called_once_with(mock_escanear_red.return_value, "inventario.csv")
 
@@ -149,7 +149,7 @@ def test_main_no_exporta_csv_por_defecto(
 ):
     mock_escanear_red.return_value = _resultado_dummy()
 
-    _run_main_con_argv(["192.168.1.0/24", "--sin-historial"])
+    _run_main_con_argv(["192.168.1.0/24", "--no-history"])
 
     mock_exportar_csv.assert_not_called()
 
@@ -164,9 +164,9 @@ def test_nmap_args_por_defecto_es_sv_t4():
     assert _resolver_argumentos_nmap(args, parser) == "-sV -T4"
 
 
-def test_con_so_añade_flags_de_deteccion_de_so():
+def test_os_detection_añade_flags_de_deteccion_de_so():
     parser = construir_parser()
-    args = _parsear(["192.168.1.0/24", "--con-so"])
+    args = _parsear(["192.168.1.0/24", "--os-detection"])
     assert _resolver_argumentos_nmap(args, parser) == "-sV -T4 -O --osscan-guess"
 
 
@@ -176,24 +176,81 @@ def test_nmap_args_personalizado_se_respeta():
     assert _resolver_argumentos_nmap(args, parser) == "-p 22"
 
 
-def test_rapido_usa_preset_t4():
+def test_fast_usa_preset_t4():
     parser = construir_parser()
-    args = _parsear(["192.168.1.0/24", "--rapido"])
+    args = _parsear(["192.168.1.0/24", "--fast"])
     assert _resolver_argumentos_nmap(args, parser) == "-T4"
 
 
-def test_rapido_con_con_so_es_un_error_no_un_override_silencioso():
+def test_fast_con_os_detection_es_un_error_no_un_override_silencioso():
     parser = construir_parser()
-    args = _parsear(["192.168.1.0/24", "--rapido", "--con-so"])
+    args = _parsear(["192.168.1.0/24", "--fast", "--os-detection"])
     with pytest.raises(SystemExit):
         _resolver_argumentos_nmap(args, parser)
 
 
-def test_rapido_con_nmap_args_es_un_error_no_un_override_silencioso():
+def test_fast_con_nmap_args_es_un_error_no_un_override_silencioso():
     parser = construir_parser()
-    args = _parsear(["192.168.1.0/24", "--rapido", "--nmap-args", "-p 22"])
+    args = _parsear(["192.168.1.0/24", "--fast", "--nmap-args", "-p 22"])
     with pytest.raises(SystemExit):
         _resolver_argumentos_nmap(args, parser)
+
+
+def test_fast_con_os_detection_explica_el_conflicto_en_ingles(capsys):
+    parser = construir_parser()
+    args = _parsear(["192.168.1.0/24", "--fast", "--os-detection"])
+    with pytest.raises(SystemExit):
+        _resolver_argumentos_nmap(args, parser)
+
+    assert "--fast cannot be combined with --os-detection or --nmap-args" in capsys.readouterr().err
+
+
+# === Flags en inglés, con los antiguos en español como alias ocultos ========
+
+@pytest.mark.parametrize(("antiguo", "nuevo"), [
+    ("--rapido", "--fast"),
+    ("--con-so", "--os-detection"),
+    ("--sin-2-fases", "--no-discovery"),
+    ("--sin-historial", "--no-history"),
+])
+def test_los_flags_en_español_siguen_funcionando_como_alias(antiguo, nuevo):
+    """La v1.0 ya está en PyPI con los flags en español: quien los tenga en
+    un script o un cron no debe romperse al actualizar."""
+    assert _parsear(["192.168.1.0/24", antiguo]) == _parsear(["192.168.1.0/24", nuevo])
+
+
+def test_la_ayuda_esta_en_ingles_y_no_muestra_los_alias_en_español():
+    ayuda = construir_parser().format_help()
+
+    assert "Scans a network and generates an interactive topology graph" in ayuda
+    for flag in ("--fast", "--os-detection", "--no-discovery", "--no-history"):
+        assert flag in ayuda
+    for alias in ("--rapido", "--con-so", "--sin-2-fases", "--sin-historial"):
+        assert alias not in ayuda
+
+
+def test_el_html_por_defecto_se_llama_network_topology():
+    assert _parsear(["192.168.1.0/24"]).output == "network_topology.html"
+
+
+@patch("topology_scanner.cli.escanear_red")
+def test_snmp_sin_credenciales_lo_explica_en_ingles(mock_escanear_red, monkeypatch, capsys):
+    monkeypatch.delenv(VARIABLE_COMMUNITY, raising=False)
+    monkeypatch.delenv("TOPOLOGY_SNMP_USER", raising=False)
+
+    with pytest.raises(SystemExit):
+        _run_main_con_argv(["192.168.1.0/24", "--snmp", "192.168.1.1"])
+
+    assert "--snmp needs credentials" in capsys.readouterr().err
+
+
+@patch("topology_scanner.cli.escanear_red")
+def test_sin_hosts_lo_avisa_en_ingles(mock_escanear_red, caplog):
+    mock_escanear_red.return_value = {}
+
+    _run_main_con_argv(["192.168.1.0/24", "--no-history"])
+
+    assert "No hosts found" in caplog.text
 
 
 # === Topología por SNMP (--snmp) ============================================
@@ -243,7 +300,7 @@ def test_snmp_consulta_los_equipos_y_pasa_la_topologia_al_grafo(
     topologia = {"equipos": {}, "enlaces": [], "redes": {}, "ubicaciones": {}}
     mock_inferir.return_value = topologia
 
-    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1,192.168.1.2"])
+    _run_main_con_argv(["192.168.1.0/24", "--no-history", "--snmp", "192.168.1.1,192.168.1.2"])
 
     assert [c.args for c in mock_consultar.call_args_list] == [
         ("192.168.1.1", "community-de-prueba"), ("192.168.1.2", "community-de-prueba"),
@@ -266,7 +323,7 @@ def test_snmp_un_equipo_que_no_responde_se_salta_y_se_sigue_con_los_demas(
     mock_escanear_red.return_value = _resultado_dummy()
     mock_consultar.side_effect = [SnmpError("192.168.1.1 no responde por SNMP"), {"ip": "192.168.1.2"}]
 
-    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1,192.168.1.2"])
+    _run_main_con_argv(["192.168.1.0/24", "--no-history", "--snmp", "192.168.1.1,192.168.1.2"])
 
     mock_inferir.assert_called_once_with([{"ip": "192.168.1.2"}])
     assert "no responde" in caplog.text
@@ -288,7 +345,7 @@ def test_snmp_si_no_responde_ninguno_se_dibuja_la_estrella(
     mock_escanear_red.return_value = _resultado_dummy()
     mock_consultar.side_effect = SnmpError("192.168.1.1 no responde por SNMP")
 
-    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1"])
+    _run_main_con_argv(["192.168.1.0/24", "--no-history", "--snmp", "192.168.1.1"])
 
     mock_inferir.assert_not_called()
     mock_construir_grafo.assert_called_once_with(_resultado_dummy(), ["192.168.1.0/24"], topologia=None)
@@ -306,7 +363,7 @@ def test_sin_snmp_no_se_consulta_nada(
 ):
     mock_escanear_red.return_value = _resultado_dummy()
 
-    _run_main_con_argv(["192.168.1.0/24", "--sin-historial"])
+    _run_main_con_argv(["192.168.1.0/24", "--no-history"])
 
     mock_consultar.assert_not_called()
     mock_construir_grafo.assert_called_once_with(_resultado_dummy(), ["192.168.1.0/24"], topologia=None)
@@ -395,7 +452,7 @@ def test_snmp_v3_si_hay_usuario_en_el_entorno(
     mock_consultar.return_value = {"ip": "192.168.1.1"}
     mock_inferir.return_value = {"equipos": {}, "enlaces": [], "redes": {}, "ubicaciones": {}}
 
-    _run_main_con_argv(["192.168.1.0/24", "--sin-historial", "--snmp", "192.168.1.1"])
+    _run_main_con_argv(["192.168.1.0/24", "--no-history", "--snmp", "192.168.1.1"])
 
     assert mock_consultar.call_args.args == ("192.168.1.1", CredencialesV3("lector", "clave-auth", "clave-priv"))
 
