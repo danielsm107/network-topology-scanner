@@ -47,8 +47,8 @@ class _SnmpErrorLocal(SnmpError):
     de cifrado): decir que el router "no responde" despistaría."""
 
 
-_FALTA_CRYPTOGRAPHY = ("SNMPv3 con cifrado necesita la librería 'cryptography' (pysnmp no la instala "
-                       "sola). Instálala con: pip install -e \".[snmp]\"")
+_FALTA_CRYPTOGRAPHY = ("SNMPv3 with encryption needs the 'cryptography' library (pysnmp doesn't install "
+                       "it). Install it with: pip install -e \".[snmp]\"")
 
 
 class _SnmpCredencialesError(SnmpError):
@@ -89,17 +89,17 @@ class CredencialesV3:
         object.__setattr__(self, "protocolo_auth", self.protocolo_auth.upper())
         object.__setattr__(self, "protocolo_priv", self.protocolo_priv.upper())
         if not self.usuario:
-            raise ValueError("SNMPv3: falta el usuario")
+            raise ValueError("SNMPv3: missing user")
         # Mínimo del propio estándar (RFC 3414)
         if len(self.clave_auth) < 8:
-            raise ValueError("SNMPv3: la clave de autenticación necesita al menos 8 caracteres")
+            raise ValueError("SNMPv3: the authentication key needs at least 8 characters")
         if self.clave_priv and len(self.clave_priv) < 8:
-            raise ValueError("SNMPv3: la clave de cifrado necesita al menos 8 caracteres")
+            raise ValueError("SNMPv3: the privacy key needs at least 8 characters")
         if self.protocolo_auth not in PROTOCOLOS_AUTH:
-            raise ValueError(f"SNMPv3: protocolo de autenticación '{self.protocolo_auth}' no válido "
+            raise ValueError(f"SNMPv3: invalid authentication protocol '{self.protocolo_auth}' "
                              f"({', '.join(PROTOCOLOS_AUTH)})")
         if self.protocolo_priv not in PROTOCOLOS_PRIV:
-            raise ValueError(f"SNMPv3: protocolo de cifrado '{self.protocolo_priv}' no válido "
+            raise ValueError(f"SNMPv3: invalid privacy protocol '{self.protocolo_priv}' "
                              f"({', '.join(PROTOCOLOS_PRIV)})")
 
 
@@ -186,7 +186,7 @@ def _recorrer(ip: str, credenciales: Credenciales, oids: Sequence[str], timeout:
         )
     except ImportError as e:
         raise SnmpError(
-            "Falta la librería SNMP. Instálala con: pip install -e \".[snmp]\""
+            "The SNMP library is missing. Install it with: pip install -e \".[snmp]\""
         ) from e
     # pysnmp necesita `cryptography` para AES/DES pero no la declara como
     # dependencia: sin ella, el cifrado falla al enviar y parecía que el
@@ -208,7 +208,7 @@ async def _recorrer_async(ip, credenciales, oids, timeout, reintentos) -> dict[s
         try:
             destino = await UdpTransportTarget.create((ip, 161), timeout=timeout, retries=reintentos)
         except PySnmpError as e:
-            raise SnmpError(f"No se puede usar {ip} como destino SNMP: {e}") from e
+            raise SnmpError(f"Cannot use {ip} as an SNMP target: {e}") from e
         # Ni la community ni las claves van nunca en mensajes de error ni logs.
         autenticacion = _datos_autenticacion(credenciales)
 
@@ -217,16 +217,16 @@ async def _recorrer_async(ip, credenciales, oids, timeout, reintentos) -> dict[s
             try:
                 tablas[oid] = await _recorrer_tabla(motor, autenticacion, destino, oid)
             except _SnmpCredencialesError as e:
-                raise SnmpError(f"{ip} rechaza las credenciales SNMP: {e}.") from e
+                raise SnmpError(f"{ip} rejects the SNMP credentials: {e}.") from e
             except _SnmpErrorLocal as e:
                 raise SnmpError(str(e)) from e
             except SnmpError as e:
                 if not tablas:
                     raise SnmpError(
-                        f"{ip} no responde por SNMP ({e}). Revisa que SNMP esté activado, la "
-                        "community o el usuario SNMPv3, y que el equipo acepte consultas desde esta IP."
+                        f"{ip} is not responding over SNMP ({e}). Check that SNMP is enabled, the "
+                        "community or SNMPv3 user, and that the device accepts queries from this IP."
                     ) from e
-                log.warning(f"SNMP {ip}: no se pudo leer la tabla {oid} ({e}); se sigue sin ella")
+                log.warning(f"SNMP {ip}: could not read table {oid} ({e}); continuing without it")
                 tablas[oid] = []
         return tablas
     finally:
@@ -254,11 +254,11 @@ def _lanzar_error(error):
     from pysnmp.proto import errind
 
     pistas = {
-        errind.UnknownUserName: "usuario SNMPv3 desconocido",
-        errind.WrongDigest: "clave o protocolo de autenticación incorrectos",
-        errind.DecryptionError: "clave o protocolo de cifrado incorrectos",
-        errind.UnsupportedSecurityLevel: ("el equipo no admite ese nivel de seguridad "
-                                          "(¿falta o sobra la clave de cifrado?)"),
+        errind.UnknownUserName: "unknown SNMPv3 user",
+        errind.WrongDigest: "wrong authentication key or protocol",
+        errind.DecryptionError: "wrong privacy key or protocol",
+        errind.UnsupportedSecurityLevel: ("the device doesn't support that security level "
+                                          "(missing or extra privacy key?)"),
     }
     for tipo, pista in pistas.items():
         if isinstance(error, tipo):
@@ -365,7 +365,7 @@ def parsear_arp(filas: Iterable[Fila]) -> list[dict]:
     for indice, valor in _filas_de(filas, OID_ARP):
         mac = _mac(valor)
         if len(indice) != 5 or mac is None:
-            log.debug(f"SNMP: fila ARP descartada ({indice}, {valor!r})")
+            log.debug(f"SNMP: discarded ARP row ({indice}, {valor!r})")
             continue
         entradas.append({"ip": ".".join(map(str, indice[1:])), "mac": mac, "if_index": indice[0]})
     return entradas
@@ -378,14 +378,14 @@ def parsear_rutas(filas: Iterable[Fila]) -> list[dict]:
     rutas = []
     for indice, _ in _filas_de(filas, OID_RUTAS):
         if len(indice) != 13:
-            log.debug(f"SNMP: fila de rutas descartada ({indice})")
+            log.debug(f"SNMP: discarded route row ({indice})")
             continue
         destino = ".".join(map(str, indice[0:4]))
         mascara = ".".join(map(str, indice[4:8]))
         try:
             red = ipaddress.IPv4Network(f"{destino}/{mascara}")
         except ValueError:
-            log.debug(f"SNMP: ruta con máscara no válida descartada ({destino}/{mascara})")
+            log.debug(f"SNMP: discarded route with an invalid mask ({destino}/{mascara})")
             continue
         rutas.append({"red": str(red), "siguiente_salto": ".".join(map(str, indice[9:13]))})
     return rutas
@@ -755,7 +755,7 @@ def parsear_lista_ips(texto: str) -> list[str]:
         try:
             ipaddress.IPv4Address(ip)
         except ValueError as e:
-            raise ValueError(f"'{ip}' no es una IPv4 válida") from e
+            raise ValueError(f"'{ip}' is not a valid IPv4 address") from e
     return ips
 
 
@@ -769,15 +769,15 @@ def obtener_topologia(ips: list[str], credenciales: Credenciales) -> tuple[dict 
     equipos = []
     avisos = []
     for ip in ips:
-        log.info(f"Consultando {ip} por SNMP...")
+        log.info(f"Querying {ip} over SNMP...")
         try:
             equipos.append(consultar_equipo(ip, credenciales))
         except SnmpError as e:
             avisos.append(str(e))
     if not equipos:
-        avisos.append("Ningún equipo ha respondido por SNMP: se dibuja la topología en estrella.")
+        avisos.append("No device answered over SNMP: falling back to the star layout.")
         return None, avisos
     topologia = inferir_topologia(equipos)
-    log.info(f"Topología SNMP: {len(topologia['equipos'])} equipos de red, "
-             f"{len(topologia['ubicaciones'])} hosts ubicados")
+    log.info(f"SNMP topology: {len(topologia['equipos'])} network devices, "
+             f"{len(topologia['ubicaciones'])} hosts placed")
     return topologia, avisos

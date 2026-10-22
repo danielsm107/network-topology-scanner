@@ -122,7 +122,7 @@ def test_escanear_red_lanza_scannererror_si_nmap_no_esta_disponible(mock_portsca
     programa (sys.exit) es de cli.py, no de este módulo."""
     mock_portscanner_cls.side_effect = nmap.PortScannerError("nmap program was not found in path")
 
-    with pytest.raises(ScannerError):
+    with pytest.raises(ScannerError, match=r"nmap error \(are you running with sudo\?\)"):
         escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
 
 
@@ -139,7 +139,7 @@ def test_escanear_red_avisa_si_nmap_reporta_error_interno(mock_portscanner_cls, 
     with caplog.at_level(logging.WARNING):
         escanear_red("host-que-no-existe", "22", "-sV -T4", dos_fases=False)
 
-    assert "Failed to resolve given hostname/IP" in caplog.text
+    assert "nmap reported errors during the scan: Failed to resolve given hostname/IP" in caplog.text
 
 
 @patch("topology_scanner.scanner.nmap.PortScanner")
@@ -152,7 +152,7 @@ def test_escanear_red_sin_errores_no_avisa(mock_portscanner_cls, caplog):
     with caplog.at_level(logging.WARNING):
         escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
 
-    assert "nmap reportó errores" not in caplog.text
+    assert "nmap reported errors" not in caplog.text
 
 
 def test_defaults_compartidos_por_cli_y_webapp():

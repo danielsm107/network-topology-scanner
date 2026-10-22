@@ -187,7 +187,7 @@ def registrar_y_comparar(
             conn.commit()
             return diff
     except sqlite3.Error as e:
-        raise HistoryError(f"Error accediendo al historial ({db_path}): {e}") from e
+        raise HistoryError(f"Error accessing the scan history ({db_path}): {e}") from e
 
 
 def listar_escaneos_recientes(db_path: str = DB_POR_DEFECTO, limite: int = 5) -> list:
@@ -223,7 +223,7 @@ def listar_escaneos_recientes(db_path: str = DB_POR_DEFECTO, limite: int = 5) ->
                 )
             return resultado
     except sqlite3.Error as e:
-        raise HistoryError(f"Error accediendo al historial ({db_path}): {e}") from e
+        raise HistoryError(f"Error accessing the scan history ({db_path}): {e}") from e
 
 
 def hay_cambios(diff: dict) -> bool:

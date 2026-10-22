@@ -847,7 +847,7 @@ def test_validar_snmp_sin_community_ni_variable_es_un_error(monkeypatch):
 def test_finalizar_resultados_con_snmp_guarda_topologia_y_avisos(
     mock_obtener,
 ):
-    mock_obtener.return_value = (_topologia_fake(), ["192.0.2.2 no responde por SNMP"])
+    mock_obtener.return_value = (_topologia_fake(), ["192.0.2.2 is not responding over SNMP"])
     resultados = {"192.0.2.10": _resultado_fake()}
 
     resultado = _finalizar_resultados(resultados, "192.0.2.0/24", guardar_historial=False,
@@ -855,7 +855,7 @@ def test_finalizar_resultados_con_snmp_guarda_topologia_y_avisos(
 
     mock_obtener.assert_called_once_with(["192.0.2.1", "192.0.2.2"], "secreta")
     assert resultado["topologia"] == _topologia_fake()
-    assert resultado["avisos_snmp"] == ["192.0.2.2 no responde por SNMP"]
+    assert resultado["avisos_snmp"] == ["192.0.2.2 is not responding over SNMP"]
     assert "secreta" not in str(resultado)   # la community no se queda en session_state
 
 
@@ -1066,7 +1066,7 @@ def test_validar_snmp_v3_mal_configurado_es_un_error(sin_snmp_en_entorno):
     configuracion, error = _validar_snmp(True, "192.0.2.1", "", version="v3", usuario="lector", clave_auth="corta")
 
     assert configuracion is None
-    assert "8 caracteres" in error
+    assert "at least 8 characters" in error
 
 
 def test_validar_snmp_v3_sin_usuario_usa_el_del_entorno(sin_snmp_en_entorno, monkeypatch):

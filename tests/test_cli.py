@@ -321,12 +321,12 @@ def test_snmp_un_equipo_que_no_responde_se_salta_y_se_sigue_con_los_demas(
 ):
     monkeypatch.setenv(VARIABLE_COMMUNITY, "community-de-prueba")
     mock_escanear_red.return_value = _resultado_dummy()
-    mock_consultar.side_effect = [SnmpError("192.168.1.1 no responde por SNMP"), {"ip": "192.168.1.2"}]
+    mock_consultar.side_effect = [SnmpError("192.168.1.1 is not responding over SNMP"), {"ip": "192.168.1.2"}]
 
     _run_main_con_argv(["192.168.1.0/24", "--no-history", "--snmp", "192.168.1.1,192.168.1.2"])
 
     mock_inferir.assert_called_once_with([{"ip": "192.168.1.2"}])
-    assert "no responde" in caplog.text
+    assert "not responding" in caplog.text
 
 
 @patch("topology_scanner.cli.exportar_html")
@@ -343,14 +343,14 @@ def test_snmp_si_no_responde_ninguno_se_dibuja_la_estrella(
     perder la topología SNMP no es motivo para no generar nada."""
     monkeypatch.setenv(VARIABLE_COMMUNITY, "community-de-prueba")
     mock_escanear_red.return_value = _resultado_dummy()
-    mock_consultar.side_effect = SnmpError("192.168.1.1 no responde por SNMP")
+    mock_consultar.side_effect = SnmpError("192.168.1.1 is not responding over SNMP")
 
     _run_main_con_argv(["192.168.1.0/24", "--no-history", "--snmp", "192.168.1.1"])
 
     mock_inferir.assert_not_called()
     mock_construir_grafo.assert_called_once_with(_resultado_dummy(), ["192.168.1.0/24"], topologia=None)
     mock_exportar_html.assert_called_once()
-    assert "estrella" in caplog.text
+    assert "star layout" in caplog.text
 
 
 @patch("topology_scanner.cli.exportar_html")
@@ -466,4 +466,4 @@ def test_snmp_v3_mal_configurado_falla_antes_de_escanear(mock_escanear_red, monk
         _run_main_con_argv(["192.168.1.0/24", "--snmp", "192.168.1.1"])
 
     mock_escanear_red.assert_not_called()
-    assert "8 caracteres" in capsys.readouterr().err
+    assert "at least 8 characters" in capsys.readouterr().err

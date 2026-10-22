@@ -32,12 +32,12 @@ def test_varios_rangos_quita_duplicados():
 def test_varios_rangos_con_uno_que_no_es_cidr_es_un_error():
     """Con varios hay que saber a qué rango pertenece cada host, y eso solo
     se puede con IPs/CIDR."""
-    with pytest.raises(ValueError, match=r"192\.168\.1\.1-50"):
+    with pytest.raises(ValueError, match=r"'192\.168\.1\.1-50' is not an IP or CIDR"):
         parsear_rangos(["10.0.10.0/24", "192.168.1.1-50"])
 
 
 def test_lista_vacia_es_un_error():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="at least one range"):
         parsear_rangos([])
 
 

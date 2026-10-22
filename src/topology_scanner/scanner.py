@@ -23,7 +23,7 @@ try:
     import nmap
 except ImportError as e:
     raise ScannerError(
-        "Falta la librería python-nmap. Instala con: pip install python-nmap"
+        "The python-nmap library is missing. Install it with: pip install python-nmap"
     ) from e
 
 log = logging.getLogger("topology_scanner")
@@ -42,7 +42,7 @@ def avisar_si_nmap_reporto_error(scanner):
     (no se convierte en ScannerError): solo se avisa por log."""
     errores = scanner.scaninfo().get("error")
     if errores:
-        log.warning(f"nmap reportó errores durante el escaneo: {'; '.join(errores)}")
+        log.warning(f"nmap reported errors during the scan: {'; '.join(errores)}")
 
 
 def descubrir_hosts_vivos(rango: str) -> list:
@@ -51,17 +51,17 @@ def descubrir_hosts_vivos(rango: str) -> list:
     Tarda segundos en vez de minutos, y evita perder tiempo en IPs que no responden.
     Devuelve la lista de IPs que están activas.
     """
-    log.info(f"Fase 1/2: descubriendo hosts activos en {rango} (ping scan)...")
+    log.info(f"Phase 1/2: discovering live hosts in {rango} (ping scan)...")
 
     try:
         scanner = nmap.PortScanner()
         scanner.scan(hosts=rango, arguments="-sn -T4")
     except nmap.PortScannerError as e:
-        raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
+        raise ScannerError(f"nmap error (are you running with sudo?): {e}") from e
 
     avisar_si_nmap_reporto_error(scanner)
     vivos = [h for h in scanner.all_hosts() if scanner[h].state() == "up"]
-    log.info(f"  {len(vivos)} hosts activos de todo el rango")
+    log.info(f"  {len(vivos)} live hosts in the whole range")
     return vivos
 
 
@@ -135,26 +135,26 @@ def escanear_red(rango: str, puertos: str, argumentos_nmap: str, dos_fases: bool
     if dos_fases:
         vivos = descubrir_hosts_vivos(rango)
         if not vivos:
-            log.warning("Ningún host respondió al ping scan.")
+            log.warning("No host answered the ping scan.")
             return {}
         objetivo = " ".join(vivos)
-        log.info(f"Fase 2/2: escaneo completo de {len(vivos)} hosts (puertos: {puertos})...")
+        log.info(f"Phase 2/2: full scan of {len(vivos)} hosts (ports: {puertos})...")
     else:
-        log.info(f"Escaneando rango {rango} (puertos: {puertos})...")
+        log.info(f"Scanning range {rango} (ports: {puertos})...")
 
     try:
         scanner = nmap.PortScanner()
         scanner.scan(hosts=objetivo, ports=puertos, arguments=argumentos_nmap)
     except nmap.PortScannerError as e:
-        raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
+        raise ScannerError(f"nmap error (are you running with sudo?): {e}") from e
 
     avisar_si_nmap_reporto_error(scanner)
     resultados = {}
     for host in scanner.all_hosts():
         datos = parsear_host(scanner[host])
         resultados[host] = datos
-        log.info(f"  Host {host} ({datos['hostname'] or 'sin hostname'}) - "
-                  f"{datos['vendor'] or 'vendor desconocido'} - {len(datos['puertos'])} puertos abiertos")
+        log.info(f"  Host {host} ({datos['hostname'] or 'no hostname'}) - "
+                  f"{datos['vendor'] or 'unknown vendor'} - {len(datos['puertos'])} open ports")
 
-    log.info(f"Escaneo completado: {len(resultados)} hosts detectados")
+    log.info(f"Scan finished: {len(resultados)} hosts found")
     return resultados

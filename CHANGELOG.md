@@ -10,6 +10,8 @@ follows [Semantic Versioning](https://semver.org/).
 - The CLI is now in English: help text, messages and flag names (`--fast`,
   `--os-detection`, `--no-discovery`, `--no-history`). The old Spanish flags
   keep working as hidden aliases, so existing scripts don't break.
+- Scanner, SNMP, range and history errors and log messages are now in
+  English too (they show up in both the CLI and the web interface).
 - The default HTML output is now `network_topology.html` (was
   `topologia_red.html`). The history database keeps its name
   (`historial.db`) so new scans still compare against the old ones.
