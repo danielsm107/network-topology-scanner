@@ -1630,7 +1630,7 @@ def main():
         st.divider()
         st.markdown('<div class="section-eyebrow">SNMP topology</div>', unsafe_allow_html=True)
         usar_snmp = st.toggle(
-            "Real topology over SNMP",
+            "Real topology via SNMP",
             disabled=escaneando,
             help="Queries your routers/switches (SNMP v2c or v3, read-only) to draw what hangs "
                  "from what instead of the star. Requires the [snmp] extra",
