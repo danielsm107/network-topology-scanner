@@ -12,8 +12,8 @@ routers/switches over SNMP to draw the **real topology** (which host hangs
 from which switch port or access point) instead of an approximate star.
 Available as a CLI or as a local web interface (Streamlit, optional).
 
-![Command Center dashboard](docs/screenshots/dashboard.png)
-![Inventory and changes](docs/screenshots/inventario.png)
+![Command Center dashboard](https://raw.githubusercontent.com/danielsm107/network-topology-scanner/main/docs/screenshots/dashboard.png)
+![Inventory and changes](https://raw.githubusercontent.com/danielsm107/network-topology-scanner/main/docs/screenshots/inventario.png)
 
 *Screenshots use fictional demo data — no real network is exposed here.*
 
@@ -131,7 +131,7 @@ device; hosts that only SNMP sees (not detected by nmap) are shown too —
 an unknown device on a switch port is exactly what you want to notice. If no
 device answers, the scan still finishes with the star layout.
 
-![Real topology via SNMP](docs/screenshots/arbol-snmp.png)
+![Real topology via SNMP](https://raw.githubusercontent.com/danielsm107/network-topology-scanner/main/docs/screenshots/arbol-snmp.png)
 
 *Fictional demo data, generated with `python scripts/demo_arbol.py` (no scan involved).*
 

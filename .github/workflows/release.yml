@@ -1,0 +1,132 @@
+name: Release
+
+# Un tag vX.Y.Z publica esa versión en PyPI y crea la release de GitHub.
+# A mano (workflow_dispatch) solo publica en TestPyPI: sirve para probar el
+# pipeline sin gastar una versión en el PyPI real (una versión publicada no
+# se puede volver a subir, ni borrándola).
+#
+# Sin tokens: PyPI confía en este workflow por OIDC ("trusted publishing"),
+# configurado en pypi.org/test.pypi.org para este repo, este archivo y el
+# environment de cada job.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # pyproject.toml manda: un tag que no coincide es un error, no una
+      # versión que se corrige sola
+      - name: El tag coincide con la versión de pyproject.toml
+        if: github.event_name == 'push'
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::El tag $GITHUB_REF_NAME no coincide con la versión de pyproject.toml ($version)"
+            exit 1
+          fi
+
+      # Aquí y no al crear la release: si falla después de publicar en PyPI,
+      # la versión ya no tiene vuelta atrás. Notas = la sección de esta
+      # versión en CHANGELOG.md (de su "## [X.Y.Z]" hasta el siguiente "## [")
+      - name: Extrae las notas de la versión del CHANGELOG
+        if: github.event_name == 'push'
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          mkdir notas
+          awk -v v="$version" '/^## \[/ { dentro = index($0, "[" v "]") > 0; next } dentro' CHANGELOG.md > notas/notas.md
+          if [ ! -s notas/notas.md ]; then
+            echo "::error::CHANGELOG.md no tiene sección para $version"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'push'
+        with:
+          name: notas
+          path: notas/
+
+      - name: Construye sdist y wheel
+        run: |
+          pip install build twine
+          python -m build
+          twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/topology-scanner
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # Relanzar la prueba con la misma versión no debe fallar
+          skip-existing: true
+
+  pypi:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/topology-scanner
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: notas
+          path: notas/
+
+      - name: Crea la release con las notas del CHANGELOG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notas/notas.md

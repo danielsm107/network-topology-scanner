@@ -390,3 +390,17 @@ contexto completo.
   Chrome headless (`--screenshot --virtual-time-budget=8000`, 1600x900).
   El AP de la demo tiene 4 hojas a propósito: con 5, la quinta baja a otra
   fila (`COLUMNAS_HOJAS`) y su arista cruza las demás.
+- Publicación en PyPI (`release.yml`), disparada por un tag `v*`, no a
+  mano: es la pieza más "DevOps" del repo y evita subir desde un portátil
+  con lo que haya en el directorio. Decisiones:
+  - Trusted publishing (OIDC) en vez de un token de API en los secrets:
+    no hay credencial que rotar ni que se pueda filtrar.
+  - `ci.yml` es reutilizable (`workflow_call`) y la release la llama: una
+    sola definición de qué es "estar en verde".
+  - Todo lo que puede fallar va **antes** de publicar (tag == versión de
+    `pyproject.toml`, sección del CHANGELOG, `twine check --strict`): una
+    versión publicada en PyPI no se puede volver a subir, ni borrándola.
+  - `workflow_dispatch` publica solo en TestPyPI (`skip-existing`), para
+    estrenar el pipeline sin gastar una versión real.
+  - Las imágenes del README van con URL absoluta (raw.githubusercontent):
+    PyPI muestra el README y no resuelve rutas relativas del repo.

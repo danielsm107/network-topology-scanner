@@ -55,6 +55,13 @@ El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
 CI (`.github/workflows/ci.yml`) ejecuta `ruff check src/ tests/ scripts/` + `pytest`
 en Python 3.10 y 3.12 en cada push/PR a `main` — ambos tienen que pasar.
 
+Release (`.github/workflows/release.yml`): un tag `vX.Y.Z` reutiliza CI,
+comprueba que el tag coincide con la versión de `pyproject.toml` y que
+`CHANGELOG.md` tiene su sección, publica en PyPI (trusted publishing, sin
+tokens) y crea la release de GitHub con esas notas. Lanzado a mano solo
+publica en TestPyPI. Para sacar versión: subir `version`, añadir la sección
+al CHANGELOG, commit, y `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
 ## Estructura
 
 ```

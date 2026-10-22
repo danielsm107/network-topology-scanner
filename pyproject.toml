@@ -5,10 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "topology-scanner"
 version = "0.3.0"
-description = "Escáner de topología de red (nmap + networkx + pyvis) con clasificación de dispositivos por MAC"
+description = "Network topology scanner (nmap + SNMP) with device classification and an interactive HTML map"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
+authors = [{ name = "danielsm107" }]
+keywords = ["nmap", "snmp", "lldp", "network", "topology", "scanner", "inventory"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Networking :: Monitoring",
+]
 dependencies = [
     "python-nmap>=0.7.1",
     "networkx>=3.0",
@@ -34,6 +47,11 @@ snmp = [
     # dependencia; >=43 por cryptography.hazmat.decrepit, que es lo que importa.
     "cryptography>=43",
 ]
+
+[project.urls]
+Homepage = "https://github.com/danielsm107/network-topology-scanner"
+Issues = "https://github.com/danielsm107/network-topology-scanner/issues"
+Changelog = "https://github.com/danielsm107/network-topology-scanner/blob/main/CHANGELOG.md"
 
 [project.scripts]
 topology-scanner = "topology_scanner.cli:main"
