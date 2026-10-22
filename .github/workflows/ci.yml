@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # release.yml la reutiliza: una sola definición de "estar en verde"
+  workflow_call:
 
 jobs:
   test:
