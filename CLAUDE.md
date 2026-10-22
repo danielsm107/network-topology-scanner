@@ -41,7 +41,7 @@ pytest tests/ -v                                # suite completa (no necesita nm
 pytest tests/test_history.py -v                 # un módulo
 pytest tests/test_history.py::test_nombre -v    # un test concreto
 pytest tests/ --cov=topology_scanner            # cobertura
-ruff check src/ tests/                          # lint (lo mismo que ejecuta CI)
+ruff check src/ tests/ scripts/                 # lint (lo mismo que ejecuta CI)
 
 topology-scanner 192.168.1.0/24 [--rapido] [--con-so] [--output x.html] [--csv x.csv]
 topology-scanner 192.168.1.0/24 10.0.10.0/24 [--snmp 192.168.1.1]   # varios rangos a la vez
@@ -52,7 +52,7 @@ topology-scanner-web                            # o: streamlit run src/topology_
 El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
 (`sudo` en Linux, terminal de administrador en Windows).
 
-CI (`.github/workflows/ci.yml`) ejecuta `ruff check src/ tests/` + `pytest`
+CI (`.github/workflows/ci.yml`) ejecuta `ruff check src/ tests/ scripts/` + `pytest`
 en Python 3.10 y 3.12 en cada push/PR a `main` — ambos tienen que pasar.
 
 ## Estructura
@@ -69,6 +69,7 @@ src/topology_scanner/
 ├── cli.py          # argparse, orquesta scanner -> graph -> export (+ history)
 └── webapp.py       # interfaz Streamlit (opcional): mismo pipeline, con escaneo cancelable
 tests/               # un test_<modulo>.py por módulo
+scripts/demo_arbol.py  # árbol SNMP con datos inventados para la captura del README (no se instala)
 ```
 
 **Principio de diseño**: cada módulo no sabe nada de los demás salvo lo
@@ -197,13 +198,12 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
   ve SNMP, que hoy salen como "?" aunque se conoce su MAC.
 - Distinguir AP / switch / router en el árbol con las capacidades que anuncia
   LLDP (`lldpRemSysCapEnabled`); hoy todos los equipos de red salen como router.
-- Captura del árbol SNMP para el README, con datos inventados.
 
 ## Forma de trabajar preferida
 
 - Features pequeñas, un commit por feature, mensajes descriptivos.
 - Test primero (aunque sea simple) antes de implementar la función.
-- `pytest tests/ -v` y `ruff check src/ tests/` deben seguir en verde antes de cualquier commit.
+- `pytest tests/ -v` y `ruff check src/ tests/ scripts/` deben seguir en verde antes de cualquier commit.
 - Explicar brevemente en qué módulo encaja cada cambio y por qué, no solo
   soltar el código — el mantenedor está aprendiendo Python activamente.
 

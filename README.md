@@ -35,6 +35,7 @@ network-topology-scanner/
 │   ├── snmp.py             # Real topology via SNMP (ARP, routes, MAC table, neighbors)
 │   ├── cli.py               # Command-line interface
 │   └── webapp.py            # Web interface (Streamlit, optional)
+├── scripts/demo_arbol.py    # Fictional SNMP tree for the README screenshot
 ├── tests/                   # pytest, with nmap mocks (no real network needed)
 └── pyproject.toml           # single source of dependencies (pip install -e ".[dev,web,snmp]")
 ```
@@ -129,6 +130,10 @@ Hosts seen on a port that leads to another network device hang from that
 device; hosts that only SNMP sees (not detected by nmap) are shown too —
 an unknown device on a switch port is exactly what you want to notice. If no
 device answers, the scan still finishes with the star layout.
+
+![Real topology via SNMP](docs/screenshots/arbol-snmp.png)
+
+*Fictional demo data, generated with `python scripts/demo_arbol.py` (no scan involved).*
 
 **Setup** (MikroTik RouterOS example — read-only, restricted to the
 scanning machine):

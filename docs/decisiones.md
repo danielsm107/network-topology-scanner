@@ -379,3 +379,14 @@ contexto completo.
   lo exportaba a un `.html` temporal, lo leía, lo borraba y lo devolvía en
   `resultado["html"]` sin que nadie lo usara. La entrada de más arriba
   sobre los temporales `.html` de la web queda solo como historia.
+- Captura del árbol SNMP del README (`docs/screenshots/arbol-snmp.png`):
+  sale de `scripts/demo_arbol.py`, que monta a mano resultados y topología
+  inventados y los pasa por `construir_grafo` + `exportar_html` de verdad.
+  Un script, no una captura hecha a mano de una red real: se puede
+  regenerar si cambia el diseño y `tests/test_demo_arbol.py` garantiza que
+  todo dato es de documentación (RFC 5737, MACs `02:00:00:…`). Vive en
+  `scripts/`, fuera del paquete, porque no es parte de la herramienta;
+  por eso CI pasa también `ruff` sobre `scripts/`. La captura se hace con
+  Chrome headless (`--screenshot --virtual-time-budget=8000`, 1600x900).
+  El AP de la demo tiene 4 hojas a propósito: con 5, la quinta baja a otra
+  fila (`COLUMNAS_HOJAS`) y su arista cruza las demás.
