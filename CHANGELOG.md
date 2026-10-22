@@ -23,6 +23,7 @@ follows [Semantic Versioning](https://semver.org/).
   each range (`Network <range>`, was `Red <range>`).
 - The web interface is in English: sidebar, results panels, scan progress
   and messages. The downloaded inventory is now `inventory.csv`.
+- README screenshots regenerated in English, with fictional data only.
 - The default HTML output is now `network_topology.html` (was
   `topologia_red.html`). The history database keeps its name
   (`historial.db`) so new scans still compare against the old ones.

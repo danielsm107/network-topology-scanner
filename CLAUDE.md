@@ -77,6 +77,7 @@ src/topology_scanner/
 └── webapp.py       # interfaz Streamlit (opcional): mismo pipeline, con escaneo cancelable
 tests/               # un test_<modulo>.py por módulo
 scripts/demo_arbol.py  # árbol SNMP con datos inventados para la captura del README (no se instala)
+scripts/demo_web.py    # web con un escaneo inventado cargado, para las capturas del README (streamlit run)
 ```
 
 **Principio de diseño**: cada módulo no sabe nada de los demás salvo lo

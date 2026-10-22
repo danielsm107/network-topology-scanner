@@ -1,0 +1,64 @@
+"""
+Tests de scripts/demo_web.py, que abre la interfaz web con un escaneo
+inventado ya cargado para hacer las capturas del README. Igual que
+demo_arbol.py, no se instala: se carga por ruta. Reutiliza los datos de
+demo_arbol.py, así que la comprobación de que todo es inventado ya está en
+test_demo_arbol.py.
+"""
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("streamlit", reason='pip install "topology-scanner[web]" para probar la interfaz web')
+
+CARPETA_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+
+
+def _cargar_demo_web(monkeypatch):
+    monkeypatch.syspath_prepend(str(CARPETA_SCRIPTS))   # demo_web importa demo_arbol
+    spec = importlib.util.spec_from_file_location("demo_web", CARPETA_SCRIPTS / "demo_web.py")
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+def test_el_resultado_de_demo_trae_cambios_respecto_al_escaneo_anterior(monkeypatch):
+    resultado = _cargar_demo_web(monkeypatch).resultado_demo()
+
+    assert set(resultado) == {"resultados", "diff", "rango", "rangos", "topologia", "avisos_snmp"}
+    diff = resultado["diff"]
+    assert diff["primera_vez"] is False
+    assert diff["hosts_nuevos"] and diff["hosts_caidos"]
+    assert any(c.get("nuevos_sensibles") for c in diff["puertos_cambiados"].values())
+    assert set(diff["hosts_nuevos"]) <= set(resultado["resultados"])
+    assert not set(diff["hosts_caidos"]) & set(resultado["resultados"])
+
+
+def test_la_web_de_demo_arranca_con_el_resultado_cargado(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.syspath_prepend(str(CARPETA_SCRIPTS))
+    at = AppTest.from_file(str(CARPETA_SCRIPTS / "demo_web.py"))
+    at.run()
+
+    assert not at.exception
+    assert [s.value for s in at.main.subheader] == ["Topology", "Inventory", "Changes"]
+
+
+def test_la_web_de_demo_no_lee_el_historial_real(monkeypatch):
+    """El historial.db del directorio de trabajo es el de la red real de
+    quien lance la demo: en una captura pública solo pueden salir rangos
+    inventados."""
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.syspath_prepend(str(CARPETA_SCRIPTS))
+    monkeypatch.setattr("topology_scanner.webapp.listar_escaneos_recientes",
+                        lambda *a, **k: pytest.fail("la demo ha leído el historial real"))
+    at = AppTest.from_file(str(CARPETA_SCRIPTS / "demo_web.py"))
+    at.run()
+
+    assert not at.exception
+    historial = next(md.value for md in at.sidebar.markdown if "history-list" in md.value)
+    assert "192.0.2.0/24" in historial and "198.51.100.0/24" in historial

@@ -427,3 +427,16 @@ contexto completo.
     `Network <rango>`. Es seguro porque el historial guarda la categoría
     pero nunca la vuelve a leer para comparar. Las columnas del CSV
     también cambian, y queda avisado en el CHANGELOG.
+- Capturas de la web del README (`dashboard.png`, `inventario.png`): salen
+  de `scripts/demo_web.py`, que reutiliza los datos de `demo_arbol.py`, les
+  añade un diff inventado y los deja en `session_state` antes de llamar a
+  `webapp.main()`. Antes se hicieron a mano y no se podían regenerar.
+  **La demo sustituye `listar_escaneos_recientes`**: el `historial.db` del
+  directorio de trabajo es el de la red real de quien la lance, y en la
+  primera captura en inglés salieron rangos reales en "Recent history"
+  (se vio antes de publicar). Lo cubre `tests/test_demo_web.py`. El
+  `--screenshot` de Chrome dispara antes de que Streamlit pinte (el
+  websocket no avanza con `--virtual-time-budget`), así que se captura por
+  DevTools Protocol esperando a que la página muestre "Changes", con una
+  ventana de 1600x2900, y se recorta: dashboard `(0, 0, 1600, 1030)`,
+  inventario `(300, 1035, 1600, 2400)`.
