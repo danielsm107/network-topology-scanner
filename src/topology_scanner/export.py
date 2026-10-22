@@ -126,7 +126,7 @@ def posiciones_jerarquicas(grafo: nx.Graph) -> dict:
     def orden(padre, hijo):
         interfaz = (grafo.get_edge_data(padre, hijo) or {}).get("interfaz") or ""
         # IPs como números (.2 antes que .10); lo que no es IP (MACs de hosts
-        # vistos solo por SNMP, nodos "Red ...") después, como texto
+        # vistos solo por SNMP, nodos "Network ...") después, como texto
         try:
             return (interfaz, 0, int(ipaddress.ip_address(hijo)), "")
         except ValueError:
@@ -173,7 +173,7 @@ def posiciones_jerarquicas(grafo: nx.Graph) -> dict:
         if centros:
             posiciones[nodo] = ((centros[0] + centros[-1]) / 2, y)
 
-    # El nodo "Red <rango>" (hosts sin ubicar) va después del árbol principal
+    # El nodo "Network <rango>" (hosts sin ubicar) va después del árbol principal
     raices.sort(key=lambda nodo: (grafo.nodes[nodo].get("tipo") == "red", str(nodo)))
     total = sum(ancho(raiz) for raiz in raices) + SEPARACION_X * max(len(raices) - 1, 0)
     izquierda = -total / 2
@@ -206,13 +206,13 @@ def _generar_leyenda_html() -> str:
     fila_alerta = (
         f'<div style="margin:3px 0; border-top:1px solid #555; padding-top:5px;">'
         f'<span style="color:{COLOR_ALERTA}; display:inline-block; width:20px;">⚠</span> '
-        f'Puerto sensible abierto</div>'
+        f'Open sensitive port</div>'
     )
     return (
         '<div id="leyenda" style="position:fixed; top:16px; left:16px; '
         'background:rgba(30,30,30,0.9); color:white; padding:10px 14px; '
         'border-radius:6px; font-family:sans-serif; font-size:13px; z-index:1000;">'
-        '<div style="font-weight:bold; margin-bottom:6px;">Leyenda</div>'
+        '<div style="font-weight:bold; margin-bottom:6px;">Legend</div>'
         f'{filas}{fila_alerta}'
         '</div>'
     )

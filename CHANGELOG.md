@@ -19,6 +19,8 @@ follows [Semantic Versioning](https://semver.org/).
   spreadsheet or script that reads them by name.
 - Unclassified devices and undetected OS are now `unknown` (were
   `desconocido`), and category names are in English (Printer, Camera...).
+- The HTML map is in English: legend, node tooltips and the central node of
+  each range (`Network <range>`, was `Red <range>`).
 - The default HTML output is now `network_topology.html` (was
   `topologia_red.html`). The history database keeps its name
   (`historial.db`) so new scans still compare against the old ones.

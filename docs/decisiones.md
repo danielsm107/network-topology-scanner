@@ -418,3 +418,12 @@ contexto completo.
   - El HTML por defecto pasa a `network_topology.html`, pero el historial
     sigue en `historial.db`: renombrarlo dejaría de comparar con los
     escaneos anteriores sin avisar.
+  - Los mensajes se traducen en el módulo que los genera (scanner, snmp,
+    rangos, history, export), no en quien los muestra: así salen en inglés
+    en el CLI y en la web sin duplicar nada.
+  - Valores de datos: la categoría y el SO sin identificar pasan de
+    `desconocido` a `unknown` (las demás claves de categoría ya estaban en
+    inglés), y el nodo central de cada rango de `Red <rango>` a
+    `Network <rango>`. Es seguro porque el historial guarda la categoría
+    pero nunca la vuelve a leer para comparar. Las columnas del CSV
+    también cambian, y queda avisado en el CHANGELOG.

@@ -17,7 +17,7 @@ def _resultado_fake(hostname="server01", categoria="pc", puertos=None, alertas=N
 def test_grafo_tiene_nodo_central_de_red():
     resultados = {"192.168.1.10": _resultado_fake()}
     grafo = construir_grafo(resultados, "192.168.1.0/24")
-    assert "Red 192.168.1.0/24" in grafo.nodes
+    assert "Network 192.168.1.0/24" in grafo.nodes
 
 
 def test_grafo_tiene_un_nodo_por_host():
@@ -34,7 +34,7 @@ def test_grafo_tiene_un_nodo_por_host():
 def test_cada_host_conectado_al_nodo_central():
     resultados = {"192.168.1.10": _resultado_fake()}
     grafo = construir_grafo(resultados, "192.168.1.0/24")
-    assert grafo.has_edge("Red 192.168.1.0/24", "192.168.1.10")
+    assert grafo.has_edge("Network 192.168.1.0/24", "192.168.1.10")
 
 
 def test_categoria_se_propaga_al_nodo():
@@ -59,13 +59,23 @@ def test_tooltip_incluye_aviso_si_hay_puertos_sensibles():
     alertas = [{"puerto": 445, "motivo": "SMB (common ransomware vector)"}]
     resultados = {"192.168.1.1": _resultado_fake(alertas=alertas)}
     grafo = construir_grafo(resultados, "192.168.1.0/24")
-    assert "445" in grafo.nodes["192.168.1.1"]["titulo"]
+    assert "Open sensitive ports: 445 (SMB (common ransomware vector))" in grafo.nodes["192.168.1.1"]["titulo"]
+
+
+def test_tooltip_del_host_esta_en_ingles():
+    resultado = {**_resultado_fake(hostname=""), "mac": "", "vendor": ""}
+    grafo = construir_grafo({"192.168.1.1": resultado}, "192.168.1.0/24")
+
+    titulo = grafo.nodes["192.168.1.1"]["titulo"]
+    for etiqueta in ("Hostname: N/A", "MAC: N/A", "Vendor: N/A", "Estimated OS: Linux", "Ports: no open ports found"):
+        assert etiqueta in titulo
+    assert grafo.nodes["Network 192.168.1.0/24"]["titulo"] == "Scanned range: 192.168.1.0/24"
 
 
 def test_tooltip_sin_alertas_no_menciona_puertos_sensibles():
     resultados = {"192.168.1.1": _resultado_fake()}
     grafo = construir_grafo(resultados, "192.168.1.0/24")
-    assert "sensibles" not in grafo.nodes["192.168.1.1"]["titulo"]
+    assert "sensitive" not in grafo.nodes["192.168.1.1"]["titulo"]
 
 
 # === Con topología SNMP =====================================================
@@ -111,7 +121,7 @@ def _topologia():
 def test_sin_topologia_sigue_siendo_una_estrella():
     grafo = construir_grafo({"192.0.2.20": _resultado_fake()}, RANGO, topologia=None)
 
-    assert set(grafo.nodes) == {f"Red {RANGO}", "192.0.2.20"}
+    assert set(grafo.nodes) == {f"Network {RANGO}", "192.0.2.20"}
 
 
 def test_con_topologia_los_equipos_de_red_son_nodos_enlazados_padre_hijo():
@@ -132,7 +142,7 @@ def test_equipo_sin_datos_de_nmap_usa_el_nombre_snmp_y_categoria_router():
     assert nodo["hostname"] == "Upstream"
     assert nodo["categoria"] == "router"
     assert nodo["upstream"] is True
-    assert "no consultado" in nodo["titulo"]
+    assert "not queried over SNMP" in nodo["titulo"]
 
 
 def test_equipo_que_tambien_escaneo_nmap_conserva_puertos_y_alertas():
@@ -157,8 +167,8 @@ def test_host_de_nmap_ubicado_por_ip_cuelga_de_su_equipo():
 
     assert grafo.has_edge("192.0.2.254", "192.0.2.20")
     assert grafo.nodes["192.0.2.20"]["padre"] == "192.0.2.254"
-    assert "Conectado a: AP-Interior" in grafo.nodes["192.0.2.20"]["titulo"]
-    assert f"Red {RANGO}" not in grafo.nodes   # todo ubicado: sin nodo de red
+    assert "Connected to: AP-Interior" in grafo.nodes["192.0.2.20"]["titulo"]
+    assert f"Network {RANGO}" not in grafo.nodes   # todo ubicado: sin nodo de red
 
 
 def test_host_de_nmap_ubicado_por_mac_aunque_nmap_la_de_en_mayusculas():
@@ -183,8 +193,8 @@ def test_host_de_una_red_remota_cuelga_del_router_que_la_sirve():
 def test_host_que_no_encaja_en_nada_cuelga_del_nodo_de_red():
     grafo = construir_grafo({"203.0.113.5": _resultado_fake()}, RANGO, topologia=_topologia())
 
-    assert grafo.nodes[f"Red {RANGO}"]["tipo"] == "red"
-    assert grafo.has_edge(f"Red {RANGO}", "203.0.113.5")
+    assert grafo.nodes[f"Network {RANGO}"]["tipo"] == "red"
+    assert grafo.has_edge(f"Network {RANGO}", "203.0.113.5")
 
 
 def test_hosts_vistos_solo_por_snmp_tambien_se_muestran():
@@ -197,7 +207,7 @@ def test_hosts_vistos_solo_por_snmp_tambien_se_muestran():
     assert con_ip["solo_snmp"] is True
     assert solo_mac["solo_snmp"] is True
     assert grafo.has_edge("192.0.2.1", "02:00:00:00:00:88")
-    assert "no detectado por nmap" in solo_mac["titulo"]
+    assert "Seen over SNMP, not found by nmap" in solo_mac["titulo"]
     assert "ether5" in solo_mac["titulo"]
 
 
@@ -212,10 +222,10 @@ def test_varios_rangos_en_estrella_un_centro_por_rango():
 
     grafo = construir_grafo(resultados, ["192.168.50.0/24", "10.0.10.0/24"])
 
-    assert grafo.has_edge("Red 192.168.50.0/24", "192.168.50.10")
-    assert grafo.has_edge("Red 192.168.50.0/24", "192.168.50.20")
-    assert grafo.has_edge("Red 10.0.10.0/24", "10.0.10.10")
-    assert grafo.nodes["10.0.10.10"]["padre"] == "Red 10.0.10.0/24"
+    assert grafo.has_edge("Network 192.168.50.0/24", "192.168.50.10")
+    assert grafo.has_edge("Network 192.168.50.0/24", "192.168.50.20")
+    assert grafo.has_edge("Network 10.0.10.0/24", "10.0.10.10")
+    assert grafo.nodes["10.0.10.10"]["padre"] == "Network 10.0.10.0/24"
     assert grafo.number_of_nodes() == 5
 
 
@@ -225,22 +235,22 @@ def test_un_rango_como_lista_es_igual_que_como_texto():
     con_lista = construir_grafo(resultados, ["192.168.1.0/24"])
     con_texto = construir_grafo(resultados, "192.168.1.0/24")
 
-    assert set(con_lista.nodes) == set(con_texto.nodes) == {"Red 192.168.1.0/24", "192.168.1.10"}
+    assert set(con_lista.nodes) == set(con_texto.nodes) == {"Network 192.168.1.0/24", "192.168.1.10"}
 
 
 def test_con_topologia_el_host_sin_ubicar_cuelga_del_centro_de_su_rango():
     grafo = construir_grafo({"203.0.113.5": _resultado_fake()}, ["192.0.2.0/24", "203.0.113.0/24"],
                             topologia=_topologia())
 
-    assert grafo.has_edge("Red 203.0.113.0/24", "203.0.113.5")
-    assert "Red 192.0.2.0/24" not in grafo.nodes   # sin hosts sin ubicar en ese rango
+    assert grafo.has_edge("Network 203.0.113.0/24", "203.0.113.5")
+    assert "Network 192.0.2.0/24" not in grafo.nodes   # sin hosts sin ubicar en ese rango
 
 
 def test_el_nodo_central_lleva_su_rango():
-    """Para que quien dibuje pueda etiquetarlo sin recortar el nombre "Red ..."."""
+    """Para que quien dibuje pueda etiquetarlo sin recortar el nombre "Network ..."."""
     grafo = construir_grafo({"10.0.10.10": _resultado_fake()}, ["192.168.50.0/24", "10.0.10.0/24"])
 
-    assert grafo.nodes["Red 10.0.10.0/24"]["rango"] == "10.0.10.0/24"
+    assert grafo.nodes["Network 10.0.10.0/24"]["rango"] == "10.0.10.0/24"
 
 
 def test_enlace_entre_equipos_con_las_dos_interfaces_muestra_ambas():
@@ -252,4 +262,4 @@ def test_enlace_entre_equipos_con_las_dos_interfaces_muestra_ambas():
     grafo = construir_grafo({}, RANGO, topologia=topologia)
 
     assert grafo.edges["192.0.2.1", "192.0.2.254"]["interfaz"] == "ether2 ↔ bridge/ether1"
-    assert "Conectado a: Router-Casa (ether2 ↔ bridge/ether1)" in grafo.nodes["192.0.2.254"]["titulo"]
+    assert "Connected to: Router-Casa (ether2 ↔ bridge/ether1)" in grafo.nodes["192.0.2.254"]["titulo"]

@@ -389,7 +389,9 @@ def test_exportar_html_leyenda_menciona_puertos_sensibles(tmp_path):
 
     exportar_html(grafo, str(salida))
 
-    assert "sensible" in salida.read_text(encoding="utf-8").lower()
+    html = salida.read_text(encoding="utf-8")
+    assert "Legend" in html
+    assert "Open sensitive port" in html
 
 
 def test_exportar_html_icono_apple_usa_la_fuente_de_marcas(tmp_path):
@@ -487,14 +489,14 @@ def test_posiciones_jerarquicas_no_hay_dos_nodos_en_el_mismo_punto():
 
 
 def test_posiciones_jerarquicas_varias_raices_lado_a_lado():
-    """El nodo "Red <rango>" de los hosts sin ubicar es otra raíz: no debe
+    """El nodo "Network <rango>" de los hosts sin ubicar es otra raíz: no debe
     pisar al árbol principal."""
     grafo = _arbol([("upstream", "router", None), ("router", "pc", "ether2"),
-                    ("Red 192.0.2.0/24", "perdido", None)])
+                    ("Network 192.0.2.0/24", "perdido", None)])
 
     pos = posiciones_jerarquicas(grafo)
     principal = [pos[n][0] for n in ("upstream", "router", "pc")]
-    suelto = [pos[n][0] for n in ("Red 192.0.2.0/24", "perdido")]
+    suelto = [pos[n][0] for n in ("Network 192.0.2.0/24", "perdido")]
 
     assert max(principal) < min(suelto) or max(suelto) < min(principal)
 
@@ -601,7 +603,7 @@ def test_exportar_html_con_varios_rangos_usa_el_layout_por_niveles(tmp_path):
     exportar_html(grafo, str(salida))
 
     nodos = _nodos_del_html(salida.read_text(encoding="utf-8"))
-    centro_a, centro_b = nodos["Red 192.168.50.0/24"], nodos["Red 10.0.10.0/24"]
+    centro_a, centro_b = nodos["Network 192.168.50.0/24"], nodos["Network 10.0.10.0/24"]
     assert centro_a["y"] == centro_b["y"]
     assert centro_a["x"] != centro_b["x"]
     assert nodos["10.0.10.10"]["y"] > centro_b["y"]
