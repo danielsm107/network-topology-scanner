@@ -49,14 +49,14 @@ def test_grafo_vacio_solo_tiene_nodo_central():
 
 
 def test_alertas_se_propagan_al_nodo():
-    alertas = [{"puerto": 3389, "motivo": "RDP (objetivo habitual de fuerza bruta)"}]
+    alertas = [{"puerto": 3389, "motivo": "RDP (common brute-force target)"}]
     resultados = {"192.168.1.1": _resultado_fake(alertas=alertas)}
     grafo = construir_grafo(resultados, "192.168.1.0/24")
     assert grafo.nodes["192.168.1.1"]["alertas"] == alertas
 
 
 def test_tooltip_incluye_aviso_si_hay_puertos_sensibles():
-    alertas = [{"puerto": 445, "motivo": "SMB (vector típico de ransomware)"}]
+    alertas = [{"puerto": 445, "motivo": "SMB (common ransomware vector)"}]
     resultados = {"192.168.1.1": _resultado_fake(alertas=alertas)}
     grafo = construir_grafo(resultados, "192.168.1.0/24")
     assert "445" in grafo.nodes["192.168.1.1"]["titulo"]

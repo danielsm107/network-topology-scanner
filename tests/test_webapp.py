@@ -367,7 +367,7 @@ def test_filas_para_tabla_una_fila_por_host():
 
 
 def test_filas_para_tabla_cuenta_alertas():
-    alertas = [{"puerto": 23, "motivo": "Telnet (sin cifrar)"}]
+    alertas = [{"puerto": 23, "motivo": "Telnet (unencrypted)"}]
     resultados = {"192.168.1.1": _resultado_fake(alertas=alertas)}
     filas = _filas_para_tabla(resultados)
     assert filas[0]["Alertas"] == 1
@@ -570,7 +570,7 @@ def test_generar_cambios_html_puerto_nuevo_sensible_se_marca_como_warn():
         "puertos_cambiados": {
             "192.168.1.14": {
                 "nuevos": [445], "cerrados": [],
-                "nuevos_sensibles": [{"puerto": 445, "motivo": "SMB (vector típico de ransomware)"}],
+                "nuevos_sensibles": [{"puerto": 445, "motivo": "SMB (common ransomware vector)"}],
             }
         },
     }
@@ -650,7 +650,7 @@ def test_generar_topologia_html_un_nodo_por_host():
 
 def test_generar_topologia_html_marca_alerta_en_hosts_con_puertos_sensibles():
     resultados = {
-        "192.168.1.10": _resultado_fake(alertas=[{"puerto": 3389, "motivo": "RDP (fuerza bruta)"}]),
+        "192.168.1.10": _resultado_fake(alertas=[{"puerto": 3389, "motivo": "RDP (brute force)"}]),
     }
     html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3")
     assert '<div class="topo-alert-ring">' in html

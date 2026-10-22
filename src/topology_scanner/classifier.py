@@ -100,11 +100,11 @@ def icono_para_categoria(categoria: str) -> dict:
 # ransomware...). No es una lista exhaustiva de auditoría, es una primera
 # señal visual de aviso.
 PUERTOS_SENSIBLES = {
-    21: "FTP (credenciales sin cifrar)",
-    23: "Telnet (sin cifrar)",
-    445: "SMB (vector típico de ransomware)",
-    3389: "RDP (objetivo habitual de fuerza bruta)",
-    5900: "VNC (a menudo sin autenticación)",
+    21: "FTP (unencrypted credentials)",
+    23: "Telnet (unencrypted)",
+    445: "SMB (common ransomware vector)",
+    3389: "RDP (common brute-force target)",
+    5900: "VNC (often without authentication)",
 }
 
 

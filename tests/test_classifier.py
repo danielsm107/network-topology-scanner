@@ -92,7 +92,7 @@ def test_puertos_sensibles_detecta_rdp_telnet_smb():
 def test_puertos_sensibles_incluye_motivo():
     puertos = [{"puerto": 3389, "servicio": "ms-wbt-server", "producto": ""}]
     alertas = puertos_sensibles_abiertos(puertos)
-    assert alertas[0]["motivo"]
+    assert alertas[0]["motivo"] == "RDP (common brute-force target)"
 
 
 def test_puertos_sensibles_vacio_si_no_hay_ninguno_sensible():

@@ -130,6 +130,8 @@ def test_exportar_texto_imprime_datos_del_host(capsys):
     exportar_texto(resultados)
 
     salida = capsys.readouterr().out
+    assert "NETWORK REPORT" in salida
+    assert "Estimated OS" in salida
     assert "192.168.1.1" in salida
     assert "router01" in salida
     assert "80/tcp" in salida
@@ -140,7 +142,7 @@ def test_exportar_texto_host_sin_puertos_lo_indica(capsys):
     exportar_texto({"192.168.1.1": _resultado_fake(puertos=[])})
 
     salida = capsys.readouterr().out
-    assert "Sin puertos abiertos detectados" in salida
+    assert "No open ports found" in salida
 
 
 def test_exportar_diff_texto_primera_vez(capsys):
@@ -148,7 +150,7 @@ def test_exportar_diff_texto_primera_vez(capsys):
 
     exportar_diff_texto(diff)
 
-    assert "primer escaneo" in capsys.readouterr().out.lower()
+    assert "first scan of this range" in capsys.readouterr().out.lower()
 
 
 def test_exportar_diff_texto_muestra_hosts_nuevos_y_caidos(capsys):
@@ -162,8 +164,8 @@ def test_exportar_diff_texto_muestra_hosts_nuevos_y_caidos(capsys):
     exportar_diff_texto(diff)
 
     salida = capsys.readouterr().out
-    assert "192.168.1.20" in salida
-    assert "192.168.1.99" in salida
+    assert "New hosts: 192.168.1.20" in salida
+    assert "Hosts down: 192.168.1.99" in salida
 
 
 def test_exportar_diff_texto_muestra_puertos_cambiados(capsys):
@@ -177,9 +179,8 @@ def test_exportar_diff_texto_muestra_puertos_cambiados(capsys):
     exportar_diff_texto(diff)
 
     salida = capsys.readouterr().out
-    assert "192.168.1.10" in salida
-    assert "80" in salida
-    assert "22" in salida
+    assert "[192.168.1.10] new ports: 80" in salida
+    assert "[192.168.1.10] closed ports: 22" in salida
 
 
 def test_exportar_diff_texto_destaca_puertos_nuevos_sensibles(capsys):
@@ -191,7 +192,7 @@ def test_exportar_diff_texto_destaca_puertos_nuevos_sensibles(capsys):
             "192.168.1.10": {
                 "nuevos": [23],
                 "cerrados": [],
-                "nuevos_sensibles": [{"puerto": 23, "motivo": "Telnet (sin cifrar)"}],
+                "nuevos_sensibles": [{"puerto": 23, "motivo": "Telnet (unencrypted)"}],
             }
         },
     }
@@ -202,7 +203,7 @@ def test_exportar_diff_texto_destaca_puertos_nuevos_sensibles(capsys):
     assert "192.168.1.10" in salida
     assert "23" in salida
     assert "Telnet" in salida
-    assert "sensible" in salida.lower()
+    assert "new AND sensitive port" in salida
 
 
 def test_exportar_diff_texto_no_revienta_en_consolas_no_utf8(monkeypatch):
@@ -221,7 +222,7 @@ def test_exportar_diff_texto_no_revienta_en_consolas_no_utf8(monkeypatch):
             "192.168.1.10": {
                 "nuevos": [23],
                 "cerrados": [],
-                "nuevos_sensibles": [{"puerto": 23, "motivo": "Telnet (sin cifrar)"}],
+                "nuevos_sensibles": [{"puerto": 23, "motivo": "Telnet (unencrypted)"}],
             }
         },
     }
@@ -234,11 +235,11 @@ def test_exportar_diff_texto_sin_cambios_lo_indica(capsys):
 
     exportar_diff_texto(diff)
 
-    assert "sin cambios" in capsys.readouterr().out.lower()
+    assert "no changes" in capsys.readouterr().out.lower()
 
 
 def test_exportar_html_marca_con_color_de_alerta_si_hay_puertos_sensibles(tmp_path):
-    alertas = [{"puerto": 3389, "motivo": "RDP (objetivo habitual de fuerza bruta)"}]
+    alertas = [{"puerto": 3389, "motivo": "RDP (common brute-force target)"}]
     grafo = construir_grafo({"192.168.1.1": _resultado_fake(alertas=alertas)}, "192.168.1.0/24")
     salida = tmp_path / "topologia.html"
 
@@ -315,7 +316,7 @@ def test_exportar_csv_incluye_cabecera_y_datos_del_host(tmp_path):
 
 
 def test_exportar_csv_incluye_alertas(tmp_path):
-    alertas = [{"puerto": 3389, "motivo": "RDP (objetivo habitual de fuerza bruta)"}]
+    alertas = [{"puerto": 3389, "motivo": "RDP (common brute-force target)"}]
     resultados = {"192.168.1.1": _resultado_fake(alertas=alertas)}
     salida = tmp_path / "inventario.csv"
 
@@ -610,7 +611,7 @@ def test_exportar_diff_texto_con_rango_lo_indica_en_la_cabecera(capsys):
     exportar_diff_texto({"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}},
                         rango="10.0.10.0/24")
 
-    assert "HISTORIAL - 10.0.10.0/24" in capsys.readouterr().out
+    assert "HISTORY - 10.0.10.0/24" in capsys.readouterr().out
 
 
 def test_posiciones_jerarquicas_ordena_las_ips_como_numeros():
