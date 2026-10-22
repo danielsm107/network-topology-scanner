@@ -1,0 +1,42 @@
+# Changelog
+
+All notable changes to this project are documented here. The format is based
+on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
+follows [Semantic Versioning](https://semver.org/).
+
+## [1.0.0] - 2026-10-22
+
+First public release. Earlier versions (0.x) were never published.
+
+### Scanning
+- Two-phase nmap scan: ping sweep first, then ports/services only on live hosts
+  (`--rapido` for a quick scan, `--con-so` for OS detection).
+- Several ranges in one run (`topology-scanner 192.0.2.0/24 198.51.100.0/24`).
+- Device classification from the MAC vendor (router, NAS, printer, camera,
+  IoT, mobile, Apple, PC, VM, firewall).
+- Visual alerts for sensitive open ports (FTP, Telnet, SMB, RDP, VNC).
+
+### Real topology via SNMP
+- `--snmp` reads routes, ARP, MAC table and neighbors from routers/switches
+  and draws the real tree instead of the approximate star.
+- Neighbors via MikroTik MNDP and standard LLDP-MIB (any vendor), with the
+  port on both ends of each link.
+- SNMP v2c and v3 (SHA + AES by default); credentials only through
+  environment variables, never command-line arguments.
+- If SNMP fails, the scan still finishes with the star layout.
+
+### Output
+- Interactive HTML map (pyvis) with icons per category and a legend.
+- CSV export for audits and inventory.
+- Scan history in SQLite, per range: new/dropped hosts and changed ports,
+  highlighting newly opened sensitive ports.
+
+### Web interface (`[web]` extra)
+- Streamlit app (`topology-scanner-web`): local range detection, cancellable
+  scans (kills the nmap process), live scan log, paginated inventory, SVG
+  topology with pan/zoom, CSV download and SNMP v2c/v3.
+
+### Project
+- CI on every push/PR (ruff + pytest on Python 3.10 and 3.12).
+- Releases published to PyPI by GitHub Actions from a tag, with trusted
+  publishing (OIDC, no API tokens).

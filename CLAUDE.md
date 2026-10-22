@@ -199,6 +199,9 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
     ambos extremos en las aristas; tolera las desviaciones de RouterOS v6).
 11. ~~**SNMPv3**~~ — hecho (CLI y web; SHA + AES por defecto; `[snmp]` instala
     también `cryptography`, que pysnmp necesita para cifrar).
+12. ~~**v1.0 en PyPI**~~ — hecho (`release.yml`, `CHANGELOG.md`, captura del
+    árbol en el README con `scripts/demo_arbol.py`). Lo siguiente es la fase
+    DevOps (contenedor, AWS, Kubernetes, Jenkins...), sin diseñar todavía.
 
 **Ideas pendientes** (sin orden decidido):
 - Fabricante (por OUI, con la base de datos de nmap) para los hosts que solo

@@ -54,14 +54,15 @@ python3 -m venv venv
 source venv/bin/activate      # Linux/Mac
 # venv\Scripts\Activate.ps1   # Windows PowerShell
 
-# Package install (editable mode, includes dev dependencies)
-pip install -e ".[dev]"
+# From PyPI
+pip install topology-scanner
+pip install "topology-scanner[web,snmp]"   # optional: web interface and real topology via SNMP
+```
 
-# Optional, only if you want the web interface
-pip install -e ".[web]"
+For development, from a clone of the repo:
 
-# Optional, only if you want the real topology via SNMP
-pip install -e ".[snmp]"
+```bash
+pip install -e ".[dev,web,snmp]"
 ```
 
 ## Usage
@@ -204,3 +205,6 @@ run without a real network or the nmap binary installed.
 - [x] SNMP in the web interface
 - [x] Standard LLDP-MIB (links between devices from any vendor, with the port on both ends)
 - [x] SNMPv3 (authentication and encryption)
+- [x] v1.0 on PyPI, published by GitHub Actions from a tag (trusted publishing, no tokens)
+
+See [CHANGELOG.md](https://github.com/danielsm107/network-topology-scanner/blob/main/CHANGELOG.md) for release notes.
