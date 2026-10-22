@@ -1,13 +1,14 @@
 from topology_scanner.classifier import (
+    ICONOS_POR_CATEGORIA,
     clasificar_dispositivo,
     icono_para_categoria,
     puertos_sensibles_abiertos,
 )
 
 
-def test_vendor_vacio_es_desconocido():
-    assert clasificar_dispositivo("") == "desconocido"
-    assert clasificar_dispositivo(None) == "desconocido"
+def test_vendor_vacio_es_unknown():
+    assert clasificar_dispositivo("") == "unknown"
+    assert clasificar_dispositivo(None) == "unknown"
 
 
 def test_mikrotik_es_router():
@@ -52,8 +53,8 @@ def test_bouffalo_no_se_confunde_con_buffalo():
     assert clasificar_dispositivo("Buffalo.inc") == "nas"
 
 
-def test_vendor_no_reconocido_es_desconocido():
-    assert clasificar_dispositivo("Fabricante Inventado XYZ") == "desconocido"
+def test_vendor_no_reconocido_es_unknown():
+    assert clasificar_dispositivo("Fabricante Inventado XYZ") == "unknown"
 
 
 def test_icono_existe_para_cada_categoria_conocida():
@@ -65,17 +66,27 @@ def test_icono_existe_para_cada_categoria_conocida():
 
 def test_icono_categoria_desconocida_usa_fallback():
     icono = icono_para_categoria("categoria-que-no-existe")
-    assert icono == icono_para_categoria("desconocido")
+    assert icono == icono_para_categoria("unknown")
 
 
 def test_cada_categoria_tiene_nombre_legible():
     categorias = [
         "router", "firewall", "vm", "nas", "printer", "camera",
-        "iot", "mobile", "apple", "pc", "desconocido",
+        "iot", "mobile", "apple", "pc", "unknown",
     ]
     for categoria in categorias:
         icono = icono_para_categoria(categoria)
         assert icono["nombre"]
+
+
+def test_los_nombres_de_categoria_estan_en_ingles():
+    nombres = {categoria: icono["nombre"] for categoria, icono in ICONOS_POR_CATEGORIA.items()}
+
+    assert nombres["vm"] == "Virtual machine"
+    assert nombres["printer"] == "Printer"
+    assert nombres["camera"] == "Camera"
+    assert nombres["mobile"] == "Mobile"
+    assert nombres["unknown"] == "Unknown"
 
 
 def test_puertos_sensibles_detecta_rdp_telnet_smb():

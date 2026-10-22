@@ -77,7 +77,7 @@ def _atributos_host(ip: str, datos: dict) -> dict:
         "tipo": "host",
         "titulo": tooltip,
         "hostname": datos["hostname"],
-        "categoria": datos.get("categoria", "desconocido"),
+        "categoria": datos.get("categoria", "unknown"),
         "num_puertos": len(datos["puertos"]),
         "alertas": alertas,
     }
@@ -101,7 +101,7 @@ def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx
     for ip, equipo in equipos.items():
         if ip in resultados:
             atributos = _atributos_host(ip, resultados[ip])
-            if atributos["categoria"] == "desconocido":
+            if atributos["categoria"] == "unknown":
                 atributos["categoria"] = "router"
         else:
             atributos = {"titulo": f"IP: {ip}", "hostname": "", "categoria": "router",
@@ -145,7 +145,7 @@ def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx
             continue
         nodo = ubicacion["ip"] or mac
         grafo.add_node(
-            nodo, tipo="host", hostname="", categoria="desconocido", num_puertos=0, alertas=[],
+            nodo, tipo="host", hostname="", categoria="unknown", num_puertos=0, alertas=[],
             solo_snmp=True,
             titulo=(f"IP: {ubicacion['ip'] or 'N/D'}\nMAC: {mac}\n"
                     "Visto por SNMP, no detectado por nmap"),

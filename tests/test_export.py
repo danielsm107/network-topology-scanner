@@ -307,7 +307,7 @@ def test_exportar_csv_incluye_cabecera_y_datos_del_host(tmp_path):
     with open(salida, encoding="utf-8") as f:
         filas = list(csv.reader(f))
 
-    assert filas[0] == ["ip", "hostname", "mac", "vendor", "categoria", "so", "puertos", "alertas"]
+    assert filas[0] == ["ip", "hostname", "mac", "vendor", "category", "os", "ports", "alerts"]
     assert len(filas) == 2
     fila = filas[1]
     assert fila[0] == "192.168.1.10"

@@ -41,7 +41,7 @@ def test_main_sale_con_mensaje_claro_si_falla_la_exportacion(
     mock_escanear_red.return_value = {
         "192.168.1.10": {
             "puertos": [], "hostname": "", "so": "", "mac": "",
-            "vendor": "", "categoria": "desconocido",
+            "vendor": "", "categoria": "unknown",
         }
     }
     mock_exportar_html.side_effect = ExportError("Falta pyvis. Instala con: pip install pyvis")
@@ -56,7 +56,7 @@ def _resultado_dummy():
     return {
         "192.168.1.10": {
             "puertos": [], "hostname": "", "so": "", "mac": "",
-            "vendor": "", "categoria": "desconocido",
+            "vendor": "", "categoria": "unknown",
         }
     }
 

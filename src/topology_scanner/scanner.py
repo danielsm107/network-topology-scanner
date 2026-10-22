@@ -89,9 +89,9 @@ def parsear_host(info_host) -> dict:
     if info_host.hostname():
         hostname = info_host.hostname()
 
-    so_detectado = "desconocido"
+    so_detectado = "unknown"
     if info_host.get("osmatch"):
-        so_detectado = info_host["osmatch"][0].get("name", "desconocido")
+        so_detectado = info_host["osmatch"][0].get("name", "unknown")
 
     mac = ""
     vendor = ""

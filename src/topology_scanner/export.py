@@ -267,7 +267,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
                 x=posiciones.get(nodo, (0, 0))[0], y=posiciones.get(nodo, (0, 0))[1], physics=False,
             )
         else:
-            categoria = atributos.get("categoria", "desconocido")
+            categoria = atributos.get("categoria", "unknown")
             icono = icono_para_categoria(categoria)
             # Sin hostname, la IP una sola vez (antes salía "IP (IP)")
             hostname = atributos.get("hostname")
@@ -328,7 +328,7 @@ def exportar_texto(resultados: dict):
     print("\n" + "=" * 60 + "\n")
 
 
-CABECERA_CSV = ["ip", "hostname", "mac", "vendor", "categoria", "so", "puertos", "alertas"]
+CABECERA_CSV = ["ip", "hostname", "mac", "vendor", "category", "os", "ports", "alerts"]
 
 
 def exportar_csv(resultados: dict, archivo_salida: str):
@@ -347,7 +347,7 @@ def exportar_csv(resultados: dict, archivo_salida: str):
                 datos.get("hostname", ""),
                 datos.get("mac", ""),
                 datos.get("vendor", ""),
-                datos.get("categoria", "desconocido"),
+                datos.get("categoria", "unknown"),
                 datos.get("so", ""),
                 puertos,
                 alertas,

@@ -190,3 +190,9 @@ def test_parsear_host_no_toca_un_vendor_con_acentos_bien_decodificados():
     datos = parsear_host(HostInfoFalso(mac="AA:BB:CC:DD:EE:FF", vendor="Société Générale"))
 
     assert datos["vendor"] == "Société Générale"
+
+
+def test_parsear_host_sin_deteccion_de_so_lo_marca_como_unknown():
+    datos = parsear_host(HostInfoFalso())
+
+    assert datos["so"] == "unknown"

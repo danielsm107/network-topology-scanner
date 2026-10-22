@@ -31,7 +31,7 @@ def _host(hostname: str, mac: str, vendor: str, puertos: list[int]) -> dict:
     return {
         "estado": "up",
         "hostname": hostname,
-        "so": "desconocido",
+        "so": "unknown",
         "mac": mac,
         "vendor": vendor,
         "categoria": clasificar_dispositivo(vendor),

@@ -14,6 +14,11 @@ follows [Semantic Versioning](https://semver.org/).
   English too (they show up in both the CLI and the web interface).
 - The terminal report, the history diff and the sensitive-port reasons
   (shown in every output) are in English.
+- CSV columns renamed to English: `ip, hostname, mac, vendor, category, os,
+  ports, alerts` (were `categoria`, `so`, `puertos`, `alertas`). Update any
+  spreadsheet or script that reads them by name.
+- Unclassified devices and undetected OS are now `unknown` (were
+  `desconocido`), and category names are in English (Printer, Camera...).
 - The default HTML output is now `network_topology.html` (was
   `topologia_red.html`). The history database keeps its name
   (`historial.db`) so new scans still compare against the old ones.

@@ -335,7 +335,7 @@ def _filas_para_tabla(resultados: dict) -> list:
             "IP": ip,
             "Hostname": datos.get("hostname") or "",
             "Fabricante": datos.get("vendor") or "",
-            "Categoría": datos.get("categoria", "desconocido"),
+            "Categoría": datos.get("categoria", "unknown"),
             "SO": datos.get("so", ""),
             "Puertos": ", ".join(f"{p['puerto']}/{p['servicio']}" for p in datos.get("puertos", [])),
             "Alertas": len(datos.get("alertas", [])),
@@ -349,13 +349,13 @@ def _generar_chips_categorias_html(resultados: dict, limite: int = 8) -> str:
     ordenando por frecuencia. Reutiliza ICONOS_POR_CATEGORIA para el color -
     única fuente de verdad, la misma que ya usan el grafo y su leyenda
     (export.py) en vez de mantener una paleta duplicada aquí."""
-    conteo = Counter(datos.get("categoria", "desconocido") for datos in resultados.values())
+    conteo = Counter(datos.get("categoria", "unknown") for datos in resultados.values())
     mas_comunes = conteo.most_common()
     visibles, resto = mas_comunes[:limite], mas_comunes[limite:]
 
     chips = [
         f'<span class="cat-chip mono"><span class="cat-dot" style="width:7px;height:7px;'
-        f'border-radius:50%;background:{ICONOS_POR_CATEGORIA.get(cat, ICONOS_POR_CATEGORIA["desconocido"])["color"]};'
+        f'border-radius:50%;background:{ICONOS_POR_CATEGORIA.get(cat, ICONOS_POR_CATEGORIA["unknown"])["color"]};'
         f'display:inline-block;"></span>{escape(cat)} {n}</span>'
         for cat, n in visibles
     ]
@@ -479,8 +479,8 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
     mismo criterio visual que el resto de la app."""
     filas = []
     for ip, datos in sorted(resultados.items()):
-        categoria = datos.get("categoria", "desconocido")
-        color = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])["color"]
+        categoria = datos.get("categoria", "unknown")
+        color = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["unknown"])["color"]
         puertos = datos.get("puertos", [])
         tiene_alertas = bool(datos.get("alertas"))
 
@@ -505,7 +505,7 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
               <div class="muted mono" style="font-size:12.5px;">{escape(datos.get("hostname") or "")}</div></td>
           <td><div class="row-cat"><span class="cat-dot" style="background:{color}"></span>
               {escape(categoria)}</div></td>
-          <td class="mono muted">{escape(datos.get("so") or "desconocido")}</td>
+          <td class="mono muted">{escape(datos.get("so") or "unknown")}</td>
           <td>{chips_puertos}</td>
           <td>{alerta_icono}</td>
         </tr>
@@ -760,10 +760,10 @@ def _generar_topologia_html(resultados: dict, rango: str | list[str], accent: st
 
     nodos_html = [
         _nodo_topologia_html(
-            cx + x, cy + y, etiqueta=ip, categoria=datos.get("categoria", "desconocido"),
+            cx + x, cy + y, etiqueta=ip, categoria=datos.get("categoria", "unknown"),
             alertas=datos.get("alertas", []),
             sub=" · ".join(filter(None, [datos.get("hostname"), datos.get("vendor"),
-                                          datos.get("categoria", "desconocido")])),
+                                          datos.get("categoria", "unknown")])),
         )
         for (ip, datos), (x, y) in zip(hosts, posiciones, strict=True)
     ]
@@ -825,7 +825,7 @@ def _generar_arbol_html(resultados: dict, rangos: list[str], accent: str, topolo
             continue
         datos_nmap = resultados.get(nodo, {})
         es_equipo = atributos.get("tipo") == "equipo"
-        categoria = atributos.get("categoria", "desconocido")
+        categoria = atributos.get("categoria", "unknown")
         sub = " · ".join(filter(None, [atributos.get("hostname"), datos_nmap.get("vendor"), categoria]))
         lineas = []
         padre = atributos.get("padre")
@@ -851,7 +851,7 @@ def _nodo_topologia_html(x: float, y: float, etiqueta: str, categoria: str, aler
     compartido por el círculo y el árbol. Todo el texto se escapa: el
     hostname sale del DNS inverso, el fabricante de nmap y la identidad de
     los equipos de red la define cada equipo por SNMP."""
-    icono = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])
+    icono = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["unknown"])
     color = "#ff5c5c" if alertas else icono["color"]
 
     # Con muchos hosts vivos, las etiquetas permanentes con hostname +
