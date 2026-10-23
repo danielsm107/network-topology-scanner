@@ -29,6 +29,8 @@ from topology_scanner.history import HistoryError
 from topology_scanner.scanner import ScannerError
 from topology_scanner.snmp import VARIABLE_COMMUNITY, CredencialesV3
 from topology_scanner.webapp import (
+    ALTURA_ICONO_ISO,
+    ELEVACION_PLATAFORMA_ISO,
     _argumentos_nmap_desde_formulario,
     _compactar_html,
     _construir_comando_nmap,
@@ -49,6 +51,7 @@ from topology_scanner.webapp import (
     _generar_topologia_html,
     _pagina_de_resultados,
     _procesar_salida_nmap,
+    _proyectar_isometrico,
     _tiempo_relativo,
     _total_paginas,
     _validar_rangos,
@@ -906,6 +909,157 @@ def test_generar_topologia_html_escapa_los_nombres():
     assert "&lt;img src=x" in html
 
 
+# --- Vista isométrica (estilo FossFLOW) ---------------------------------------
+
+def test_proyectar_isometrico_gira_el_suelo_45_grados_y_lo_aplasta_a_la_mitad():
+    assert _proyectar_isometrico(0, 0) == (0, 0)
+    x, y = _proyectar_isometrico(100, 0)
+    assert x == pytest.approx(86.6, abs=0.1) and y == pytest.approx(50)
+    x, y = _proyectar_isometrico(0, 100)
+    assert x == pytest.approx(-86.6, abs=0.1) and y == pytest.approx(50)
+
+
+def test_generar_topologia_isometrica_una_baldosa_y_un_nodo_por_host():
+    resultados = {
+        "192.168.1.10": _resultado_fake(hostname="pc1", categoria="pc"),
+        "192.168.1.20": _resultado_fake(hostname="pc2", categoria="nas"),
+    }
+    html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3", isometrica=True)
+
+    assert html.count('class="topo-node-wrap"') == 2
+    assert html.count('class="topo-tile"') == 3            # 2 hosts + el hub del rango
+    assert html.count('class="topo-node iso"') == 2
+    assert '<div class="topo-hub iso"' in html
+
+
+def test_generar_topologia_isometrica_las_baldosas_son_rombos():
+    """Cuadrado del suelo proyectado: 4 vértices, dos a la misma altura
+    (izquierda/derecha) y los otros dos en la vertical del centro."""
+    html = _generar_topologia_html({"192.168.1.10": _resultado_fake()}, rango="192.168.1.0/24",
+                                   accent="#00D2D3", isometrica=True)
+    puntos = html.split('class="topo-tile" points="')[1].split('"')[0].split()
+    arriba, derecha, abajo, izquierda = [tuple(map(float, p.split(","))) for p in puntos]
+    assert arriba[0] == pytest.approx(abajo[0])
+    assert derecha[1] == pytest.approx(izquierda[1])
+    assert arriba[1] < derecha[1] < abajo[1]
+
+
+def test_generar_topologia_isometrica_dibuja_primero_lo_del_fondo():
+    """Orden del pintor: lo que queda más al fondo (x + y del suelo menor)
+    va antes en el documento, para que lo de delante lo tape y no al revés."""
+    resultados = {f"192.168.1.{i}": _resultado_fake(hostname=f"h{i}") for i in range(1, 7)}
+    html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3", isometrica=True)
+
+    tops = [float(trozo.split("px")[0]) for trozo in html.split('class="topo-node-wrap" style="')[1:]
+            for trozo in [trozo.split("top:")[1]]]
+    assert tops == sorted(tops)
+
+
+def test_generar_topologia_isometrica_marca_las_alertas():
+    resultados = {"192.168.1.10": _resultado_fake(alertas=[{"puerto": 3389, "motivo": "RDP (brute force)"}])}
+    html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3", isometrica=True)
+
+    baldosas = [trozo.split("/>")[0] for trozo in html.split('class="topo-tile"')[1:]]
+    assert '<div class="topo-alert-ring">' in html
+    assert sum('stroke="#ff5c5c"' in baldosa for baldosa in baldosas) == 1
+
+
+def test_generar_topologia_isometrica_con_topologia_dibuja_el_arbol():
+    html = _generar_topologia_html(_resultados_fake_arbol(), rango="192.0.2.0/24", accent="#00D2D3",
+                                   topologia=_topologia_fake(), isometrica=True)
+
+    assert html.count('class="topo-node-wrap"') == 6
+    assert html.count('class="topo-node iso equipo"') == 2
+    assert html.count('class="topo-iso-edge"') == 5       # una arista por nodo que no es raíz
+    assert html.count(">wlan1</text>") == 1
+    assert "seen only over SNMP" in html
+
+
+def test_generar_topologia_isometrica_las_aristas_van_en_angulo_recto_por_el_suelo():
+    """Como en FossFLOW: cada cable baja, cruza y vuelve a bajar siguiendo
+    los ejes de la cuadrícula (4 puntos), no en diagonal (2 puntos)."""
+    html = _generar_topologia_html(_resultados_fake_arbol(), rango="192.0.2.0/24", accent="#00D2D3",
+                                   topologia=_topologia_fake(), isometrica=True)
+
+    for trozo in html.split('class="topo-iso-edge" points="')[1:]:
+        assert len(trozo.split('"')[0].split()) == 4
+
+
+def test_generar_topologia_isometrica_una_plataforma_por_rango_sin_snmp():
+    resultados = {f"192.168.1.{i}": _resultado_fake() for i in range(1, 4)}
+    html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3", isometrica=True)
+
+    assert html.count('class="topo-platform"') == 1
+    assert '<text class="topo-platform-label"' in html
+    assert ">192.168.1.0/24</text>" in html
+
+
+def test_generar_topologia_isometrica_una_plataforma_por_equipo_con_hosts_colgando():
+    """Router-Casa tiene 3 hosts colgando (y el AP, que no va a la
+    plataforma porque tiene sus propios hijos); AP-Interior, uno."""
+    html = _generar_topologia_html(_resultados_fake_arbol(), rango="192.0.2.0/24", accent="#00D2D3",
+                                   topologia=_topologia_fake(), isometrica=True)
+
+    assert html.count('class="topo-platform"') == 2
+    assert ">Router-Casa</text>" in html and ">AP-Interior</text>" in html
+
+
+def test_generar_topologia_isometrica_los_cables_suben_a_la_plataforma():
+    """Cada cable hasta un host de una plataforma va por el suelo hasta el
+    borde y sigue por encima: la parte de arriba es otro trazo, que se
+    pinta después de la plataforma para que no quede tapado."""
+    html = _generar_topologia_html(_resultados_fake_arbol(), rango="192.0.2.0/24", accent="#00D2D3",
+                                   topologia=_topologia_fake(), isometrica=True)
+
+    assert html.count('class="topo-iso-edge-top"') == 4    # los 4 hosts; el AP no está en plataforma
+    assert html.index('class="topo-platform"') < html.index('class="topo-iso-edge-top"')
+    assert html.index('class="topo-iso-edge"') < html.index('class="topo-platform"')
+
+
+def _centro(html, clase):
+    """Centro (x, y) del primer polígono con esa clase."""
+    puntos = [tuple(map(float, p.split(","))) for p in html.split(f'class="{clase}" points="')[1].split('"')[0].split()]
+    return sum(x for x, _ in puntos) / len(puntos), sum(y for _, y in puntos) / len(puntos)
+
+
+def test_generar_topologia_isometrica_el_host_va_encima_de_su_plataforma():
+    """Con un solo host, su baldosa cae en el centro de la cara de arriba
+    de la plataforma (no en el suelo, ELEVACION_PLATAFORMA_ISO px más abajo),
+    y su icono sigue a la baldosa."""
+    html = _generar_topologia_html({"192.168.1.10": _resultado_fake()}, rango="192.168.1.0/24",
+                                   accent="#00D2D3", isometrica=True)
+    # La baldosa del hub va primero (orden del pintor): la del host es la segunda
+    baldosa_host = html.split('class="topo-tile"', 2)[2]
+    host_x, host_y = _centro('class="topo-tile"' + baldosa_host, "topo-tile")
+    plataforma_x, plataforma_y = _centro(html, "topo-platform")
+    host_top = float(html.split('class="topo-node-wrap" style="')[1].split("top:")[1].split("px")[0])
+
+    assert (host_x, host_y) == (pytest.approx(plataforma_x, abs=0.1), pytest.approx(plataforma_y, abs=0.1))
+    assert host_top == pytest.approx(host_y - ALTURA_ICONO_ISO, abs=0.1)
+    assert ELEVACION_PLATAFORMA_ISO > 0
+
+
+def test_generar_topologia_isometrica_escapa_los_nombres():
+    topologia = _topologia_fake()
+    topologia["equipos"]["192.0.2.254"]["nombre"] = "<img src=x onerror=alert(1)>"
+    resultados = _resultados_fake_arbol()
+    resultados["192.0.2.10"]["hostname"] = "<script>x</script>"
+
+    html = _generar_topologia_html(resultados, rango="192.0.2.0/24", accent="#00D2D3",
+                                   topologia=topologia, isometrica=True)
+
+    assert "<img src=x" not in html
+    assert "<script>x</script>" not in html
+
+
+def test_generar_topologia_isometrica_es_un_documento_autocontenido_con_pan_zoom():
+    html = _generar_topologia_html({"192.168.1.10": _resultado_fake()}, rango="192.168.1.0/24",
+                                   accent="#00D2D3", isometrica=True)
+    assert html.startswith("<!doctype html>")
+    assert "topo-viewport" in html and "topo-canvas" in html
+    assert "font-awesome" in html
+
+
 def test_la_app_muestra_los_campos_snmp_al_activar_el_interruptor():
     from streamlit.testing.v1 import AppTest
 
@@ -1167,6 +1321,9 @@ def test_los_paneles_html_no_tienen_texto_en_español():
         _generar_estado_vacio_html("#00D2D3"),
         _generar_topologia_html(resultados, "192.168.1.0/24", "#00D2D3"),
         _generar_topologia_html(_resultados_fake_arbol(), "192.0.2.0/24", "#00D2D3", topologia=topologia),
+        _generar_topologia_html(resultados, "192.168.1.0/24", "#00D2D3", isometrica=True),
+        _generar_topologia_html(_resultados_fake_arbol(), "192.0.2.0/24", "#00D2D3", topologia=topologia,
+                                isometrica=True),
     ]
     for html in paneles:
         _sin_español(html)

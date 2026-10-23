@@ -440,3 +440,31 @@ contexto completo.
   DevTools Protocol esperando a que la página muestre "Changes", con una
   ventana de 1600x2900, y se recorta: dashboard `(0, 0, 1600, 1030)`,
   inventario `(300, 1035, 1600, 2400)`.
+- Vista isométrica de la topología en la web (estilo FossFLOW), con un
+  botón Flat / Isometric junto a "Topology" (`st.radio`, `key="vista_topologia"`):
+  cambiar de vista es un rerun normal con el resultado ya en `session_state`,
+  no vuelve a escanear. **No es un tercer layout**: siempre usa
+  `graph.construir_grafo` + `export.posiciones_jerarquicas` y proyecta esas
+  posiciones como si fueran el suelo (`_proyectar_isometrico`). Por eso, sin
+  SNMP y con un solo rango, la isométrica sale por niveles (rango -> hosts)
+  y no en círculo: un círculo en perspectiva es una elipse sin cuadrícula.
+  - El suelo se comprime (`ESCALA_SUELO_ISO = 0.7`) antes de proyectar:
+    girado 45°, el ancho y la profundidad del árbol se suman en las dos
+    direcciones y el lienzo salía ~1,6 veces más grande que el plano, con
+    los iconos diminutos tras el ajuste inicial.
+  - Rejilla, cables y baldosas van en el SVG; los iconos son los mismos
+    nodos HTML del panel plano (tooltip, alertas, `html.escape`), con la
+    clase `iso`. Se ordenan por `x + y` del suelo (orden del pintor) para
+    que lo de delante tape a lo de detrás.
+  - Cables en ángulo recto siguiendo los ejes del suelo (4 puntos), como
+    en FossFLOW, en vez de las curvas del árbol plano.
+  - Plataformas por zona: los hijos sin hijos de cada nodo (el bloque de
+    hojas que ya agrupa `posiciones_jerarquicas`, así que nunca se solapan)
+    van sobre una plataforma elevada con el nombre de su padre (el rango,
+    sin SNMP). Un equipo con sus propios hijos no va a la plataforma de su
+    padre: es el centro de otra rama. Los cables hacia una plataforma
+    cruzan todos a la misma altura (como un bus), llegan a su borde por el
+    suelo y siguen por encima en otro trazo (`topo-iso-edge-top`), pintado
+    después de la plataforma para que no lo tape. El nombre va bajo el
+    centro del borde delantero: en una esquina quedaba pegado a la
+    plataforma de al lado y parecía de esa.

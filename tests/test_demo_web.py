@@ -47,6 +47,26 @@ def test_la_web_de_demo_arranca_con_el_resultado_cargado(monkeypatch):
     assert [s.value for s in at.main.subheader] == ["Topology", "Inventory", "Changes"]
 
 
+def test_la_web_de_demo_cambia_a_la_vista_isometrica(monkeypatch):
+    """El botón Flat / Isometric junto a "Topology": cambiar de vista solo
+    redibuja el panel, no vuelve a escanear (el resultado ya está en
+    session_state)."""
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.syspath_prepend(str(CARPETA_SCRIPTS))
+    at = AppTest.from_file(str(CARPETA_SCRIPTS / "demo_web.py"))
+    at.run()
+    vista = at.main.radio(key="vista_topologia")
+    assert vista.options == ["Flat", "Isometric"]
+    assert vista.value == "Flat"
+
+    vista.set_value("Isometric").run()
+
+    assert not at.exception
+    assert at.session_state["vista_topologia"] == "Isometric"
+    assert [s.value for s in at.main.subheader] == ["Topology", "Inventory", "Changes"]
+
+
 def test_la_web_de_demo_no_lee_el_historial_real(monkeypatch):
     """El historial.db del directorio de trabajo es el de la red real de
     quien lance la demo: en una captura pública solo pueden salir rangos

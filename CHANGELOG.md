@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Isometric view of the topology in the web interface, in the style of
+  FossFLOW: a Flat / Isometric switch next to "Topology". Devices stand on
+  coloured tiles over a grid, cables run at right angles along the floor, and
+  the hosts behind each switch, access point or scanned range sit together on
+  a raised, labelled platform. Switching views only redraws the map; it
+  doesn't scan again.
+
 ## [1.1.0] - 2026-10-22
 
 ### Changed
