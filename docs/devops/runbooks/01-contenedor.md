@@ -122,7 +122,8 @@ Job `imagen` de `.github/workflows/ci.yml`, en cada PR y push a `main`:
 Si Trivy encuentra una crítica con arreglo: actualizar la base o el paquete.
 Silenciarla solo con una entrada en `docs/decisiones.md` que diga por qué.
 
-**Todo lo de terceros va fijado por SHA o digest**, no por tag: en marzo de
+**Toda action que no sea de GitHub (`actions/...`) va fijada por SHA, y Trivy
+por digest**, no por tag (lo comprueba `tests/test_workflows.py`): en marzo de
 2026 robaron credenciales de Aqua y reescribieron casi todas las tags de
 `aquasecurity/trivy-action` y `setup-trivy` para robar los secretos de los
 pipelines que las usaban. Trivy se ejecuta como imagen oficial

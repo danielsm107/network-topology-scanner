@@ -59,8 +59,9 @@ CI (`.github/workflows/ci.yml`) ejecuta `ruff check src/ tests/ scripts/` + `pyt
 en Python 3.10 y 3.12 en cada push/PR a `main` — ambos tienen que pasar. El job
 `imagen` construye la imagen Docker, la prueba por fuera (UID 10001, nmap con y
 sin capacidades) y la escanea con Trivy (falla con críticas que tengan arreglo).
-Todo lo de terceros en los workflows va **fijado por SHA/digest**, no por tag
-(ataque a las tags de `trivy-action`, marzo de 2026).
+Toda action que no sea de GitHub (`actions/...`) va **fijada por SHA**, y Trivy
+por digest, no por tag (ataque a las tags de `trivy-action`, marzo de 2026); lo
+comprueba `tests/test_workflows.py`. Las de `actions/` van por tag.
 
 Release (`.github/workflows/release.yml`): un tag `vX.Y.Z` reutiliza CI,
 comprueba que el tag coincide con la versión de `pyproject.toml` y que
