@@ -21,3 +21,6 @@ venv/
 # Recursos JS que pyvis copia junto al HTML si se usa cdn_resources="local"
 # (export.py usa "remote", pero cualquier write_html() la regenera)
 lib/
+
+# Maquetas del brainstorming de Claude Code (servidor de maquetas en local)
+.superpowers/
