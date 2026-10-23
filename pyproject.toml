@@ -35,9 +35,10 @@ dev = [
     "ruff>=0.6",
 ]
 web = [
-    # >=1.33 por st.fragment(run_every=...), que usa _fragmento_progreso()
-    # para refrescar el estado del escaneo sin recargar toda la página.
-    "streamlit>=1.33",
+    # >=1.56 por st.iframe, que dibuja el panel de topología (sustituye a
+    # st.components.v1.html, obsoleto). También cubre st.fragment(run_every=...)
+    # (1.37), con el que _fragmento_progreso() refresca el estado del escaneo.
+    "streamlit>=1.56",
 ]
 snmp = [
     # >=7.1: API asyncio con nombres snake_case (walk_cmd,

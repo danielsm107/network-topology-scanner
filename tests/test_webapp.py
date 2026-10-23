@@ -690,7 +690,7 @@ def test_generar_topologia_html_un_solo_host_no_revienta():
 
 
 def test_generar_topologia_html_es_un_documento_autocontenido_con_pan_zoom():
-    """Pensado para st.components.v1.html (no st.markdown): necesita su
+    """Pensado para st.iframe (no st.markdown): necesita su
     propio <head> (Font Awesome/fuentes no se heredan de la página) y un
     <script> real, que st.markdown ignora - imprescindible para el
     pan/zoom que soluciona el amontonado en redes con muchos hosts."""

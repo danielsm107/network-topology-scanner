@@ -468,3 +468,13 @@ contexto completo.
     después de la plataforma para que no lo tape. El nombre va bajo el
     centro del borde delantero: en una esquina quedaba pegado a la
     plataforma de al lado y parecía de esa.
+- El panel de topología va en `st.iframe` (Streamlit >=1.56) en vez de
+  `st.components.v1.html`, obsoleto y con aviso de eliminación tras el
+  2026-06-01: como `pyproject.toml` no pone techo a Streamlit, el día que
+  lo quiten la web se rompería en toda instalación nueva. Alto fijo (no el
+  `"content"` por defecto), porque el lienzo de pan/zoom necesita un
+  viewport concreto. `st.iframe` ejecuta el JS del HTML con acceso a la
+  app, igual que antes: por eso sigue valiendo la regla de escapar todo
+  texto externo. El mínimo sube de 1.33 a 1.56; el 1.33 ya era falso
+  (`st.fragment(run_every=...)` es de 1.37). Validado pasando la suite con
+  Streamlit 1.56.0 exacto. Lo cubre `test_la_web_de_demo_no_usa_la_api_obsoleta_de_componentes`.

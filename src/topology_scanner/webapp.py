@@ -709,7 +709,7 @@ def _generar_leyenda_topologia_html() -> str:
 def _generar_topologia_html(resultados: dict, rango: str | list[str], accent: str,
                             topologia: dict | None = None, isometrica: bool = False) -> str:
     """Documento HTML autocontenido (doctype/head/body/script) con el panel
-    de topología dibujado a mano - pensado para st.components.v1.html, no
+    de topología dibujado a mano - pensado para st.iframe, no
     para st.markdown.
 
     Va en un iframe (no inline en la página, como el resto del panel de
@@ -1186,12 +1186,14 @@ def _mostrar_resultado(resultado: dict, accent: str):
     # Cambiar de vista es un rerun normal: el resultado ya está en session_state, no se vuelve a escanear
     vista = col_vista.radio("View", VISTAS_TOPOLOGIA, horizontal=True, key="vista_topologia",
                             label_visibility="collapsed")
-    st.components.v1.html(
+    # st.iframe ejecuta el JS del HTML con acceso a la app: todo texto externo
+    # que lleva (hostname, identidad SNMP...) va escapado, ver _nodo_topologia_html.
+    # Alto fijo, no "content": el lienzo de pan/zoom necesita un viewport concreto
+    st.iframe(
         # .get("rangos"): un resultado de una versión anterior de la app solo trae "rango"
         _generar_topologia_html(resultados, resultado.get("rangos", resultado["rango"]), accent,
                                 topologia=resultado.get("topologia"), isometrica=vista == "Isometric"),
         height=ALTURA_VIEWPORT_TOPOLOGIA + 90,
-        scrolling=False,
     )
 
     st.subheader("Inventory")

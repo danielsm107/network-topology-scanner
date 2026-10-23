@@ -14,6 +14,12 @@ follows [Semantic Versioning](https://semver.org/).
   a raised, labelled platform. Switching views only redraws the map; it
   doesn't scan again.
 
+### Changed
+- The web interface now needs Streamlit 1.56 or later (`pip install -U
+  "topology-scanner[web]"` upgrades it). The topology map moved from
+  `st.components.v1.html`, which Streamlit deprecated and plans to remove,
+  to `st.iframe`, so new installs keep working when it goes away.
+
 ## [1.1.0] - 2026-10-22
 
 ### Changed
