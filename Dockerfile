@@ -4,7 +4,8 @@
 #   docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN \
 #       -v "$PWD/datos:/data" topology-scanner 192.0.2.0/24
 #   docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN \
-#       topology-scanner-web ... (ver docs/devops/runbooks/01-contenedor.md)
+#       -e STREAMLIT_SERVER_ADDRESS=127.0.0.1 --entrypoint topology-scanner-web topology-scanner
+#   (más en docs/devops/runbooks/01-contenedor.md y compose.yaml)
 #
 # --network host: con la red puente de Docker, nmap solo vería la red interna
 # del contenedor (sin MACs ni fabricantes de la LAN).
@@ -35,7 +36,10 @@ RUN apt-get update \
 # allowPrivilegeEscalation: false, que anula las capacidades de archivo.
 # NMAP_PRIVILEGED le dice a nmap que use esos privilegios aunque no sea root
 # (si no, al ver un usuario normal se limita a un escaneo TCP connect).
-RUN setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap
+# Solo esas dos: el kernel no ejecuta un binario que pida una capacidad que el
+# contenedor no tiene, así que una de más (p. ej. net_bind_service) lo rompía
+# con --cap-drop ALL o con el drop: [ALL] habitual en Kubernetes.
+RUN setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap
 ENV NMAP_PRIVILEGED=1
 
 COPY --from=build /wheels /wheels

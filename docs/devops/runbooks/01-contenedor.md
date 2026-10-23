@@ -37,7 +37,7 @@ de aislamiento, y en Kubernetes conviene poder exigir `runAsNonRoot`.
 
 nmap necesita sockets raw (ARP para descubrir hosts en la LAN, SYN para los
 puertos). En vez de ejecutarlo como root, el binario lleva **capacidades de
-archivo** (`setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip`) y la
+archivo** (`setcap cap_net_raw,cap_net_admin+eip`, solo esas dos) y la
 imagen corre como el usuario `scanner`, **UID 10001** (fijo, porque los
 volúmenes de Kubernetes se preparan por UID). `NMAP_PRIVILEGED=1` le dice a
 nmap que use esos privilegios aunque no sea root: sin ella, al ver un usuario

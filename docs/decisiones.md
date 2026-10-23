@@ -480,7 +480,7 @@ contexto completo.
   Streamlit 1.56.0 exacto. Lo cubre `test_la_web_de_demo_no_usa_la_api_obsoleta_de_componentes`.
 - Imagen Docker (fase DevOps 1, runbook `docs/devops/runbooks/01-contenedor.md`):
   - **nmap sin root**: capacidades de archivo en el binario (`setcap
-    cap_net_raw,cap_net_admin,cap_net_bind_service+eip`) + `NMAP_PRIVILEGED=1`
+    cap_net_raw,cap_net_admin+eip`) + `NMAP_PRIVILEGED=1`
     y usuario `scanner` con UID fijo 10001. El contenedor necesita
     `--cap-add NET_RAW --cap-add NET_ADMIN` y nada de `no-new-privileges` /
     `allowPrivilegeEscalation: false`, que anulan las capacidades de archivo.
@@ -503,3 +503,9 @@ contexto completo.
     copie gente de fuera, y la web no tiene autenticación y escanea lo que le
     pidan. Abrirla a la LAN es una línea, pero tiene que ser una decisión
     consciente. En el clúster lo resuelve la lista de rangos permitidos (fase 3).
+  - **Solo `cap_net_raw,cap_net_admin` en el binario.** Llevaba también
+    `cap_net_bind_service`, que nmap no usa: el kernel no ejecuta un binario
+    cuyas capacidades de archivo no estén todas en el contenedor, así que con
+    `--cap-drop ALL --cap-add NET_RAW --cap-add NET_ADMIN` (lo mismo que el
+    `drop: [ALL]` habitual en Kubernetes) nmap no arrancaba. Lo encontró la
+    revisión final de la fase 1; la CI lo prueba con `--cap-drop ALL`.

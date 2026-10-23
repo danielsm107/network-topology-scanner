@@ -61,8 +61,12 @@ jobs:
       - name: Corre como el usuario sin privilegios (UID 10001)
         run: test "$(docker run --rm --entrypoint id topology-scanner:ci -u)" = "10001"
 
-      - name: nmap arranca con NET_RAW y NET_ADMIN
-        run: docker run --rm --cap-add NET_RAW --cap-add NET_ADMIN --entrypoint nmap topology-scanner:ci --version
+      # Con --cap-drop ALL, como el drop: [ALL] de Kubernetes: comprueba que
+      # nmap no pide ninguna capacidad más que estas dos
+      - name: nmap arranca solo con NET_RAW y NET_ADMIN
+        run: >
+          docker run --rm --cap-drop ALL --cap-add NET_RAW --cap-add NET_ADMIN
+          --entrypoint nmap topology-scanner:ci --version
 
       # Lo que le pasa a quien copia el docker run sin --cap-add: tiene que
       # fallar diciendo cómo arreglarlo (scanner.error_de_nmap)
