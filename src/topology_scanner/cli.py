@@ -182,7 +182,10 @@ def main():
     exportar_texto(resultados)
 
     if args.csv:
-        exportar_csv(resultados, args.csv)
+        try:
+            exportar_csv(resultados, args.csv)
+        except ExportError as e:
+            sys.exit(str(e))
 
     if not args.no_history:
         # Un registro por rango: cada uno se compara con su propio escaneo

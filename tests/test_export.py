@@ -9,10 +9,12 @@ import io
 import json
 
 import networkx as nx
+import pytest
 
 from topology_scanner.classifier import icono_para_categoria
 from topology_scanner.export import (
     COLOR_ALERTA,
+    ExportError,
     exportar_csv,
     exportar_diff_texto,
     exportar_html,
@@ -624,3 +626,24 @@ def test_posiciones_jerarquicas_ordena_las_ips_como_numeros():
     orden = sorted((n for n in grafo.nodes if n != "router"), key=lambda n: (pos[n][1], pos[n][0]))
 
     assert orden == ["192.0.2.1", "192.0.2.2", "192.0.2.10", "192.0.2.11"]
+
+
+# --- Errores de escritura ----------------------------------------------------
+# Una carpeta que no existe da el mismo OSError que una sin permisos (el caso
+# real: el volumen /data de Docker sin escritura para el UID 10001) y se
+# comporta igual en Windows y en Linux. Parchear open() no vale: pyvis también
+# lo usa para leer sus plantillas.
+
+def test_exportar_html_si_no_puede_escribir_lanza_export_error(tmp_path):
+    destino = tmp_path / "no-existe" / "mapa.html"
+    grafo = construir_grafo({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24")
+
+    with pytest.raises(ExportError, match=r"Could not write .*mapa\.html: "):
+        exportar_html(grafo, str(destino))
+
+
+def test_exportar_csv_si_no_puede_escribir_lanza_export_error(tmp_path):
+    destino = tmp_path / "no-existe" / "inventario.csv"
+
+    with pytest.raises(ExportError, match=r"Could not write .*inventario\.csv: "):
+        exportar_csv({"192.168.1.10": _resultado_fake()}, str(destino))

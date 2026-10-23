@@ -44,12 +44,29 @@ def test_main_sale_con_mensaje_claro_si_falla_la_exportacion(
             "vendor": "", "categoria": "unknown",
         }
     }
-    mock_exportar_html.side_effect = ExportError("Falta pyvis. Instala con: pip install pyvis")
+    mock_exportar_html.side_effect = ExportError("pyvis is missing. Install it with: pip install pyvis")
 
     with pytest.raises(SystemExit) as excinfo:
         _run_main_con_argv(["192.168.1.0/24", "--no-history"])
 
     assert "pyvis" in str(excinfo.value)
+
+
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_csv")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.escanear_red")
+def test_main_sale_con_mensaje_claro_si_no_puede_escribir_el_csv(
+    mock_escanear_red, mock_construir_grafo, mock_exportar_texto, mock_exportar_csv, mock_exportar_html
+):
+    mock_escanear_red.return_value = _resultado_dummy()
+    mock_exportar_csv.side_effect = ExportError("Could not write x.csv: Permission denied")
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_main_con_argv(["192.168.1.0/24", "--no-history", "--csv", "x.csv"])
+
+    assert str(excinfo.value) == "Could not write x.csv: Permission denied"
 
 
 def _resultado_dummy():
