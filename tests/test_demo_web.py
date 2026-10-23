@@ -67,6 +67,21 @@ def test_la_web_de_demo_cambia_a_la_vista_isometrica(monkeypatch):
     assert [s.value for s in at.main.subheader] == ["Topology", "Inventory", "Changes"]
 
 
+def test_la_web_de_demo_no_usa_la_api_obsoleta_de_componentes(monkeypatch):
+    """st.components.v1.html está obsoleto desde Streamlit 1.56 (lo
+    sustituye st.iframe) y avisaba de que se eliminaría: sin techo de
+    versión en pyproject.toml, una instalación nueva rompería la web."""
+    import streamlit.components.v1 as componentes
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.syspath_prepend(str(CARPETA_SCRIPTS))
+    monkeypatch.setattr(componentes, "html", lambda *a, **k: pytest.fail("usa st.components.v1.html"))
+    at = AppTest.from_file(str(CARPETA_SCRIPTS / "demo_web.py"))
+    at.run()
+
+    assert not at.exception
+
+
 def test_la_web_de_demo_no_lee_el_historial_real(monkeypatch):
     """El historial.db del directorio de trabajo es el de la red real de
     quien lance la demo: en una captura pública solo pueden salir rangos

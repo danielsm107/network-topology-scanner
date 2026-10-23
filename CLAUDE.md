@@ -155,7 +155,7 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
   Mensajes que deben sobrevivir a un rerun → `st.session_state["mensaje"]`.
 - Todo HTML pasado a `st.markdown` pasa por `_compactar_html()` (una línea en
   blanco corta el HTML en crudo). Lo que necesita `<script>` (el grafo SVG con
-  pan/zoom) va en `st.components.v1.html` e importa sus propias fuentes/FA.
+  pan/zoom) va en `st.iframe` (no `st.components.v1.html`, obsoleto) e importa sus propias fuentes/FA.
 - Estilo de un widget concreto: `key="..."` + selector `.st-key-<key>`.
 - Todo texto externo (hostname, SO, rango, identidad SNMP, log de nmap) que
   se mete en HTML va con `html.escape` — hay un test por panel.

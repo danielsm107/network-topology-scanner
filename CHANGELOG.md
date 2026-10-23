@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.2.0] - 2026-10-23
 
 ### Added
 - Isometric view of the topology in the web interface, in the style of
@@ -13,6 +13,12 @@ follows [Semantic Versioning](https://semver.org/).
   the hosts behind each switch, access point or scanned range sit together on
   a raised, labelled platform. Switching views only redraws the map; it
   doesn't scan again.
+
+### Changed
+- The web interface now needs Streamlit 1.56 or later (`pip install -U
+  "topology-scanner[web]"` upgrades it). The topology map moved from
+  `st.components.v1.html`, which Streamlit deprecated and plans to remove,
+  to `st.iframe`, so new installs keep working when it goes away.
 
 ## [1.1.0] - 2026-10-22
 
