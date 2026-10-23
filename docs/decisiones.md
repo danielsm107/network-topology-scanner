@@ -458,3 +458,13 @@ contexto completo.
     que lo de delante tape a lo de detrás.
   - Cables en ángulo recto siguiendo los ejes del suelo (4 puntos), como
     en FossFLOW, en vez de las curvas del árbol plano.
+  - Plataformas por zona: los hijos sin hijos de cada nodo (el bloque de
+    hojas que ya agrupa `posiciones_jerarquicas`, así que nunca se solapan)
+    van sobre una plataforma elevada con el nombre de su padre (el rango,
+    sin SNMP). Un equipo con sus propios hijos no va a la plataforma de su
+    padre: es el centro de otra rama. Los cables hacia una plataforma
+    cruzan todos a la misma altura (como un bus), llegan a su borde por el
+    suelo y siguen por encima en otro trazo (`topo-iso-edge-top`), pintado
+    después de la plataforma para que no lo tape. El nombre va bajo el
+    centro del borde delantero: en una esquina quedaba pegado a la
+    plataforma de al lado y parecía de esa.

@@ -655,6 +655,10 @@ html, body {{ margin: 0; padding: 0; background: #091018; overflow: hidden; }}
 .topo-node.iso.equipo {{ font-size: 30px; }}
 .topo-node.iso span {{ filter: drop-shadow(0 4px 3px rgba(0,0,0,0.7)); }}
 .topo-hub.iso {{ background: transparent; border-color: transparent; font-size: 34px; }}
+.topo-platform-label {{
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; text-anchor: middle;
+    paint-order: stroke; stroke: #091018; stroke-width: 4px;
+}}
 .topo-edge-label {{
     font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #7C8A9A; text-anchor: middle;
     paint-order: stroke; stroke: #091018; stroke-width: 4px;
@@ -844,6 +848,8 @@ BALDOSA_GRANDE_ISO = 40   # hubs y equipos de red
 ALTURA_ICONO_ISO = 24     # cuánto flota el icono sobre el centro de su baldosa
 PASO_REJILLA_ISO = SEPARACION_X * ESCALA_SUELO_ISO / 2   # las columnas del layout caen sobre la rejilla
 MARGEN_SUELO_ISO = PASO_REJILLA_ISO
+ELEVACION_PLATAFORMA_ISO = 14   # altura (px de pantalla) de las plataformas por zona
+MARGEN_PLATAFORMA_ISO = 14      # cuánto sobresale la plataforma de las baldosas de sus hosts
 
 
 def _proyectar_isometrico(x: float, y: float) -> tuple[float, float]:
@@ -876,12 +882,15 @@ def _generar_isometrico_html(resultados: dict, rangos: list[str], accent: str, t
     ancho = _proyectar_isometrico(x1, y0)[0] - _proyectar_isometrico(x0, y1)[0] + 2 * MARGEN_TOPOLOGIA
     alto = _proyectar_isometrico(x1, y1)[1] - _proyectar_isometrico(x0, y0)[1] + 2 * MARGEN_TOPOLOGIA
 
-    def punto(x, y):
+    def punto(x, y, z=0):
         px, py = _proyectar_isometrico(x, y)
-        return px + dx, py + dy
+        return px + dx, py + dy - z
 
-    def puntos(*suelo):
-        return " ".join("{:.1f},{:.1f}".format(*punto(x, y)) for x, y in suelo)
+    def puntos(*suelo, z=0):
+        return " ".join("{:.1f},{:.1f}".format(*punto(x, y, z)) for x, y in suelo)
+
+    zonas, zona_de = _zonas_isometricas(grafo, posiciones)
+    Z = ELEVACION_PLATAFORMA_ISO
 
     rejilla = []
     pasos_x = int((x1 - x0) // PASO_REJILLA_ISO) + 1
@@ -895,25 +904,55 @@ def _generar_isometrico_html(resultados: dict, rangos: list[str], accent: str, t
     rejilla_svg = f'<g stroke="rgba(227,232,238,0.11)" stroke-width="1">{"".join(rejilla)}</g>'
 
     # Cables en ángulo recto siguiendo los ejes del suelo, como en FossFLOW:
-    # bajan desde el padre, cruzan a media altura y bajan hasta el hijo
-    aristas_svg, etiquetas_svg = [], []
+    # bajan desde el padre, cruzan a media altura y bajan hasta el hijo. Si
+    # el hijo está en una plataforma, el tramo del suelo acaba en su borde
+    # (todos los de la zona cruzan a la misma altura, como un bus) y el resto
+    # va por encima, en otro trazo que se pinta después de la plataforma
+    aristas_svg, aristas_arriba_svg, etiquetas_svg = [], [], []
     puertos_etiquetados = set()
     for nodo, atributos in grafo.nodes(data=True):
         padre = atributos.get("padre")
         if padre is None or not grafo.has_edge(padre, nodo):
             continue
         (px, py), (hx, hy) = posiciones[padre], posiciones[nodo]
-        medio = (py + hy) / 2
+        fin = zonas[zona_de[nodo]][2] if nodo in zona_de else hy
+        medio = (py + fin) / 2
         color = "rgba(255,92,92,0.55)" if atributos.get("alertas") else accent + "80"
+        estilo = f'fill="none" stroke="{color}" stroke-width="1.6" stroke-linejoin="round"'
         aristas_svg.append(
-            f'<polyline class="topo-iso-edge" points="{puntos((px, py), (px, medio), (hx, medio), (hx, hy))}" '
-            f'fill="none" stroke="{color}" stroke-width="1.6" stroke-linejoin="round"/>'
+            f'<polyline class="topo-iso-edge" points="{puntos((px, py), (px, medio), (hx, medio), (hx, fin))}" '
+            f'{estilo}/>'
         )
+        if nodo in zona_de:
+            aristas_arriba_svg.append(
+                f'<polyline class="topo-iso-edge-top" points="{puntos((hx, fin), (hx, hy), z=Z)}" {estilo}/>'
+            )
         interfaz = grafo.edges[padre, nodo].get("interfaz")
         if interfaz and (padre, interfaz) not in puertos_etiquetados:
             puertos_etiquetados.add((padre, interfaz))
             ex, ey = punto((px + hx) / 2, medio)
             etiquetas_svg.append(f'<text x="{ex:.1f}" y="{ey:.1f}" class="topo-edge-label">{escape(interfaz)}</text>')
+
+    # Plataformas: caras de delante (las de detrás no se ven) y la de arriba,
+    # de atrás hacia delante. El nombre va bajo el centro del borde delantero
+    # izquierdo: en una esquina quedaba pegado a la plataforma de al lado.
+    plataformas_svg = []
+    for padre, (zx0, zx1, zy0, zy1) in sorted(zonas.items(), key=lambda z: z[1][0] + z[1][2]):
+        atributos = grafo.nodes[padre]
+        color = _color_isometrico(atributos, accent)
+        nombre = atributos["rango"] if atributos.get("tipo") == "red" else atributos.get("hostname") or str(padre)
+        lx, ly = punto((zx0 + zx1) / 2, zy1)
+        plataformas_svg.append(
+            f'<polygon points="{puntos((zx0, zy1), (zx1, zy1))} {puntos((zx1, zy1), (zx0, zy1), z=Z)}" '
+            f'fill="{color}" fill-opacity="0.16"/>'
+            f'<polygon points="{puntos((zx1, zy0), (zx1, zy1))} {puntos((zx1, zy1), (zx1, zy0), z=Z)}" '
+            f'fill="{color}" fill-opacity="0.26"/>'
+            f'<polygon class="topo-platform" points="{puntos((zx0, zy0), (zx1, zy0), (zx1, zy1), (zx0, zy1), z=Z)}" '
+            f'fill="{color}" fill-opacity="0.07" stroke="{color}" stroke-opacity="0.7" stroke-width="1" '
+            f'stroke-dasharray="5 4"/>'
+            f'<text class="topo-platform-label" x="{lx:.1f}" y="{ly + 16:.1f}" fill="{color}">'
+            f'{escape(nombre)}</text>'
+        )
 
     # Orden del pintor: x + y del suelo es la profundidad (lo que se ve más arriba en pantalla)
     orden = sorted(grafo.nodes, key=lambda n: (posiciones[n][0] + posiciones[n][1], str(n)))
@@ -921,22 +960,55 @@ def _generar_isometrico_html(resultados: dict, rangos: list[str], accent: str, t
     for nodo in orden:
         atributos = grafo.nodes[nodo]
         x, y = posiciones[nodo]
-        if atributos.get("tipo") == "red":
-            color, lado = accent, BALDOSA_GRANDE_ISO
-        else:
-            icono = ICONOS_POR_CATEGORIA.get(atributos.get("categoria"), ICONOS_POR_CATEGORIA["unknown"])
-            color = "#ff5c5c" if atributos.get("alertas") else icono["color"]
-            lado = BALDOSA_GRANDE_ISO if atributos.get("tipo") == "equipo" else BALDOSA_ISO
-        rombo = puntos((x - lado, y - lado), (x + lado, y - lado), (x + lado, y + lado), (x - lado, y + lado))
+        z = Z if nodo in zona_de else 0
+        color = _color_isometrico(atributos, accent)
+        lado = BALDOSA_ISO if atributos.get("tipo") == "host" else BALDOSA_GRANDE_ISO
+        rombo = puntos((x - lado, y - lado), (x + lado, y - lado), (x + lado, y + lado), (x - lado, y + lado), z=z)
         baldosas_svg.append(
             f'<polygon class="topo-tile" points="{rombo}" fill="{color}26" stroke="{color}" stroke-width="1.4"/>'
         )
-        sx, sy = punto(x, y)
+        sx, sy = punto(x, y, z)
         nodos_html.append(_nodo_del_grafo_html(grafo, nodo, resultados, sx, sy - ALTURA_ICONO_ISO,
                                                varios_rangos=len(rangos) > 1, isometrico=True))
 
-    svg = rejilla_svg + "".join(aristas_svg) + "".join(baldosas_svg) + "".join(etiquetas_svg)
+    svg = (rejilla_svg + "".join(aristas_svg) + "".join(plataformas_svg) + "".join(aristas_arriba_svg)
+           + "".join(baldosas_svg) + "".join(etiquetas_svg))
     return _documento_topologia_html(ancho, alto, svg, "".join(nodos_html), accent)
+
+
+def _zonas_isometricas(grafo, posiciones: dict) -> tuple[dict, dict]:
+    """Las plataformas de la vista isométrica: {padre: (x0, x1, y0, y1)} con
+    el rectángulo del suelo que ocupan los hijos sin hijos de cada nodo (el
+    bloque de hojas que ya agrupa posiciones_jerarquicas, así que dos zonas
+    nunca se solapan), y {hoja: padre}. Un equipo con sus propios hijos no
+    va a la plataforma de su padre: es el centro de otra rama."""
+    hijos: dict = {}
+    for nodo, atributos in grafo.nodes(data=True):
+        padre = atributos.get("padre")
+        if padre is not None and grafo.has_edge(padre, nodo):
+            hijos.setdefault(padre, []).append(nodo)
+
+    margen = BALDOSA_ISO + MARGEN_PLATAFORMA_ISO
+    zonas, zona_de = {}, {}
+    for padre, lista in hijos.items():
+        hojas = [hijo for hijo in lista if hijo not in hijos]
+        if not hojas:
+            continue
+        xs = [posiciones[hoja][0] for hoja in hojas]
+        ys = [posiciones[hoja][1] for hoja in hojas]
+        zonas[padre] = (min(xs) - margen, max(xs) + margen, min(ys) - margen, max(ys) + margen)
+        zona_de.update(dict.fromkeys(hojas, padre))
+    return zonas, zona_de
+
+
+def _color_isometrico(atributos: dict, accent: str) -> str:
+    """Color de la baldosa (y de la plataforma) de un nodo: el acento para un
+    rango, rojo si tiene alertas y si no el de su categoría."""
+    if atributos.get("tipo") == "red":
+        return accent
+    if atributos.get("alertas"):
+        return "#ff5c5c"
+    return ICONOS_POR_CATEGORIA.get(atributos.get("categoria"), ICONOS_POR_CATEGORIA["unknown"])["color"]
 
 
 def _nodo_del_grafo_html(grafo, nodo, resultados: dict, x: float, y: float, varios_rangos: bool,
