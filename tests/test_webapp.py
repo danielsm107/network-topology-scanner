@@ -164,6 +164,17 @@ def test_construir_comando_nmap_error_claro_si_nmap_no_esta_disponible(mock_port
         _construir_comando_nmap("192.168.1.1", "22", "-T4", "/tmp/salida.xml")
 
 
+@patch("topology_scanner.scanner.shutil.which", return_value="/usr/bin/nmap")
+@patch("topology_scanner.webapp.nmap.PortScanner")
+def test_construir_comando_nmap_sugiere_cap_add_si_nmap_no_arranca(mock_portscanner_cls, _mock_which):
+    """La web lanza nmap por su cuenta, pero el mensaje sale del mismo sitio
+    que en el CLI (scanner.error_de_nmap)."""
+    mock_portscanner_cls.side_effect = nmap.PortScannerError("nmap program was not found in path")
+
+    with pytest.raises(ScannerError, match="--cap-add NET_RAW --cap-add NET_ADMIN"):
+        _construir_comando_nmap("192.168.1.1", "22", "-T4", "/tmp/salida.xml")
+
+
 def _mock_popen_con_lineas(lineas):
     """Simula un subprocess.Popen cuyo stdout, iterado línea a línea (el
     patrón que usa _ejecutar_proceso_nmap para leer el progreso de nmap en

@@ -14,6 +14,7 @@ from topology_scanner.scanner import (
     PUERTOS_POR_DEFECTO,
     ScannerError,
     descubrir_hosts_vivos,
+    error_de_nmap,
     escanear_red,
     parsear_host,
 )
@@ -114,8 +115,9 @@ def test_escanear_red_incluye_alertas_de_puertos_sensibles(mock_portscanner_cls)
     assert alertas[0]["puerto"] == 3389
 
 
+@patch("topology_scanner.scanner.shutil.which", return_value=None)
 @patch("topology_scanner.scanner.nmap.PortScanner")
-def test_escanear_red_lanza_scannererror_si_nmap_no_esta_disponible(mock_portscanner_cls):
+def test_escanear_red_lanza_scannererror_si_nmap_no_esta_disponible(mock_portscanner_cls, _mock_which):
     """Si nmap.PortScanner() falla al construirse (p.ej. binario nmap no
     instalado), debe dar el mismo error amistoso que si falla scan() -
     no un traceback crudo sin capturar. La decisión de terminar el
@@ -123,6 +125,55 @@ def test_escanear_red_lanza_scannererror_si_nmap_no_esta_disponible(mock_portsca
     mock_portscanner_cls.side_effect = nmap.PortScannerError("nmap program was not found in path")
 
     with pytest.raises(ScannerError, match=r"nmap error \(are you running with sudo\?\)"):
+        escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
+
+
+_NO_ENCONTRADO = "nmap program was not found in path. PATH is : /usr/bin"
+
+
+@patch("topology_scanner.scanner.shutil.which", return_value="/usr/bin/nmap")
+def test_error_de_nmap_si_nmap_existe_pero_no_arranca_lo_dice(_mock_which):
+    """python-nmap dice "not found" también cuando el binario está pero el
+    sistema no deja ejecutarlo: en la imagen Docker, nmap lleva capacidades
+    de archivo y sin --cap-add el kernel se niega a lanzarlo."""
+    mensaje = str(error_de_nmap(nmap.PortScannerError(_NO_ENCONTRADO)))
+
+    assert "/usr/bin/nmap" in mensaje
+    assert "--cap-add NET_RAW --cap-add NET_ADMIN" in mensaje
+    assert "not found" not in mensaje
+
+
+@patch("topology_scanner.scanner.shutil.which", return_value=None)
+def test_error_de_nmap_si_nmap_no_esta_mantiene_el_mensaje(_mock_which):
+    error = nmap.PortScannerError(_NO_ENCONTRADO)
+
+    assert str(error_de_nmap(error)) == f"nmap error (are you running with sudo?): {error}"
+
+
+@patch("topology_scanner.scanner.shutil.which", return_value="/usr/bin/nmap")
+def test_error_de_nmap_otros_errores_mantienen_el_mensaje(_mock_which):
+    """Un fallo del propio escaneo (nmap sí arrancó) no tiene nada que ver
+    con las capacidades: no se sugiere --cap-add."""
+    error = nmap.PortScannerError("Failed to open device eth9")
+
+    assert str(error_de_nmap(error)) == f"nmap error (are you running with sudo?): {error}"
+
+
+@patch("topology_scanner.scanner.shutil.which", return_value="/usr/bin/nmap")
+@patch("topology_scanner.scanner.nmap.PortScanner")
+def test_descubrir_hosts_vivos_usa_error_de_nmap(mock_portscanner_cls, _mock_which):
+    mock_portscanner_cls.side_effect = nmap.PortScannerError(_NO_ENCONTRADO)
+
+    with pytest.raises(ScannerError, match="--cap-add"):
+        descubrir_hosts_vivos("192.168.1.0/24")
+
+
+@patch("topology_scanner.scanner.shutil.which", return_value="/usr/bin/nmap")
+@patch("topology_scanner.scanner.nmap.PortScanner")
+def test_escanear_red_usa_error_de_nmap(mock_portscanner_cls, _mock_which):
+    mock_portscanner_cls.side_effect = nmap.PortScannerError(_NO_ENCONTRADO)
+
+    with pytest.raises(ScannerError, match="--cap-add"):
         escanear_red("192.168.1.0/24", "22", "-sV -T4", dos_fases=False)
 
 
