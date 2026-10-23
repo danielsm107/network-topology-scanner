@@ -37,6 +37,7 @@ network-topology-scanner/
 │   └── webapp.py            # Web interface (Streamlit, optional)
 ├── scripts/demo_arbol.py    # Fictional SNMP tree for the README screenshot
 ├── tests/                   # pytest, with nmap mocks (no real network needed)
+├── Dockerfile, compose.yaml # Container image (published to GHCR) and Compose example
 └── pyproject.toml           # single source of dependencies (pip install -e ".[dev,web,snmp]")
 ```
 
@@ -64,6 +65,35 @@ For development, from a clone of the repo:
 ```bash
 pip install -e ".[dev,web,snmp]"
 ```
+
+### Docker
+
+A multi-arch image (amd64 and arm64) is published to GHCR with every release.
+It runs as an unprivileged user and includes the web UI and SNMP support:
+
+```bash
+docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN \
+    -v topology-data:/data ghcr.io/danielsm107/topology-scanner 192.168.1.0/24 --fast
+```
+
+Or with Docker Compose, using the [`compose.yaml`](compose.yaml) in this repo:
+
+```bash
+docker compose up -d                                   # web UI on http://127.0.0.1:8501
+docker compose run --rm scan 192.168.1.0/24 --fast     # one-off CLI scan
+```
+
+- `--network host` is required: on Docker's bridge network nmap can't see
+  MACs or vendors on your LAN. It only works on **Linux**; Docker Desktop
+  (Windows/macOS) can't reach your LAN at layer 2.
+- `NET_RAW` and `NET_ADMIN` are all nmap needs; no `--privileged`. Don't use
+  `no-new-privileges`, or nmap can't start.
+- Results (`historial.db`, HTML, CSV) are written to `/data`. A bind-mounted
+  host folder must be writable by UID 10001.
+- The web UI has no authentication, so the compose file only exposes it on
+  `127.0.0.1`. Opening it to your LAN lets anyone on it run scans.
+
+Details: [docs/devops/runbooks/01-contenedor.md](docs/devops/runbooks/01-contenedor.md) (in Spanish).
 
 ## Usage
 

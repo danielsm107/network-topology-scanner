@@ -47,18 +47,26 @@ topology-scanner 192.168.1.0/24 [--fast] [--os-detection] [--output x.html] [--c
 topology-scanner 192.168.1.0/24 10.0.10.0/24 [--snmp 192.168.1.1]   # varios rangos a la vez
 # --snmp: credenciales por entorno, TOPOLOGY_SNMP_COMMUNITY (v2c) o TOPOLOGY_SNMP_USER/_AUTH_KEY/_PRIV_KEY (v3)
 topology-scanner-web                            # o: streamlit run src/topology_scanner/webapp.py
+
+docker build -t topology-scanner:dev .          # imagen (en el PC: context `docker-lab`, la VM de Proxmox)
+docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN -v ts-datos:/data topology-scanner:dev <rango> --fast
 ```
 
 El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
 (`sudo` en Linux, terminal de administrador en Windows).
 
 CI (`.github/workflows/ci.yml`) ejecuta `ruff check src/ tests/ scripts/` + `pytest`
-en Python 3.10 y 3.12 en cada push/PR a `main` — ambos tienen que pasar.
+en Python 3.10 y 3.12 en cada push/PR a `main` — ambos tienen que pasar. El job
+`imagen` construye la imagen Docker, la prueba por fuera (UID 10001, nmap con y
+sin capacidades) y la escanea con Trivy (falla con críticas que tengan arreglo).
+Todo lo de terceros en los workflows va **fijado por SHA/digest**, no por tag
+(ataque a las tags de `trivy-action`, marzo de 2026).
 
 Release (`.github/workflows/release.yml`): un tag `vX.Y.Z` reutiliza CI,
 comprueba que el tag coincide con la versión de `pyproject.toml` y que
 `CHANGELOG.md` tiene su sección, publica en PyPI (trusted publishing, sin
-tokens) y crea la release de GitHub con esas notas. Lanzado a mano solo
+tokens) y la imagen en `ghcr.io/danielsm107/topology-scanner:X.Y.Z` + `latest`
+(amd64 y arm64), y crea la release de GitHub con esas notas. Lanzado a mano solo
 publica en TestPyPI. Para sacar versión: subir `version`, añadir la sección
 al CHANGELOG, commit, y `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
@@ -78,6 +86,9 @@ src/topology_scanner/
 tests/               # un test_<modulo>.py por módulo
 scripts/demo_arbol.py  # árbol SNMP con datos inventados para la captura del README (no se instala)
 scripts/demo_web.py    # web con un escaneo inventado cargado, para las capturas del README (streamlit run)
+Dockerfile, .dockerignore  # imagen: nmap sin root (setcap, UID 10001), /data, web por STREAMLIT_*
+compose.yaml           # uso con Docker Compose (en inglés: es para copiarlo); web solo en 127.0.0.1
+docs/devops/           # fase DevOps: README (estado por fase) y runbooks/NN-<fase>.md
 ```
 
 **Principio de diseño**: cada módulo no sabe nada de los demás salvo lo

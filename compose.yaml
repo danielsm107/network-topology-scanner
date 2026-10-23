@@ -1,0 +1,47 @@
+# topology-scanner with Docker Compose (Linux only: see "Limitations").
+#
+#   docker compose up -d                                 # web UI on http://127.0.0.1:8501
+#   docker compose run --rm scan 192.168.1.0/24 --fast   # one-off CLI scan
+#
+# Both share the same volume, so the scan history (historial.db) and the
+# generated HTML/CSV files are shared too.
+#
+# Limitations:
+# - network_mode: host is required: on Docker's bridge network nmap only sees
+#   the container's own network (no MACs or vendors from your LAN).
+# - Docker Desktop (Windows/macOS) runs containers inside a VM: even with host
+#   networking they don't reach your LAN at layer 2. Use a Linux host or VM.
+# - Don't add `security_opt: [no-new-privileges:true]`: it disables the file
+#   capabilities nmap uses to run without root, and it won't start.
+#
+# Only scan networks you own or are authorized to scan.
+
+x-scanner: &scanner
+  image: ghcr.io/danielsm107/topology-scanner:latest
+  network_mode: host
+  # The minimum nmap needs for ARP/SYN scans as an unprivileged user (UID 10001)
+  cap_add: [NET_RAW, NET_ADMIN]
+  volumes:
+    - data:/data
+
+services:
+  web:
+    <<: *scanner
+    entrypoint: ["topology-scanner-web"]
+    environment:
+      # The web UI has no authentication and scans whatever it's asked to, so
+      # by default it only listens on this machine. Set it to 0.0.0.0 to use
+      # it from your LAN, knowing that anyone on your network can run scans.
+      STREAMLIT_SERVER_ADDRESS: 127.0.0.1
+      # Real topology over SNMP (optional, see the README):
+      # TOPOLOGY_SNMP_COMMUNITY: "..."
+    restart: unless-stopped
+
+  scan:
+    <<: *scanner
+    profiles: [scan]   # not started by `up`; run it with `docker compose run`
+    # environment:
+    #   TOPOLOGY_SNMP_COMMUNITY: "..."   # for --snmp
+
+volumes:
+  data:
