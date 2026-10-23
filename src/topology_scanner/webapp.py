@@ -55,6 +55,7 @@ from topology_scanner import __version__
 from topology_scanner.classifier import ICONOS_POR_CATEGORIA, PUERTOS_SENSIBLES
 from topology_scanner.export import (
     CDN_FONTAWESOME,
+    SEPARACION_X,
     exportar_csv,
     posiciones_circulares,
     posiciones_jerarquicas,
@@ -599,6 +600,7 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
 _ICONO_HUB = {"code": "", "face": "'Font Awesome 5 Free'", "weight": "900"}
 NODE_R, MARGEN_TOPOLOGIA = 24, 90
 ALTURA_VIEWPORT_TOPOLOGIA = 540
+VISTAS_TOPOLOGIA = ["Flat", "Isometric"]
 
 
 def _css_topologia(accent: str) -> str:
@@ -647,6 +649,12 @@ html, body {{ margin: 0; padding: 0; background: #091018; overflow: hidden; }}
 /* Equipos de red (topología SNMP): cuadrados redondeados, como el hub, para
    distinguirlos de los hosts de un vistazo */
 .topo-node.equipo {{ border-radius: 12px; width: 50px; height: 50px; font-size: 19px; }}
+/* Vista isométrica: la baldosa del suelo (SVG) ya marca el color y la
+   posición; el icono va "de pie" encima, ni círculo ni fondo */
+.topo-node.iso {{ background: transparent; border-color: transparent !important; font-size: 24px; }}
+.topo-node.iso.equipo {{ font-size: 30px; }}
+.topo-node.iso span {{ filter: drop-shadow(0 4px 3px rgba(0,0,0,0.7)); }}
+.topo-hub.iso {{ background: transparent; border-color: transparent; font-size: 34px; }}
 .topo-edge-label {{
     font-family: 'JetBrains Mono', monospace; font-size: 10px; fill: #7C8A9A; text-anchor: middle;
     paint-order: stroke; stroke: #091018; stroke-width: 4px;
@@ -695,7 +703,7 @@ def _generar_leyenda_topologia_html() -> str:
 
 
 def _generar_topologia_html(resultados: dict, rango: str | list[str], accent: str,
-                            topologia: dict | None = None) -> str:
+                            topologia: dict | None = None, isometrica: bool = False) -> str:
     """Documento HTML autocontenido (doctype/head/body/script) con el panel
     de topología dibujado a mano - pensado para st.components.v1.html, no
     para st.markdown.
@@ -723,6 +731,8 @@ def _generar_topologia_html(resultados: dict, rango: str | list[str], accent: st
     # Varios rangos también van por niveles (un centro por rango, como el
     # HTML del CLI): en el círculo solo cabe un centro.
     rangos = [rango] if isinstance(rango, str) else list(rango)
+    if isometrica:
+        return _generar_isometrico_html(resultados, rangos, accent, topologia)
     if topologia is not None or len(rangos) > 1:
         return _generar_arbol_html(resultados, rangos, accent, topologia)
     rango = rangos[0]
@@ -793,9 +803,6 @@ def _generar_arbol_html(resultados: dict, rangos: list[str], accent: str, topolo
         x, y = posiciones[nodo]
         return x + dx, y + dy
 
-    def nombre(nodo):
-        return grafo.nodes[nodo].get("hostname") or str(nodo)
-
     aristas_svg, etiquetas_svg = [], []
     puertos_etiquetados = set()
     for nodo, atributos in grafo.nodes(data=True):
@@ -816,37 +823,155 @@ def _generar_arbol_html(resultados: dict, rangos: list[str], accent: str, topolo
                 f'<text x="{(px + hx) / 2:.1f}" y="{medio:.1f}" class="topo-edge-label">{escape(interfaz)}</text>'
             )
 
-    nodos_html = []
-    for nodo, atributos in grafo.nodes(data=True):
-        x, y = punto(nodo)
-        if atributos.get("tipo") == "red":
-            # Con varios rangos el sufijo (/24) no los distinguiría
-            nodos_html.append(_hub_topologia_html(x, y, atributos["rango"], completo=len(rangos) > 1))
-            continue
-        datos_nmap = resultados.get(nodo, {})
-        es_equipo = atributos.get("tipo") == "equipo"
-        categoria = atributos.get("categoria", "unknown")
-        sub = " · ".join(filter(None, [atributos.get("hostname"), datos_nmap.get("vendor"), categoria]))
-        lineas = []
-        padre = atributos.get("padre")
-        if padre is not None and grafo.has_edge(padre, nodo):
-            interfaz = grafo.edges[padre, nodo].get("interfaz")
-            lineas.append(f"↳ {nombre(padre)}" + (f" · {interfaz}" if interfaz else ""))
-        if atributos.get("solo_snmp"):
-            lineas.append("seen only over SNMP (not found by nmap)")
-        if atributos.get("upstream"):
-            lineas.append("gateway · not queried over SNMP")
-        nodos_html.append(_nodo_topologia_html(
-            x, y, etiqueta=nombre(nodo) if es_equipo else str(nodo), categoria=categoria,
-            alertas=atributos.get("alertas", []), sub=sub, lineas=lineas, equipo=es_equipo,
-        ))
+    nodos_html = [_nodo_del_grafo_html(grafo, nodo, resultados, *punto(nodo), varios_rangos=len(rangos) > 1)
+                  for nodo in grafo.nodes]
 
     return _documento_topologia_html(ancho, alto, "".join(aristas_svg) + "".join(etiquetas_svg),
                                      "".join(nodos_html), accent)
 
 
+# Vista isométrica (estilo FossFLOW): las posiciones de posiciones_jerarquicas
+# se tratan como el suelo y se proyectan en perspectiva isométrica. No es un
+# tercer layout: es el mismo árbol (o estrella por niveles) visto desde otro
+# ángulo. Medidas en px del suelo, antes de proyectar.
+COS_30 = math.cos(math.radians(30))
+# Girado 45°, el ancho y la profundidad del árbol se suman en las dos
+# direcciones de la pantalla: sin comprimir el suelo, el lienzo salía ~1,6
+# veces más grande que el plano y el ajuste inicial dejaba los iconos diminutos
+ESCALA_SUELO_ISO = 0.7
+BALDOSA_ISO = 30          # medio lado de la baldosa de un host
+BALDOSA_GRANDE_ISO = 40   # hubs y equipos de red
+ALTURA_ICONO_ISO = 24     # cuánto flota el icono sobre el centro de su baldosa
+PASO_REJILLA_ISO = SEPARACION_X * ESCALA_SUELO_ISO / 2   # las columnas del layout caen sobre la rejilla
+MARGEN_SUELO_ISO = PASO_REJILLA_ISO
+
+
+def _proyectar_isometrico(x: float, y: float) -> tuple[float, float]:
+    """Punto del suelo -> pantalla: gira 45° y aplasta la vertical a la mitad
+    (los ejes del suelo quedan a ±30°, la proyección isométrica clásica)."""
+    return (x - y) * COS_30, (x + y) * 0.5
+
+
+def _generar_isometrico_html(resultados: dict, rangos: list[str], accent: str, topologia: dict | None) -> str:
+    """Panel de topología en isométrico. Con o sin SNMP usa el grafo de
+    graph.construir_grafo y posiciones_jerarquicas: sin SNMP la estrella sale
+    por niveles (rango -> sus hosts) en vez de en círculo, porque un círculo
+    en perspectiva es una elipse en la que no cabe ninguna cuadrícula.
+
+    Todo lo del suelo (rejilla, cables, baldosas) va en el SVG; los iconos
+    "de pie" son los mismos nodos HTML del panel plano (tooltip, alertas),
+    ordenados de atrás hacia delante (orden del pintor) para que lo de
+    delante tape a lo de detrás."""
+    grafo = construir_grafo(resultados, rangos, topologia=topologia)
+    posiciones = {nodo: (x * ESCALA_SUELO_ISO, y * ESCALA_SUELO_ISO)
+                  for nodo, (x, y) in posiciones_jerarquicas(grafo).items()}
+
+    xs = [x for x, _ in posiciones.values()]
+    ys = [y for _, y in posiciones.values()]
+    x0, x1 = min(xs) - MARGEN_SUELO_ISO, max(xs) + MARGEN_SUELO_ISO
+    y0, y1 = min(ys) - MARGEN_SUELO_ISO, max(ys) + MARGEN_SUELO_ISO
+    # Esquinas del suelo proyectadas: izquierda (x0, y1), derecha (x1, y0), arriba (x0, y0), abajo (x1, y1)
+    dx = MARGEN_TOPOLOGIA - _proyectar_isometrico(x0, y1)[0]
+    dy = MARGEN_TOPOLOGIA - _proyectar_isometrico(x0, y0)[1]
+    ancho = _proyectar_isometrico(x1, y0)[0] - _proyectar_isometrico(x0, y1)[0] + 2 * MARGEN_TOPOLOGIA
+    alto = _proyectar_isometrico(x1, y1)[1] - _proyectar_isometrico(x0, y0)[1] + 2 * MARGEN_TOPOLOGIA
+
+    def punto(x, y):
+        px, py = _proyectar_isometrico(x, y)
+        return px + dx, py + dy
+
+    def puntos(*suelo):
+        return " ".join("{:.1f},{:.1f}".format(*punto(x, y)) for x, y in suelo)
+
+    rejilla = []
+    pasos_x = int((x1 - x0) // PASO_REJILLA_ISO) + 1
+    pasos_y = int((y1 - y0) // PASO_REJILLA_ISO) + 1
+    for i in range(pasos_x):
+        x = x0 + i * PASO_REJILLA_ISO
+        rejilla.append(f'<polyline points="{puntos((x, y0), (x, y1))}"/>')
+    for j in range(pasos_y):
+        y = y0 + j * PASO_REJILLA_ISO
+        rejilla.append(f'<polyline points="{puntos((x0, y), (x1, y))}"/>')
+    rejilla_svg = f'<g stroke="rgba(227,232,238,0.11)" stroke-width="1">{"".join(rejilla)}</g>'
+
+    # Cables en ángulo recto siguiendo los ejes del suelo, como en FossFLOW:
+    # bajan desde el padre, cruzan a media altura y bajan hasta el hijo
+    aristas_svg, etiquetas_svg = [], []
+    puertos_etiquetados = set()
+    for nodo, atributos in grafo.nodes(data=True):
+        padre = atributos.get("padre")
+        if padre is None or not grafo.has_edge(padre, nodo):
+            continue
+        (px, py), (hx, hy) = posiciones[padre], posiciones[nodo]
+        medio = (py + hy) / 2
+        color = "rgba(255,92,92,0.55)" if atributos.get("alertas") else accent + "80"
+        aristas_svg.append(
+            f'<polyline class="topo-iso-edge" points="{puntos((px, py), (px, medio), (hx, medio), (hx, hy))}" '
+            f'fill="none" stroke="{color}" stroke-width="1.6" stroke-linejoin="round"/>'
+        )
+        interfaz = grafo.edges[padre, nodo].get("interfaz")
+        if interfaz and (padre, interfaz) not in puertos_etiquetados:
+            puertos_etiquetados.add((padre, interfaz))
+            ex, ey = punto((px + hx) / 2, medio)
+            etiquetas_svg.append(f'<text x="{ex:.1f}" y="{ey:.1f}" class="topo-edge-label">{escape(interfaz)}</text>')
+
+    # Orden del pintor: x + y del suelo es la profundidad (lo que se ve más arriba en pantalla)
+    orden = sorted(grafo.nodes, key=lambda n: (posiciones[n][0] + posiciones[n][1], str(n)))
+    baldosas_svg, nodos_html = [], []
+    for nodo in orden:
+        atributos = grafo.nodes[nodo]
+        x, y = posiciones[nodo]
+        if atributos.get("tipo") == "red":
+            color, lado = accent, BALDOSA_GRANDE_ISO
+        else:
+            icono = ICONOS_POR_CATEGORIA.get(atributos.get("categoria"), ICONOS_POR_CATEGORIA["unknown"])
+            color = "#ff5c5c" if atributos.get("alertas") else icono["color"]
+            lado = BALDOSA_GRANDE_ISO if atributos.get("tipo") == "equipo" else BALDOSA_ISO
+        rombo = puntos((x - lado, y - lado), (x + lado, y - lado), (x + lado, y + lado), (x - lado, y + lado))
+        baldosas_svg.append(
+            f'<polygon class="topo-tile" points="{rombo}" fill="{color}26" stroke="{color}" stroke-width="1.4"/>'
+        )
+        sx, sy = punto(x, y)
+        nodos_html.append(_nodo_del_grafo_html(grafo, nodo, resultados, sx, sy - ALTURA_ICONO_ISO,
+                                               varios_rangos=len(rangos) > 1, isometrico=True))
+
+    svg = rejilla_svg + "".join(aristas_svg) + "".join(baldosas_svg) + "".join(etiquetas_svg)
+    return _documento_topologia_html(ancho, alto, svg, "".join(nodos_html), accent)
+
+
+def _nodo_del_grafo_html(grafo, nodo, resultados: dict, x: float, y: float, varios_rangos: bool,
+                         isometrico: bool = False) -> str:
+    """Un nodo de graph.construir_grafo como HTML del panel (hub de un rango,
+    equipo de red o host), compartido por el árbol y la vista isométrica."""
+    atributos = grafo.nodes[nodo]
+    if atributos.get("tipo") == "red":
+        # Con varios rangos el sufijo (/24) no los distinguiría
+        return _hub_topologia_html(x, y, atributos["rango"], completo=varios_rangos, isometrico=isometrico)
+
+    def nombre(n):
+        return grafo.nodes[n].get("hostname") or str(n)
+
+    datos_nmap = resultados.get(nodo, {})
+    es_equipo = atributos.get("tipo") == "equipo"
+    categoria = atributos.get("categoria", "unknown")
+    sub = " · ".join(filter(None, [atributos.get("hostname"), datos_nmap.get("vendor"), categoria]))
+    lineas = []
+    padre = atributos.get("padre")
+    if padre is not None and grafo.has_edge(padre, nodo):
+        interfaz = grafo.edges[padre, nodo].get("interfaz")
+        lineas.append(f"↳ {nombre(padre)}" + (f" · {interfaz}" if interfaz else ""))
+    if atributos.get("solo_snmp"):
+        lineas.append("seen only over SNMP (not found by nmap)")
+    if atributos.get("upstream"):
+        lineas.append("gateway · not queried over SNMP")
+    return _nodo_topologia_html(
+        x, y, etiqueta=nombre(nodo) if es_equipo else str(nodo), categoria=categoria,
+        alertas=atributos.get("alertas", []), sub=sub, lineas=lineas, equipo=es_equipo, isometrico=isometrico,
+    )
+
+
 def _nodo_topologia_html(x: float, y: float, etiqueta: str, categoria: str, alertas: list, sub: str,
-                         lineas: list | None = None, equipo: bool = False) -> str:
+                         lineas: list | None = None, equipo: bool = False, isometrico: bool = False) -> str:
     """Un nodo del panel de topología (icono + etiqueta + tooltip),
     compartido por el círculo y el árbol. Todo el texto se escapa: el
     hostname sale del DNS inverso, el fabricante de nmap y la identidad de
@@ -868,7 +993,7 @@ def _nodo_topologia_html(x: float, y: float, etiqueta: str, categoria: str, aler
         alerta_extra = alerta_linea = ""
         borde_tooltip, color_titulo = "rgba(227,232,238,0.14)", "#E3E8EE"
     extra = "".join(f'<div class="muted mono">{escape(linea)}</div>' for linea in lineas or [])
-    clase_nodo = "topo-node equipo" if equipo else "topo-node"
+    clase_nodo = "topo-node" + (" iso" if isometrico else "") + (" equipo" if equipo else "")
 
     return f"""
         <div class="topo-node-wrap" style="left:{x:.1f}px; top:{y:.1f}px;">
@@ -889,11 +1014,12 @@ def _nodo_topologia_html(x: float, y: float, etiqueta: str, categoria: str, aler
         """
 
 
-def _hub_topologia_html(x: float, y: float, rango: str, completo: bool = False) -> str:
+def _hub_topologia_html(x: float, y: float, rango: str, completo: bool = False, isometrico: bool = False) -> str:
     # Con un solo rango basta el sufijo (/24); con varios hace falta el rango entero
     sufijo = rango if completo or "/" not in rango else "/" + rango.rsplit("/", 1)[-1]
+    clase = "topo-hub iso" if isometrico else "topo-hub"
     return f"""
-      <div class="topo-hub" style="left:{x}px; top:{y}px;">
+      <div class="{clase}" style="left:{x:.1f}px; top:{y:.1f}px;">
         <span style="font-family:{_ICONO_HUB["face"]}; font-weight:{_ICONO_HUB["weight"]};">
           {_ICONO_HUB["code"]}
         </span>
@@ -983,11 +1109,15 @@ def _mostrar_resultado(resultado: dict, accent: str):
     for aviso in resultado.get("avisos_snmp", []):
         st.warning(aviso)
 
-    st.subheader("Topology")
+    col_titulo, col_vista = st.columns([3, 1], vertical_alignment="bottom")
+    col_titulo.subheader("Topology")
+    # Cambiar de vista es un rerun normal: el resultado ya está en session_state, no se vuelve a escanear
+    vista = col_vista.radio("View", VISTAS_TOPOLOGIA, horizontal=True, key="vista_topologia",
+                            label_visibility="collapsed")
     st.components.v1.html(
         # .get("rangos"): un resultado de una versión anterior de la app solo trae "rango"
         _generar_topologia_html(resultados, resultado.get("rangos", resultado["rango"]), accent,
-                                topologia=resultado.get("topologia")),
+                                topologia=resultado.get("topologia"), isometrica=vista == "Isometric"),
         height=ALTURA_VIEWPORT_TOPOLOGIA + 90,
         scrolling=False,
     )

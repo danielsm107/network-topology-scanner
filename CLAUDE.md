@@ -111,7 +111,8 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
   propio `face`/`weight` (los de marca como Apple van en "Font Awesome 5 Brands").
 - Layouts: `export.posiciones_circulares` (estrella de un rango) y
   `export.posiciones_jerarquicas` (árbol SNMP o varios rangos). Los usan tanto el
-  HTML de pyvis como el SVG de la web: nunca un tercer algoritmo de layout.
+  HTML de pyvis como el SVG de la web: nunca un tercer algoritmo de layout. La
+  vista isométrica de la web proyecta `posiciones_jerarquicas`, no calcula las suyas.
 - `scanner.parsear_host`: parseo de host, lo reutiliza la web.
 - `snmp.obtener_topologia` / `credenciales_desde_entorno` / `VARIABLE_*` y
   `rangos.parsear_rangos` / `repartir_por_rango`: compartidos por CLI y web.
