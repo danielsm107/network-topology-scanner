@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-10-23
+
+### Added
+- Docker image on GHCR, published with every release for amd64 and arm64:
+  `ghcr.io/danielsm107/topology-scanner`. It runs nmap as an unprivileged
+  user and needs only `--network host --cap-add NET_RAW --cap-add NET_ADMIN`
+  (Linux hosts). Includes the web UI and SNMP support.
+- `compose.yaml` with the web UI (listening on `127.0.0.1` only, since it has
+  no authentication) and a one-off `scan` service.
+
+### Fixed
+- When nmap is installed but the system refuses to run it (for example, the
+  Docker image without `--cap-add`), the error now says so and how to fix it,
+  instead of claiming nmap isn't installed.
+- If the HTML or CSV output can't be written (no permission, missing folder),
+  the CLI prints a clear error instead of a Python traceback.
+
 ## [1.2.0] - 2026-10-23
 
 ### Added
