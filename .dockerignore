@@ -1,0 +1,18 @@
+# Solo hace falta pyproject.toml, README.md, LICENSE y src/ (ver Dockerfile).
+# Lo demás fuera: contexto de build más pequeño y, sobre todo, que ninguna
+# salida de escaneo local (IPs/MACs reales) acabe dentro de una imagen.
+.git
+.github
+.venv
+venv
+**/__pycache__
+**/*.egg-info
+build
+dist
+tests
+scripts
+docs
+*.html
+*.db
+*.csv
+*.xml
