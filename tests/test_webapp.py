@@ -49,7 +49,9 @@ from topology_scanner.webapp import (
     _generar_topologia_html,
     _pagina_de_resultados,
     _procesar_salida_nmap,
+    _tiempo_relativo,
     _total_paginas,
+    _validar_rangos,
     _validar_snmp,
 )
 
@@ -289,7 +291,7 @@ def test_finalizar_resultados_continua_si_falla_el_historial(mock_registrar):
     """Mismo criterio que cli.py: un fallo guardando el historial no debe
     tirar un escaneo que sí ha funcionado."""
     resultados = {"192.168.1.10": _resultado_fake()}
-    mock_registrar.side_effect = HistoryError("no se pudo abrir historial.db")
+    mock_registrar.side_effect = HistoryError("could not open historial.db")
 
     resultado = _finalizar_resultados(resultados, "192.168.1.0/24", guardar_historial=True)
 
@@ -367,10 +369,10 @@ def test_filas_para_tabla_una_fila_por_host():
 
 
 def test_filas_para_tabla_cuenta_alertas():
-    alertas = [{"puerto": 23, "motivo": "Telnet (sin cifrar)"}]
+    alertas = [{"puerto": 23, "motivo": "Telnet (unencrypted)"}]
     resultados = {"192.168.1.1": _resultado_fake(alertas=alertas)}
     filas = _filas_para_tabla(resultados)
-    assert filas[0]["Alertas"] == 1
+    assert filas[0]["Alerts"] == 1
 
 
 def test_generar_css_incluye_el_color_de_acento():
@@ -416,17 +418,17 @@ def test_generar_progreso_html_muestra_los_hosts_del_log_en_vivo():
         rango="192.168.1.0/24", hosts_vivos=12, argumentos_nmap="-sV -T4", tiempo="00:47",
         log=["192.168.1.10", "192.168.1.20"],
     )
-    assert "192.168.1.10" in html
+    assert "192.168.1.10</span><span class=\"muted mono\">scanned" in html
     assert "192.168.1.20" in html
 
 
 def test_generar_progreso_html_log_vacio_no_fabrica_hosts():
     """Sin eventos reales todavía, no debe aparecer ninguna línea de host
-    "detectado"."""
+    "scanned"."""
     html = _generar_progreso_html(
         rango="10.0.0.0/24", hosts_vivos=12, argumentos_nmap="-sV -T4", tiempo="00:47", log=[]
     )
-    assert "detectado" not in html
+    assert "scanned" not in html
 
 
 def test_generar_chips_categorias_agrupa_por_categoria():
@@ -446,14 +448,14 @@ def test_generar_chips_categorias_limita_y_resume_el_resto():
 
     html = _generar_chips_categorias_html(resultados, limite=8)
 
-    assert "+2 categorías más" in html
+    assert "+2 more categories" in html
 
 
 def test_generar_kpis_html_incluye_hosts_y_rango():
     resultados = {"192.168.1.10": _resultado_fake()}
     html = _generar_kpis_html(resultados, rango="192.168.1.0/24", diff=None, accent="#00D2D3")
     assert "192.168.1.0/24" in html
-    assert "sin alertas" in html
+    assert "no alerts" in html
 
 
 def test_generar_kpis_html_puertos_sensibles_cuenta_alertas():
@@ -461,14 +463,14 @@ def test_generar_kpis_html_puertos_sensibles_cuenta_alertas():
         "192.168.1.10": _resultado_fake(alertas=[{"puerto": 3389, "motivo": "RDP"}]),
     }
     html = _generar_kpis_html(resultados, rango="192.168.1.0/24", diff=None, accent="#00D2D3")
-    assert "requieren revisión" in html
+    assert "need review" in html
 
 
 def test_generar_kpis_html_primera_vez_no_muestra_cambios_fabricados():
     resultados = {"192.168.1.10": _resultado_fake()}
     diff = {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
     html = _generar_kpis_html(resultados, rango="192.168.1.0/24", diff=diff, accent="#00D2D3")
-    assert "primer escaneo" in html
+    assert "first scan of this range" in html
 
 
 def test_compactar_html_elimina_lineas_en_blanco():
@@ -561,7 +563,7 @@ def test_generar_cambios_html_incluye_host_caido_sin_inventar_datos():
     html = _generar_cambios_html(diff, {})
 
     assert "192.168.1.40" in html
-    assert "no respondió" in html
+    assert "did not answer the ping scan" in html
 
 
 def test_generar_cambios_html_puerto_nuevo_sensible_se_marca_como_warn():
@@ -570,7 +572,7 @@ def test_generar_cambios_html_puerto_nuevo_sensible_se_marca_como_warn():
         "puertos_cambiados": {
             "192.168.1.14": {
                 "nuevos": [445], "cerrados": [],
-                "nuevos_sensibles": [{"puerto": 445, "motivo": "SMB (vector típico de ransomware)"}],
+                "nuevos_sensibles": [{"puerto": 445, "motivo": "SMB (common ransomware vector)"}],
             }
         },
     }
@@ -581,7 +583,7 @@ def test_generar_cambios_html_puerto_nuevo_sensible_se_marca_como_warn():
 
 def test_generar_cambios_html_sin_cambios_lo_indica():
     diff = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
-    assert "Sin cambios" in _generar_cambios_html(diff, {})
+    assert "No changes" in _generar_cambios_html(diff, {})
 
 
 def test_generar_cambios_html_con_varios_items_no_deja_lineas_en_blanco():
@@ -650,7 +652,7 @@ def test_generar_topologia_html_un_nodo_por_host():
 
 def test_generar_topologia_html_marca_alerta_en_hosts_con_puertos_sensibles():
     resultados = {
-        "192.168.1.10": _resultado_fake(alertas=[{"puerto": 3389, "motivo": "RDP (fuerza bruta)"}]),
+        "192.168.1.10": _resultado_fake(alertas=[{"puerto": 3389, "motivo": "RDP (brute force)"}]),
     }
     html = _generar_topologia_html(resultados, rango="192.168.1.0/24", accent="#00D2D3")
     assert '<div class="topo-alert-ring">' in html
@@ -699,7 +701,7 @@ def test_generar_topologia_html_es_un_documento_autocontenido_con_pan_zoom():
 def test_generar_estado_vacio_html_incluye_el_acento():
     html = _generar_estado_vacio_html("#123456")
     assert "#123456" in html
-    assert "Listo para escanear" in html
+    assert "Ready to scan" in html
 
 
 def test_la_app_carga_sin_excepciones():
@@ -718,7 +720,7 @@ def test_la_app_carga_sin_excepciones():
     assert len(at.sidebar.button) == 3  # Escanear, Parar escaneo, Detectar mi red
     # El estado vacío (sin escaneo ni resultado) vive en el panel principal,
     # no en el sidebar.
-    assert "Listo para escanear" in at.main.markdown[-1].value
+    assert "Ready to scan" in at.main.markdown[-1].value
 
 
 def test_la_app_avisa_si_se_escanea_sin_rango(sin_escaneos_reales):
@@ -726,7 +728,7 @@ def test_la_app_avisa_si_se_escanea_sin_rango(sin_escaneos_reales):
 
     at = AppTest.from_file("../src/topology_scanner/webapp.py")
     at.run()
-    boton_escanear = next(b for b in at.button if b.label == "▶ Escanear")
+    boton_escanear = next(b for b in at.button if b.label == "▶ Scan")
     boton_escanear.click().run()
 
     assert not at.exception
@@ -739,7 +741,7 @@ def test_la_app_parar_escaneo_empieza_deshabilitado():
     at = AppTest.from_file("../src/topology_scanner/webapp.py")
     at.run()
 
-    boton_parar = next(b for b in at.button if b.label == "⏹ Parar escaneo")
+    boton_parar = next(b for b in at.button if b.label == "⏹ Stop scan")
     assert boton_parar.disabled is True
 
 
@@ -771,7 +773,7 @@ def test_la_app_detecta_mi_red_al_pulsar_el_boton():
     at = AppTest.from_file("../src/topology_scanner/webapp.py")
     at.run()
     with patch("socket.socket", side_effect=socket_selectivo):
-        boton_detectar = next(b for b in at.button if b.label == "Detectar mi red automáticamente")
+        boton_detectar = next(b for b in at.button if b.label == "Detect my network")
         boton_detectar.click().run()
 
     assert not at.exception
@@ -847,7 +849,7 @@ def test_validar_snmp_sin_community_ni_variable_es_un_error(monkeypatch):
 def test_finalizar_resultados_con_snmp_guarda_topologia_y_avisos(
     mock_obtener,
 ):
-    mock_obtener.return_value = (_topologia_fake(), ["192.0.2.2 no responde por SNMP"])
+    mock_obtener.return_value = (_topologia_fake(), ["192.0.2.2 is not responding over SNMP"])
     resultados = {"192.0.2.10": _resultado_fake()}
 
     resultado = _finalizar_resultados(resultados, "192.0.2.0/24", guardar_historial=False,
@@ -855,7 +857,7 @@ def test_finalizar_resultados_con_snmp_guarda_topologia_y_avisos(
 
     mock_obtener.assert_called_once_with(["192.0.2.1", "192.0.2.2"], "secreta")
     assert resultado["topologia"] == _topologia_fake()
-    assert resultado["avisos_snmp"] == ["192.0.2.2 no responde por SNMP"]
+    assert resultado["avisos_snmp"] == ["192.0.2.2 is not responding over SNMP"]
     assert "secreta" not in str(resultado)   # la community no se queda en session_state
 
 
@@ -879,7 +881,7 @@ def test_generar_topologia_html_con_topologia_dibuja_el_arbol():
     assert html.count("<path ") == 5          # una arista por nodo que no es raíz
     assert html.count(">wlan1</text>") == 1   # una etiqueta por padre+puerto
     assert ">ether2</text>" in html
-    assert "solo por SNMP" in html
+    assert "seen only over SNMP" in html
 
 
 def test_generar_topologia_html_con_topologia_los_equipos_se_distinguen():
@@ -926,7 +928,7 @@ def test_la_app_avisa_de_una_ip_snmp_no_valida_antes_de_escanear(sin_escaneos_re
     at.run()
     next(t for t in at.sidebar.toggle if "SNMP" in t.label).set_value(True).run()
     next(t for t in at.sidebar.text_input if "Routers" in t.label).set_value("router-casa").run()
-    next(b for b in at.button if b.label == "▶ Escanear").click().run()
+    next(b for b in at.button if b.label == "▶ Scan").click().run()
 
     assert not at.exception
     assert any("router-casa" in w.value for w in at.warning)
@@ -1038,7 +1040,7 @@ def test_la_app_avisa_de_varios_rangos_no_validos_antes_de_escanear(sin_escaneos
     at = AppTest.from_file("../src/topology_scanner/webapp.py")
     at.run()
     at.sidebar.text_input[0].set_value("10.0.10.0/24 192.168.1.1-50").run()
-    next(b for b in at.button if b.label == "▶ Escanear").click().run()
+    next(b for b in at.button if b.label == "▶ Scan").click().run()
 
     assert not at.exception
     assert any("192.168.1.1-50" in w.value for w in at.warning)
@@ -1066,7 +1068,7 @@ def test_validar_snmp_v3_mal_configurado_es_un_error(sin_snmp_en_entorno):
     configuracion, error = _validar_snmp(True, "192.0.2.1", "", version="v3", usuario="lector", clave_auth="corta")
 
     assert configuracion is None
-    assert "8 caracteres" in error
+    assert "at least 8 characters" in error
 
 
 def test_validar_snmp_v3_sin_usuario_usa_el_del_entorno(sin_snmp_en_entorno, monkeypatch):
@@ -1108,7 +1110,93 @@ def test_la_app_muestra_los_campos_de_v3_al_elegirlo():
 
     assert not at.exception
     etiquetas = [t.label for t in at.sidebar.text_input]
-    assert any("Usuario" in e for e in etiquetas)
-    assert sum("Clave" in e for e in etiquetas) == 2
+    assert any("SNMPv3 user" in e for e in etiquetas)
+    assert sum("key" in e for e in etiquetas) == 2
     assert not any("Community" in e for e in etiquetas)
     assert [s.value for s in at.sidebar.selectbox] == ["SHA", "AES"]
+
+
+# === Interfaz en inglés =====================================================
+
+def test_tiempo_relativo_en_ingles():
+    ahora = datetime(2026, 8, 21, 12, 0, 0)
+
+    assert _tiempo_relativo("2026-08-21T11:59:30", ahora) == "just now"
+    assert _tiempo_relativo("2026-08-21T11:55:00", ahora) == "5 min ago"
+    assert _tiempo_relativo("2026-08-21T09:00:00", ahora) == "3 h ago"
+    assert _tiempo_relativo("2026-08-20T12:00:00", ahora) == "1 day ago"
+    assert _tiempo_relativo("2026-08-18T12:00:00", ahora) == "3 days ago"
+
+
+def test_topbar_avisa_de_usarla_solo_en_redes_propias():
+    assert "Only on networks you own or are authorized to scan" in _generar_topbar_html("1.0.0", "#00D2D3")
+
+
+# Palabras que solo aparecen si queda texto en español en la interfaz
+_MARCAS_ESPAÑOL = ("escaneo", "Escane", "rango", "Rango", "puerto", "Puerto", "hace ", "Fase", "detectad",
+                   "caído", "nuevo", "vivos", "Cambios", "Categorí", "Página", "Listo", "Solo ", "sin ", "Sin ")
+
+
+def _sin_español(texto: str):
+    encontradas = [marca for marca in _MARCAS_ESPAÑOL if marca in texto]
+    assert not encontradas, f"texto en español: {encontradas}"
+
+
+def test_los_paneles_html_no_tienen_texto_en_español():
+    resultados = {
+        "192.168.1.10": _resultado_fake(alertas=[{"puerto": 23, "motivo": "Telnet (unencrypted)"}]),
+        "192.168.1.20": _resultado_fake(),
+    }
+    diff = {
+        "primera_vez": False, "hosts_nuevos": ["192.168.1.20"], "hosts_caidos": ["192.168.1.99"],
+        "puertos_cambiados": {"192.168.1.10": {
+            "nuevos": [23, 8080], "cerrados": [],
+            "nuevos_sensibles": [{"puerto": 23, "motivo": "Telnet (unencrypted)"}],
+        }},
+    }
+    topologia = _topologia_fake()
+    topologia["equipos"]["192.0.2.254"]["upstream"] = True   # para el texto de la puerta de enlace
+    paneles = [
+        _generar_kpis_html(resultados, "192.168.1.0/24", diff, "#00D2D3"),
+        _generar_kpis_html(resultados, "192.168.1.0/24", None, "#00D2D3"),
+        _generar_tabla_inventario_html(resultados),
+        _generar_cambios_html(diff, resultados),
+        _generar_cambios_html({**diff, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}, {}),
+        _generar_topbar_html("1.0.0", "#00D2D3"),
+        _generar_progreso_html("192.168.1.0/24", 2, "-sV -T4", "00:10", ["192.168.1.10"]),
+        _generar_estado_vacio_html("#00D2D3"),
+        _generar_topologia_html(resultados, "192.168.1.0/24", "#00D2D3"),
+        _generar_topologia_html(_resultados_fake_arbol(), "192.0.2.0/24", "#00D2D3", topologia=topologia),
+    ]
+    for html in paneles:
+        _sin_español(html)
+
+
+def test_los_mensajes_de_validacion_estan_en_ingles(sin_snmp_en_entorno):
+    mensajes = [
+        _validar_rangos("")[1],
+        _validar_rangos("10.0.10.0/24 192.168.1.1-50")[1],
+        _validar_snmp(True, "", "")[1],
+        _validar_snmp(True, "192.0.2.1", "")[1],
+        _validar_snmp(True, "192.0.2.1", "", version="v3")[1],
+    ]
+    assert mensajes[0] == "Enter a network range in CIDR notation (e.g. 192.168.1.0/24)."
+    assert mensajes[2] == "SNMP topology: enter the IP of at least one router or switch."
+    for mensaje in mensajes:
+        _sin_español(mensaje)
+
+
+def test_los_widgets_del_sidebar_estan_en_ingles():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    next(t for t in at.sidebar.toggle if "SNMP" in t.label).set_value(True).run()
+    textos = [w.label for w in [*at.sidebar.toggle, *at.sidebar.text_input, *at.sidebar.button, *at.sidebar.radio]]
+    textos += [w.help or "" for w in [*at.sidebar.toggle, *at.sidebar.text_input, *at.sidebar.radio]]
+    textos += [md.value for md in at.sidebar.markdown] + [c.value for c in at.sidebar.caption]
+
+    assert not at.exception
+    assert "Network range (CIDR)" in textos
+    for texto in textos:
+        _sin_español(texto)

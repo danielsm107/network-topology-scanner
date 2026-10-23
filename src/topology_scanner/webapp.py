@@ -46,7 +46,7 @@ try:
     import streamlit as st
 except ImportError as e:
     raise ImportError(
-        "Falta streamlit para la interfaz web. Instala con: pip install \"topology-scanner[web]\""
+        "Streamlit is missing for the web interface. Install it with: pip install \"topology-scanner[web]\""
     ) from e
 
 import nmap
@@ -110,9 +110,9 @@ def _validar_snmp(activado: bool, texto_ips: str, community: str, *, version: st
     try:
         ips = parsear_lista_ips(texto_ips)
     except ValueError as e:
-        return None, f"Topología SNMP: {e}."
+        return None, f"SNMP topology: {e}."
     if not ips:
-        return None, "Topología SNMP: indica al menos la IP de un router o switch."
+        return None, "SNMP topology: enter the IP of at least one router or switch."
 
     if version == "v3":
         try:
@@ -121,15 +121,15 @@ def _validar_snmp(activado: bool, texto_ips: str, community: str, *, version: st
             else:
                 credenciales = credenciales_desde_entorno(os.environ)
         except ValueError as e:
-            return None, f"Topología SNMP: {e}."
+            return None, f"SNMP topology: {e}."
         if not isinstance(credenciales, CredencialesV3):
-            return None, (f"Topología SNMP: indica el usuario SNMPv3, o déjalo en las variables de entorno "
-                          f"{VARIABLE_USUARIO_V3} y {VARIABLE_CLAVE_AUTH_V3} antes de arrancar la web.")
+            return None, (f"SNMP topology: enter the SNMPv3 user, or set the environment variables "
+                          f"{VARIABLE_USUARIO_V3} and {VARIABLE_CLAVE_AUTH_V3} before starting the web app.")
     else:
         credenciales = community or os.environ.get(VARIABLE_COMMUNITY, "")
         if not credenciales:
-            return None, (f"Topología SNMP: indica la community, o déjala en la variable de entorno "
-                          f"{VARIABLE_COMMUNITY} antes de arrancar la web.")
+            return None, (f"SNMP topology: enter the community, or set the environment variable "
+                          f"{VARIABLE_COMMUNITY} before starting the web app.")
     return {"ips": ips, "credenciales": credenciales}, None
 
 
@@ -138,11 +138,11 @@ def _validar_rangos(texto: str) -> tuple[list[str] | None, str | None]:
     Varios van separados por espacios, no por comas (como en el CLI:
     "192.168.1.1,5" es sintaxis de nmap). Se valida antes de lanzar nmap."""
     if not texto.strip():
-        return None, "Indica un rango de red en notación CIDR (ej: 192.168.1.0/24)."
+        return None, "Enter a network range in CIDR notation (e.g. 192.168.1.0/24)."
     try:
         return parsear_rangos(texto.split()), None
     except ValueError as e:
-        return None, f"Rango no válido: {e}."
+        return None, f"Invalid range: {e}."
 
 
 def _detectar_rango_local() -> str | None:
@@ -199,7 +199,7 @@ def _construir_comando_nmap(hosts: str, ports: str, arguments: str, archivo_xml:
     try:
         nmap_path = nmap.PortScanner()._nmap_path
     except nmap.PortScannerError as e:
-        raise ScannerError(f"Error de nmap (¿ejecutas con sudo?): {e}") from e
+        raise ScannerError(f"nmap error (are you running with sudo?): {e}") from e
     return [
         nmap_path, "-v", "-oX", archivo_xml,
         *shlex.split(hosts), "-p", ports, *shlex.split(arguments),
@@ -334,11 +334,11 @@ def _filas_para_tabla(resultados: dict) -> list:
         {
             "IP": ip,
             "Hostname": datos.get("hostname") or "",
-            "Fabricante": datos.get("vendor") or "",
-            "Categoría": datos.get("categoria", "desconocido"),
-            "SO": datos.get("so", ""),
-            "Puertos": ", ".join(f"{p['puerto']}/{p['servicio']}" for p in datos.get("puertos", [])),
-            "Alertas": len(datos.get("alertas", [])),
+            "Vendor": datos.get("vendor") or "",
+            "Category": datos.get("categoria", "unknown"),
+            "OS": datos.get("so", ""),
+            "Ports": ", ".join(f"{p['puerto']}/{p['servicio']}" for p in datos.get("puertos", [])),
+            "Alerts": len(datos.get("alertas", [])),
         }
         for ip, datos in sorted(resultados.items())
     ]
@@ -349,18 +349,18 @@ def _generar_chips_categorias_html(resultados: dict, limite: int = 8) -> str:
     ordenando por frecuencia. Reutiliza ICONOS_POR_CATEGORIA para el color -
     única fuente de verdad, la misma que ya usan el grafo y su leyenda
     (export.py) en vez de mantener una paleta duplicada aquí."""
-    conteo = Counter(datos.get("categoria", "desconocido") for datos in resultados.values())
+    conteo = Counter(datos.get("categoria", "unknown") for datos in resultados.values())
     mas_comunes = conteo.most_common()
     visibles, resto = mas_comunes[:limite], mas_comunes[limite:]
 
     chips = [
         f'<span class="cat-chip mono"><span class="cat-dot" style="width:7px;height:7px;'
-        f'border-radius:50%;background:{ICONOS_POR_CATEGORIA.get(cat, ICONOS_POR_CATEGORIA["desconocido"])["color"]};'
+        f'border-radius:50%;background:{ICONOS_POR_CATEGORIA.get(cat, ICONOS_POR_CATEGORIA["unknown"])["color"]};'
         f'display:inline-block;"></span>{escape(cat)} {n}</span>'
         for cat, n in visibles
     ]
     if resto:
-        chips.append(f'<span class="cat-chip mono">+{sum(n for _, n in resto)} categorías más</span>')
+        chips.append(f'<span class="cat-chip mono">+{sum(n for _, n in resto)} more categories</span>')
     return "".join(chips)
 
 
@@ -377,23 +377,23 @@ def _generar_kpis_html(resultados: dict, rango: str, diff: dict | None, accent: 
         n_nuevos, n_caidos = len(diff["hosts_nuevos"]), len(diff["hosts_caidos"])
         cambios_num = (
             f'<span style="color:#2ecc71">+{n_nuevos}</span> '
-            f'<span class="muted" style="font-size:15px;">nuevo</span> · '
+            f'<span class="muted" style="font-size:15px;">new</span> · '
             f'<span style="color:#8a97a6">-{n_caidos}</span> '
-            f'<span class="muted" style="font-size:15px;">caído</span>'
+            f'<span class="muted" style="font-size:15px;">down</span>'
         )
-        cambios_sub = "vs. escaneo anterior"
+        cambios_sub = "vs. previous scan"
     else:
         cambios_num = '<span class="muted">—</span>'
-        cambios_sub = "primer escaneo de este rango"
+        cambios_sub = "first scan of this range"
 
     color_alertas = "#ff5c5c" if alertas_totales else "#E3E8EE"
-    sub_alertas = "requieren revisión" if alertas_totales else "sin alertas"
+    sub_alertas = "need review" if alertas_totales else "no alerts"
 
     return f"""
 <div class="kpi-row">
   <div class="kpi-card">
     <div class="kpi-head">
-      <div class="kpi-lbl mono">HOSTS DETECTADOS</div>
+      <div class="kpi-lbl mono">HOSTS FOUND</div>
       <div class="kpi-icon" style="background:{accent}1f; color:{accent}">
         <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor"
              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -403,12 +403,12 @@ def _generar_kpis_html(resultados: dict, rango: str, diff: dict | None, accent: 
       </div>
     </div>
     <div class="kpi-num display">{total_hosts}</div>
-    <div class="kpi-sub mono">en {escape(rango)}</div>
+    <div class="kpi-sub mono">in {escape(rango)}</div>
   </div>
 
   <div class="kpi-card">
     <div class="kpi-head">
-      <div class="kpi-lbl mono">PUERTOS SENSIBLES</div>
+      <div class="kpi-lbl mono">SENSITIVE PORTS</div>
       <div class="kpi-icon" style="background:rgba(255,92,92,0.14); color:#ff5c5c">
         <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor"
              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -422,7 +422,7 @@ def _generar_kpis_html(resultados: dict, rango: str, diff: dict | None, accent: 
 
   <div class="kpi-card">
     <div class="kpi-head">
-      <div class="kpi-lbl mono">CAMBIOS</div>
+      <div class="kpi-lbl mono">CHANGES</div>
       <div class="kpi-icon" style="background:rgba(46,204,113,0.12); color:#2ecc71">
         <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor"
              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -435,7 +435,7 @@ def _generar_kpis_html(resultados: dict, rango: str, diff: dict | None, accent: 
   </div>
 
   <div class="kpi-card">
-    <div class="kpi-head"><div class="kpi-lbl mono">CATEGORÍAS</div></div>
+    <div class="kpi-head"><div class="kpi-lbl mono">CATEGORIES</div></div>
     <div style="line-height:1;">{_generar_chips_categorias_html(resultados)}</div>
   </div>
 </div>
@@ -479,8 +479,8 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
     mismo criterio visual que el resto de la app."""
     filas = []
     for ip, datos in sorted(resultados.items()):
-        categoria = datos.get("categoria", "desconocido")
-        color = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])["color"]
+        categoria = datos.get("categoria", "unknown")
+        color = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["unknown"])["color"]
         puertos = datos.get("puertos", [])
         tiene_alertas = bool(datos.get("alertas"))
 
@@ -505,7 +505,7 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
               <div class="muted mono" style="font-size:12.5px;">{escape(datos.get("hostname") or "")}</div></td>
           <td><div class="row-cat"><span class="cat-dot" style="background:{color}"></span>
               {escape(categoria)}</div></td>
-          <td class="mono muted">{escape(datos.get("so") or "desconocido")}</td>
+          <td class="mono muted">{escape(datos.get("so") or "unknown")}</td>
           <td>{chips_puertos}</td>
           <td>{alerta_icono}</td>
         </tr>
@@ -513,7 +513,7 @@ def _generar_tabla_inventario_html(resultados: dict) -> str:
 
     return _compactar_html(f"""
 <table class="inv-table">
-  <thead><tr><th>Host</th><th>Categoría</th><th>SO</th><th>Puertos</th><th></th></tr></thead>
+  <thead><tr><th>Host</th><th>Category</th><th>OS</th><th>Ports</th><th></th></tr></thead>
   <tbody>{"".join(filas)}</tbody>
 </table>
 """)
@@ -536,7 +536,7 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
           <div class="chg-badge" style="background:rgba(46,204,113,0.15); color:#2ecc71;">+</div>
           <div>
             <div class="mono" style="font-weight:500;">{escape(ip)}
-              <span class="muted" style="font-weight:400;">nuevo</span></div>
+              <span class="muted" style="font-weight:400;">new</span></div>
             <div class="muted mono" style="font-size:11px;">{escape(sub)}</div>
           </div>
         </div>
@@ -548,8 +548,8 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
           <div class="chg-badge" style="background:rgba(122,138,154,0.15); color:#8a97a6;">-</div>
           <div>
             <div class="mono" style="font-weight:500; color:#8a97a6;">{escape(ip)}
-              <span class="muted" style="font-weight:400;">caído</span></div>
-            <div class="muted mono" style="font-size:11px;">no respondió al ping scan</div>
+              <span class="muted" style="font-weight:400;">down</span></div>
+            <div class="muted mono" style="font-size:11px;">did not answer the ping scan</div>
           </div>
         </div>
         """)
@@ -570,7 +570,7 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
               </div>
               <div>
                 <div class="mono" style="font-weight:500; color:#ff8a80;">{escape(ip)}
-                  <span class="muted" style="font-weight:400; color:#ff8a80;">puerto nuevo</span></div>
+                  <span class="muted" style="font-weight:400; color:#ff8a80;">new port</span></div>
                 <div class="muted mono" style="font-size:11px;">{puertos_txt} · {escape(sensibles[0]["motivo"])}</div>
               </div>
             </div>
@@ -581,7 +581,7 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
               <div class="chg-badge" style="background:rgba(227,232,238,0.10); color:#B8C2CC;">•</div>
               <div>
                 <div class="mono" style="font-weight:500;">{escape(ip)}
-                  <span class="muted" style="font-weight:400;">puerto nuevo</span></div>
+                  <span class="muted" style="font-weight:400;">new port</span></div>
                 <div class="muted mono" style="font-size:11px;">{puertos_txt}</div>
               </div>
             </div>
@@ -590,7 +590,7 @@ def _generar_cambios_html(diff: dict, resultados: dict) -> str:
     if not items:
         items.append(
             '<div class="muted mono" style="font-size:12px; padding:4px 2px;">'
-            "Sin cambios respecto al escaneo anterior.</div>"
+            "No changes since the previous scan.</div>"
         )
 
     return _compactar_html(f'<div class="chg-body">{"".join(items)}</div>')
@@ -760,10 +760,10 @@ def _generar_topologia_html(resultados: dict, rango: str | list[str], accent: st
 
     nodos_html = [
         _nodo_topologia_html(
-            cx + x, cy + y, etiqueta=ip, categoria=datos.get("categoria", "desconocido"),
+            cx + x, cy + y, etiqueta=ip, categoria=datos.get("categoria", "unknown"),
             alertas=datos.get("alertas", []),
             sub=" · ".join(filter(None, [datos.get("hostname"), datos.get("vendor"),
-                                          datos.get("categoria", "desconocido")])),
+                                          datos.get("categoria", "unknown")])),
         )
         for (ip, datos), (x, y) in zip(hosts, posiciones, strict=True)
     ]
@@ -825,7 +825,7 @@ def _generar_arbol_html(resultados: dict, rangos: list[str], accent: str, topolo
             continue
         datos_nmap = resultados.get(nodo, {})
         es_equipo = atributos.get("tipo") == "equipo"
-        categoria = atributos.get("categoria", "desconocido")
+        categoria = atributos.get("categoria", "unknown")
         sub = " · ".join(filter(None, [atributos.get("hostname"), datos_nmap.get("vendor"), categoria]))
         lineas = []
         padre = atributos.get("padre")
@@ -833,9 +833,9 @@ def _generar_arbol_html(resultados: dict, rangos: list[str], accent: str, topolo
             interfaz = grafo.edges[padre, nodo].get("interfaz")
             lineas.append(f"↳ {nombre(padre)}" + (f" · {interfaz}" if interfaz else ""))
         if atributos.get("solo_snmp"):
-            lineas.append("visto solo por SNMP (no detectado por nmap)")
+            lineas.append("seen only over SNMP (not found by nmap)")
         if atributos.get("upstream"):
-            lineas.append("puerta de enlace · no consultado por SNMP")
+            lineas.append("gateway · not queried over SNMP")
         nodos_html.append(_nodo_topologia_html(
             x, y, etiqueta=nombre(nodo) if es_equipo else str(nodo), categoria=categoria,
             alertas=atributos.get("alertas", []), sub=sub, lineas=lineas, equipo=es_equipo,
@@ -851,7 +851,7 @@ def _nodo_topologia_html(x: float, y: float, etiqueta: str, categoria: str, aler
     compartido por el círculo y el árbol. Todo el texto se escapa: el
     hostname sale del DNS inverso, el fabricante de nmap y la identidad de
     los equipos de red la define cada equipo por SNMP."""
-    icono = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])
+    icono = ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["unknown"])
     color = "#ff5c5c" if alertas else icono["color"]
 
     # Con muchos hosts vivos, las etiquetas permanentes con hostname +
@@ -920,7 +920,7 @@ def _documento_topologia_html(ancho: float, alto: float, svg: str, nodos_html: s
       <svg viewBox="0 0 {ancho} {alto}" class="topo-svg">{svg}</svg>
       {nodos_html}
     </div>
-    <div class="topo-hint mono">rueda = zoom · arrastra = mover · doble clic = restablecer</div>
+    <div class="topo-hint mono">wheel = zoom · drag = pan · double-click = reset</div>
   </div>
   {_generar_leyenda_topologia_html()}
 </div>
@@ -972,7 +972,7 @@ def _documento_topologia_html(ancho: float, alto: float, svg: str, nodos_html: s
 def _mostrar_resultado(resultado: dict, accent: str):
     resultados = resultado["resultados"]
     if not resultados:
-        st.warning("No se detectaron hosts. Revisa el rango y los permisos (prueba con sudo).")
+        st.warning("No hosts found. Check the range and your permissions (try with sudo).")
         return
 
     diff = resultado["diff"]
@@ -983,7 +983,7 @@ def _mostrar_resultado(resultado: dict, accent: str):
     for aviso in resultado.get("avisos_snmp", []):
         st.warning(aviso)
 
-    st.subheader("Topología")
+    st.subheader("Topology")
     st.components.v1.html(
         # .get("rangos"): un resultado de una versión anterior de la app solo trae "rango"
         _generar_topologia_html(resultados, resultado.get("rangos", resultado["rango"]), accent,
@@ -992,7 +992,7 @@ def _mostrar_resultado(resultado: dict, accent: str):
         scrolling=False,
     )
 
-    st.subheader("Inventario")
+    st.subheader("Inventory")
     total_paginas = _total_paginas(len(resultados))
     pagina_actual = min(st.session_state.get("pagina_inventario", 1), total_paginas)
     st.markdown(
@@ -1002,28 +1002,28 @@ def _mostrar_resultado(resultado: dict, accent: str):
 
     if total_paginas > 1:
         col_prev, col_info, col_next = st.columns([1, 2, 1])
-        if col_prev.button("< Anterior", disabled=pagina_actual <= 1, use_container_width=True):
+        if col_prev.button("< Previous", disabled=pagina_actual <= 1, use_container_width=True):
             st.session_state.pagina_inventario = pagina_actual - 1
             st.rerun()
         col_info.markdown(
             f'<div class="mono muted" style="text-align:center; padding-top:8px; font-size:12px;">'
-            f'Página {pagina_actual} de {total_paginas} · {len(resultados)} hosts</div>',
+            f'Page {pagina_actual} of {total_paginas} · {len(resultados)} hosts</div>',
             unsafe_allow_html=True,
         )
-        if col_next.button("Siguiente >", disabled=pagina_actual >= total_paginas, use_container_width=True):
+        if col_next.button("Next >", disabled=pagina_actual >= total_paginas, use_container_width=True):
             st.session_state.pagina_inventario = pagina_actual + 1
             st.rerun()
     else:
-        st.caption(f"Mostrando {len(resultados)} hosts · ordenado por IP")
+        st.caption(f"Showing {len(resultados)} hosts · sorted by IP")
 
     st.download_button(
-        "Descargar inventario CSV", _generar_csv_bytes(resultados),
-        file_name="inventario.csv", mime="text/csv",
+        "Download CSV inventory", _generar_csv_bytes(resultados),
+        file_name="inventory.csv", mime="text/csv",
     )
 
     if diff and not diff["primera_vez"]:
-        st.subheader("Cambios")
-        st.caption(f"{len(diff['hosts_nuevos'])} nuevos · {len(diff['hosts_caidos'])} caídos")
+        st.subheader("Changes")
+        st.caption(f"{len(diff['hosts_nuevos'])} new · {len(diff['hosts_caidos'])} down")
         st.markdown(_generar_cambios_html(diff, resultados), unsafe_allow_html=True)
 
 
@@ -1055,17 +1055,17 @@ def _fragmento_progreso():
     st.session_state.estado = "idle"
     try:
         if st.session_state.cancelado:
-            st.session_state.mensaje = ("info", "Escaneo cancelado.")
+            st.session_state.mensaje = ("info", "Scan cancelled.")
             st.session_state.resultado = None
         elif contenedor.get("error"):
-            st.session_state.mensaje = ("error", f"No se pudo lanzar nmap: {contenedor['error']}")
+            st.session_state.mensaje = ("error", f"Could not start nmap: {contenedor['error']}")
             st.session_state.resultado = None
         else:
             try:
                 with open(contenedor["archivo_xml"], "rb") as f:
                     resultados = _procesar_salida_nmap(f.read())
             except (OSError, nmap.PortScannerError) as e:
-                st.session_state.mensaje = ("error", f"Error de nmap: {e}")
+                st.session_state.mensaje = ("error", f"nmap error: {e}")
                 st.session_state.resultado = None
             else:
                 st.session_state.resultado = _finalizar_resultados(
@@ -1403,7 +1403,7 @@ def _generar_topbar_html(version: str, accent: str) -> str:
            stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <path d="M10 2.5l6 2.2v4.6c0 4-2.6 6.9-6 8.2-3.4-1.3-6-4.2-6-8.2V4.7l6-2.2z"/>
       </svg>
-      Solo redes propias o autorizadas
+      Only on networks you own or are authorized to scan
     </div>
     <div class="topbar-version">v{version}</div>
   </div>
@@ -1426,15 +1426,15 @@ def _tiempo_relativo(fecha_iso: str, ahora: datetime | None = None) -> str:
     ahora = ahora or datetime.now()
     segundos = (ahora - momento).total_seconds()
     if segundos < 60:
-        return "hace un momento"
+        return "just now"
     minutos = int(segundos // 60)
     if minutos < 60:
-        return f"hace {minutos} min"
+        return f"{minutos} min ago"
     horas = int(minutos // 60)
     if horas < 24:
-        return f"hace {horas} h"
+        return f"{horas} h ago"
     dias = int(horas // 24)
-    return f"hace {dias} día" if dias == 1 else f"hace {dias} días"
+    return f"{dias} day ago" if dias == 1 else f"{dias} days ago"
 
 
 def _generar_historial_html(escaneos: list) -> str:
@@ -1477,7 +1477,7 @@ def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, t
     termina), así que no aparecen aquí - eso ya se ve en el resultado."""
     lineas_log = "".join(
         f'<div class="log-line"><span class="mono">{escape(ip)}</span>'
-        f'<span class="muted mono">detectado</span></div>'
+        f'<span class="muted mono">scanned</span></div>'
         for ip in log[-30:]
     )
     html = f"""
@@ -1487,27 +1487,27 @@ def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, t
       <svg viewBox="0 0 20 20" width="10" height="10" fill="none" stroke="currentColor"
            stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4 4 8-9"/></svg>
     </div>
-    Fase 1 · Descubrimiento — {hosts_vivos} hosts vivos
+    Phase 1 · Discovery — {hosts_vivos} live hosts
   </div>
   <div class="phase-line"></div>
   <div class="phase-chip active mono">
     <div class="pulse-dot"></div>
-    Fase 2 · Escaneo de puertos y servicios
+    Phase 2 · Port and service scan
   </div>
 </div>
 
 <div class="stats-row">
   <div class="stat-chip">
     <div class="num">{hosts_vivos}</div>
-    <div class="lbl mono">Hosts vivos</div>
+    <div class="lbl mono">Live hosts</div>
   </div>
   <div class="stat-chip">
     <div class="num mono" style="font-size:16px;">{escape(rango)}</div>
-    <div class="lbl mono">Rango en curso</div>
+    <div class="lbl mono">Current range</div>
   </div>
   <div class="stat-chip">
     <div class="num mono">{tiempo}</div>
-    <div class="lbl mono">Tiempo transcurrido</div>
+    <div class="lbl mono">Elapsed time</div>
   </div>
 </div>
 
@@ -1518,16 +1518,16 @@ def _generar_progreso_html(rango: str, hosts_vivos: int, argumentos_nmap: str, t
     <div class="sweep"></div>
   </div>
   <div class="terminal-head">
-    <div class="terminal-title mono">Registro de escaneo</div>
+    <div class="terminal-title mono">Scan log</div>
     <div class="dots"><span></span><span></span><span></span></div>
   </div>
   <div class="mono log-lines" style="display:flex; flex-direction:column;">
-    <div class="log-line cmd">&gt; descubrir_hosts_vivos({escape(rango)})</div>
-    <div class="log-line" style="color:#B8C2CC; padding-left:18px;">ping scan completo — {hosts_vivos} hosts vivos</div>
+    <div class="log-line cmd">&gt; nmap -sn -T4 {escape(rango)}</div>
+    <div class="log-line" style="color:#B8C2CC; padding-left:18px;">ping scan done — {hosts_vivos} live hosts</div>
     <div class="log-line cmd" style="margin-top:6px;">&gt; nmap {escape(argumentos_nmap)} -p ...</div>
     {lineas_log}
     <div class="log-line" style="color:#7C8A9A;">
-      escaneando puertos y servicios<span class="cursor"></span>
+      scanning ports and services<span class="cursor"></span>
     </div>
   </div>
 </div>
@@ -1553,12 +1553,12 @@ def _generar_estado_vacio_html(accent: str) -> str:
     <circle cx="12" cy="12" r="5.5" stroke="{accent}" stroke-width="1.3" opacity="0.55"/>
     <circle cx="12" cy="12" r="2" fill="{accent}"/>
   </svg>
-  <div class="empty-state-title">Listo para escanear</div>
-  <div class="empty-state-body">Configura el rango de red en el panel lateral y pulsa
-    <b style="color:#E3E8EE">Escanear</b> para descubrir los dispositivos activos,
-    su fabricante y los puertos que exponen.</div>
-  <div class="empty-state-hint">Fase 1 <span class="kbd">ping scan</span> ·
-    Fase 2 <span class="kbd">-sV puertos</span></div>
+  <div class="empty-state-title">Ready to scan</div>
+  <div class="empty-state-body">Set the network range in the sidebar and press
+    <b style="color:#E3E8EE">Scan</b> to discover the live devices,
+    their vendor and the ports they expose.</div>
+  <div class="empty-state-hint">Phase 1 <span class="kbd">ping scan</span> ·
+    Phase 2 <span class="kbd">-sV ports</span></div>
 </div>
 """
 
@@ -1597,17 +1597,17 @@ def main():
     escaneando = st.session_state.estado == "escaneando"
 
     with st.sidebar:
-        st.markdown('<div class="section-eyebrow">Configuración de escaneo</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-eyebrow">Scan settings</div>', unsafe_allow_html=True)
         rango = st.text_input(
-            "Rango de red (CIDR)",
+            "Network range (CIDR)",
             value=st.session_state.rango_detectado,
             placeholder="192.168.1.0/24",
             disabled=escaneando,
-            help="Varios rangos a la vez separados por espacios, p. ej. 192.168.1.0/24 10.0.10.0/24 "
-                 "(el historial se guarda por rango)",
+            help="Several ranges at once, separated by spaces, e.g. 192.168.1.0/24 10.0.10.0/24 "
+                 "(history is kept per range)",
         )
         detectar = st.button(
-            "Detectar mi red automáticamente",
+            "Detect my network",
             key="detectar_red",
             icon=":material/gps_fixed:",
             disabled=escaneando,
@@ -1615,25 +1615,25 @@ def main():
         )
 
         st.divider()
-        st.markdown('<div class="section-eyebrow">Opciones</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-eyebrow">Options</div>', unsafe_allow_html=True)
         rapido = st.toggle(
-            "Escaneo rápido", value=True, disabled=escaneando, help="-T4, sin detección de SO"
+            "Fast scan", value=True, disabled=escaneando, help="-T4, no OS detection"
         )
-        con_so = st.toggle("Detectar SO", disabled=escaneando, help="-O --osscan-guess, más lento")
+        con_so = st.toggle("Detect OS", disabled=escaneando, help="-O --osscan-guess, slower")
         guardar_historial = st.toggle(
-            "Guardar en historial",
+            "Save to history",
             value=True,
             disabled=escaneando,
-            help="Compara con el escaneo anterior",
+            help="Compare with the previous scan",
         )
 
         st.divider()
-        st.markdown('<div class="section-eyebrow">Topología SNMP</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-eyebrow">SNMP topology</div>', unsafe_allow_html=True)
         usar_snmp = st.toggle(
-            "Topología real por SNMP",
+            "Real topology via SNMP",
             disabled=escaneando,
-            help="Consulta tus routers/switches (SNMP v2c o v3, solo lectura) para dibujar quién "
-                 "cuelga de quién en vez de la estrella. Requiere el extra [snmp]",
+            help="Queries your routers/switches (SNMP v2c or v3, read-only) to draw what hangs "
+                 "from what instead of the star. Requires the [snmp] extra",
         )
         ips_snmp = community_snmp = ""
         version_snmp, campos_v3 = "v2c", {}
@@ -1642,48 +1642,48 @@ def main():
                 "Routers/switches (IPs)", placeholder="192.168.1.1, 192.168.1.2", disabled=escaneando
             )
             version_snmp = st.radio(
-                "Versión SNMP", ["v2c", "v3"], horizontal=True, disabled=escaneando,
-                help="v3 autentica y cifra; en v2c la community viaja en texto plano",
+                "SNMP version", ["v2c", "v3"], horizontal=True, disabled=escaneando,
+                help="v3 authenticates and encrypts; with v2c the community travels in plain text",
             )
             # type="password": ni la community ni las claves se ven en pantalla.
             # Vacías, se usan las variables de entorno (las mismas que el CLI).
             if version_snmp == "v3":
                 campos_v3 = {
                     "usuario": st.text_input(
-                        "Usuario SNMPv3", disabled=escaneando,
-                        help=f"Si lo dejas vacío se usan las variables de entorno {VARIABLE_USUARIO_V3} y "
-                             f"{VARIABLE_CLAVE_AUTH_V3}",
+                        "SNMPv3 user", disabled=escaneando,
+                        help=f"If left empty, the environment variables {VARIABLE_USUARIO_V3} and "
+                             f"{VARIABLE_CLAVE_AUTH_V3} are used",
                     ),
-                    "clave_auth": st.text_input("Clave de autenticación", type="password", disabled=escaneando),
+                    "clave_auth": st.text_input("Authentication key", type="password", disabled=escaneando),
                     "clave_priv": st.text_input(
-                        "Clave de cifrado", type="password", disabled=escaneando,
-                        help="Vacía = autentica pero no cifra",
+                        "Privacy key", type="password", disabled=escaneando,
+                        help="Empty = authenticates but doesn't encrypt",
                     ),
                     "protocolo_auth": st.selectbox(
-                        "Autenticación", list(PROTOCOLOS_AUTH), index=list(PROTOCOLOS_AUTH).index("SHA"),
+                        "Authentication", list(PROTOCOLOS_AUTH), index=list(PROTOCOLOS_AUTH).index("SHA"),
                         disabled=escaneando,
                     ),
                     "protocolo_priv": st.selectbox(
-                        "Cifrado", list(PROTOCOLOS_PRIV), index=list(PROTOCOLOS_PRIV).index("AES"),
+                        "Privacy", list(PROTOCOLOS_PRIV), index=list(PROTOCOLOS_PRIV).index("AES"),
                         disabled=escaneando,
                     ),
                 }
                 if not campos_v3["usuario"] and os.environ.get(VARIABLE_USUARIO_V3):
-                    st.caption(f"Se usará el usuario de {VARIABLE_USUARIO_V3}.")
+                    st.caption(f"The user from {VARIABLE_USUARIO_V3} will be used.")
             else:
                 community_snmp = st.text_input(
-                    "Community (solo lectura)", type="password", disabled=escaneando,
-                    help=f"Si la dejas vacía se usa la variable de entorno {VARIABLE_COMMUNITY}",
+                    "Community (read-only)", type="password", disabled=escaneando,
+                    help=f"If left empty, the environment variable {VARIABLE_COMMUNITY} is used",
                 )
                 if not community_snmp and os.environ.get(VARIABLE_COMMUNITY):
-                    st.caption(f"Se usará la community de {VARIABLE_COMMUNITY}.")
+                    st.caption(f"The community from {VARIABLE_COMMUNITY} will be used.")
 
         st.divider()
-        enviado = st.button("▶ Escanear", disabled=escaneando, type="primary", use_container_width=True)
-        parar = st.button("⏹ Parar escaneo", disabled=not escaneando, use_container_width=True)
+        enviado = st.button("▶ Scan", disabled=escaneando, type="primary", use_container_width=True)
+        parar = st.button("⏹ Stop scan", disabled=not escaneando, use_container_width=True)
 
         st.divider()
-        st.markdown('<div class="section-eyebrow">Historial reciente</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-eyebrow">Recent history</div>', unsafe_allow_html=True)
         try:
             recientes = listar_escaneos_recientes()
         except HistoryError:
@@ -1691,7 +1691,7 @@ def main():
         if recientes:
             st.markdown(_generar_historial_html(recientes), unsafe_allow_html=True)
         else:
-            st.caption("Todavía no hay escaneos guardados.")
+            st.caption("No saved scans yet.")
 
     if detectar:
         # "Detectar mi red" está debajo del text_input en el layout (a la
@@ -1703,7 +1703,7 @@ def main():
             st.session_state.rango_detectado = detectado
             st.rerun()
         else:
-            st.warning("No se pudo detectar la red automáticamente. Indícala a mano.")
+            st.warning("Could not detect your network automatically. Enter it manually.")
 
     if enviado and not escaneando:
         # SNMP se valida antes que nada: un error aquí no debe descubrirse
@@ -1722,7 +1722,7 @@ def main():
                 st.error(str(e))
                 vivos = None
             if vivos == []:
-                st.warning("Ningún host respondió al ping scan.")
+                st.warning("No host answered the ping scan.")
             elif vivos:
                 argumentos_nmap = _argumentos_nmap_desde_formulario(rapido, con_so)
                 with tempfile.NamedTemporaryFile(suffix=".xml", delete=False) as f:

@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-10-22
+
+### Changed
+- The CLI is now in English: help text, messages and flag names (`--fast`,
+  `--os-detection`, `--no-discovery`, `--no-history`). The old Spanish flags
+  keep working as hidden aliases, so existing scripts don't break.
+- Scanner, SNMP, range and history errors and log messages are now in
+  English too (they show up in both the CLI and the web interface).
+- The terminal report, the history diff and the sensitive-port reasons
+  (shown in every output) are in English.
+- CSV columns renamed to English: `ip, hostname, mac, vendor, category, os,
+  ports, alerts` (were `categoria`, `so`, `puertos`, `alertas`). Update any
+  spreadsheet or script that reads them by name.
+- Unclassified devices and undetected OS are now `unknown` (were
+  `desconocido`), and category names are in English (Printer, Camera...).
+- The HTML map is in English: legend, node tooltips and the central node of
+  each range (`Network <range>`, was `Red <range>`).
+- The web interface is in English: sidebar, results panels, scan progress
+  and messages. The downloaded inventory is now `inventory.csv`.
+- README screenshots regenerated in English, with fictional data only.
+- The default HTML output is now `network_topology.html` (was
+  `topologia_red.html`). The history database keeps its name
+  (`historial.db`) so new scans still compare against the old ones.
+
 ## [1.0.0] - 2026-10-22
 
 First public release. Earlier versions (0.x) were never published.

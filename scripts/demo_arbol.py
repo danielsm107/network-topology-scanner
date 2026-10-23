@@ -31,7 +31,7 @@ def _host(hostname: str, mac: str, vendor: str, puertos: list[int]) -> dict:
     return {
         "estado": "up",
         "hostname": hostname,
-        "so": "desconocido",
+        "so": "unknown",
         "mac": mac,
         "vendor": vendor,
         "categoria": clasificar_dispositivo(vendor),
@@ -52,30 +52,30 @@ def datos_demo() -> tuple[dict, list[str], dict]:
     resultados = {
         # Equipos de red (nmap también los ve)
         "192.0.2.1": _host("router-core", "02:00:00:00:00:01", "Routerboard.com", [22, 53, 80, 8291]),
-        "192.0.2.2": _host("switch-salon", "02:00:00:00:00:02", "Routerboard.com", [80]),
-        "192.0.2.3": _host("ap-planta-alta", "02:00:00:00:00:03", "Ubiquiti Networks", [22, 443]),
+        "192.0.2.2": _host("switch-living-room", "02:00:00:00:00:02", "Routerboard.com", [80]),
+        "192.0.2.3": _host("ap-upstairs", "02:00:00:00:00:03", "Ubiquiti Networks", [22, 443]),
         # Detrás del switch
         "192.0.2.10": _host("nas", "02:00:00:00:00:10", "Synology Incorporated", [22, 80, 443, 445]),
-        "192.0.2.11": _host("pc-oficina", "02:00:00:00:00:11", "Dell Inc.", [3389]),
-        "192.0.2.12": _host("impresora", "02:00:00:00:00:12", "Brother Industries", [80, 631]),
+        "192.0.2.11": _host("office-pc", "02:00:00:00:00:11", "Dell Inc.", [3389]),
+        "192.0.2.12": _host("printer", "02:00:00:00:00:12", "Brother Industries", [80, 631]),
         "192.0.2.13": _host("vm-docker", "02:00:00:00:00:13", "QEMU virtual NIC", [22, 8080]),
         # Directo al router
         "192.0.2.20": _host("raspberrypi", "02:00:00:00:00:20", "Raspberry Pi Trading", [22, 53, 80]),
         # WiFi del AP
         "192.0.2.31": _host("galaxy-s24", "02:00:00:00:00:31", "Samsung Electronics", []),
         "192.0.2.32": _host("macbook", "02:00:00:00:00:32", "Apple, Inc.", [22]),
-        "192.0.2.33": _host("enchufe-salon", "02:00:00:00:00:33", "Espressif Inc.", [80]),
+        "192.0.2.33": _host("smart-plug", "02:00:00:00:00:33", "Espressif Inc.", [80]),
         # VLAN de cámaras
-        "198.51.100.20": _host("camara-entrada", "02:00:00:00:01:20", "Hangzhou Hikvision Digital", [80, 554]),
-        "198.51.100.21": _host("camara-jardin", "02:00:00:00:01:21", "Reolink Innovation", [80, 554]),
+        "198.51.100.20": _host("cam-front-door", "02:00:00:00:01:20", "Hangzhou Hikvision Digital", [80, 554]),
+        "198.51.100.21": _host("cam-garden", "02:00:00:00:01:21", "Reolink Innovation", [80, 554]),
     }
 
     topologia = {
         "equipos": {
             "203.0.113.1": _equipo("ISP", upstream=True),
             "192.0.2.1": _equipo("router-core", "MikroTik", "RouterOS 7.16", "02:00:00:00:00:01", consultado=True),
-            "192.0.2.2": _equipo("switch-salon", "MikroTik", "SwOS 2.17", "02:00:00:00:00:02"),
-            "192.0.2.3": _equipo("ap-planta-alta", "Ubiquiti", "UniFi 6.6", "02:00:00:00:00:03", consultado=True),
+            "192.0.2.2": _equipo("switch-living-room", "MikroTik", "SwOS 2.17", "02:00:00:00:00:02"),
+            "192.0.2.3": _equipo("ap-upstairs", "Ubiquiti", "UniFi 6.6", "02:00:00:00:00:03", consultado=True),
         },
         "enlaces": [
             {"padre": "203.0.113.1", "hijo": "192.0.2.1", "interfaz_padre": None, "interfaz_hijo": "ether1"},
@@ -95,8 +95,8 @@ def datos_demo() -> tuple[dict, list[str], dict]:
             "02:00:00:00:00:33": {"ip": "192.0.2.33", "padre": "192.0.2.3", "interfaz": "wlan2"},
             # Visto solo por SNMP (nmap no lo detectó)
             "02:00:00:00:00:99": {"ip": None, "padre": "192.0.2.3", "interfaz": "wlan2"},
-            "02:00:00:00:01:20": {"ip": "198.51.100.20", "padre": "192.0.2.1", "interfaz": "vlan-camaras"},
-            "02:00:00:00:01:21": {"ip": "198.51.100.21", "padre": "192.0.2.1", "interfaz": "vlan-camaras"},
+            "02:00:00:00:01:20": {"ip": "198.51.100.20", "padre": "192.0.2.1", "interfaz": "vlan-cameras"},
+            "02:00:00:00:01:21": {"ip": "198.51.100.21", "padre": "192.0.2.1", "interfaz": "vlan-cameras"},
         },
     }
     return resultados, RANGOS, topologia

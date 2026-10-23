@@ -47,22 +47,22 @@ ICONOS_POR_CATEGORIA = {
     "firewall": {"code": "\uf3ed", "color": "#e67e22", "nombre": "Firewall",
              "face": "'Font Awesome 5 Free'", "weight": "900"},
     # code: cloud
-    "vm": {"code": "\uf0c2", "color": "#9b59b6", "nombre": "Máquina virtual",
+    "vm": {"code": "\uf0c2", "color": "#9b59b6", "nombre": "Virtual machine",
        "face": "'Font Awesome 5 Free'", "weight": "900"},
     # code: hdd
     "nas": {"code": "\uf0a0", "color": "#f1c40f", "nombre": "NAS",
         "face": "'Font Awesome 5 Free'", "weight": "900"},
     # code: print
-    "printer": {"code": "\uf02f", "color": "#95a5a6", "nombre": "Impresora",
+    "printer": {"code": "\uf02f", "color": "#95a5a6", "nombre": "Printer",
             "face": "'Font Awesome 5 Free'", "weight": "900"},
     # code: video
-    "camera": {"code": "\uf03d", "color": "#e74c3c", "nombre": "Cámara",
+    "camera": {"code": "\uf03d", "color": "#e74c3c", "nombre": "Camera",
            "face": "'Font Awesome 5 Free'", "weight": "900"},
     # code: microchip
     "iot": {"code": "\uf2db", "color": "#1abc9c", "nombre": "IoT",
         "face": "'Font Awesome 5 Free'", "weight": "900"},
     # code: mobile-alt
-    "mobile": {"code": "\uf3cd", "color": "#2ecc71", "nombre": "Móvil",
+    "mobile": {"code": "\uf3cd", "color": "#2ecc71", "nombre": "Mobile",
            "face": "'Font Awesome 5 Free'", "weight": "900"},
     # code: apple
     "apple": {"code": "\uf179", "color": "#ecf0f1", "nombre": "Apple",
@@ -71,28 +71,28 @@ ICONOS_POR_CATEGORIA = {
     "pc": {"code": "\uf108", "color": "#2ecc71", "nombre": "PC",
        "face": "'Font Awesome 5 Free'", "weight": "900"},
     # code: question-circle
-    "desconocido": {"code": "\uf059", "color": "#7f8c8d", "nombre": "Desconocido",
-                "face": "'Font Awesome 5 Free'", "weight": "900"},
+    "unknown": {"code": "\uf059", "color": "#7f8c8d", "nombre": "Unknown",
+            "face": "'Font Awesome 5 Free'", "weight": "900"},
 }
 
 
 def clasificar_dispositivo(vendor: str) -> str:
     """
     Devuelve la categoría de dispositivo deducida del nombre de fabricante.
-    Si no hay vendor o no coincide con ninguna palabra clave, devuelve "desconocido".
+    Si no hay vendor o no coincide con ninguna palabra clave, devuelve "unknown".
     """
     if not vendor:
-        return "desconocido"
+        return "unknown"
     vendor_lower = vendor.lower()
     for categoria, palabras_clave in CATEGORIA_POR_VENDOR.items():
         if any(palabra in vendor_lower for palabra in palabras_clave):
             return categoria
-    return "desconocido"
+    return "unknown"
 
 
 def icono_para_categoria(categoria: str) -> dict:
     """Devuelve el dict {code, color} de Font Awesome para una categoría dada."""
-    return ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["desconocido"])
+    return ICONOS_POR_CATEGORIA.get(categoria, ICONOS_POR_CATEGORIA["unknown"])
 
 
 # Puertos que merece la pena señalar si están abiertos: protocolos sin
@@ -100,11 +100,11 @@ def icono_para_categoria(categoria: str) -> dict:
 # ransomware...). No es una lista exhaustiva de auditoría, es una primera
 # señal visual de aviso.
 PUERTOS_SENSIBLES = {
-    21: "FTP (credenciales sin cifrar)",
-    23: "Telnet (sin cifrar)",
-    445: "SMB (vector típico de ransomware)",
-    3389: "RDP (objetivo habitual de fuerza bruta)",
-    5900: "VNC (a menudo sin autenticación)",
+    21: "FTP (unencrypted credentials)",
+    23: "Telnet (unencrypted)",
+    445: "SMB (common ransomware vector)",
+    3389: "RDP (common brute-force target)",
+    5900: "VNC (often without authentication)",
 }
 
 

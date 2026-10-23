@@ -69,8 +69,8 @@ pip install -e ".[dev,web,snmp]"
 
 ```bash
 sudo topology-scanner 192.168.1.0/24
-sudo topology-scanner 192.168.1.0/24 --rapido
-sudo topology-scanner 192.168.1.0/24 --con-so --output my_network.html
+sudo topology-scanner 192.168.1.0/24 --fast
+sudo topology-scanner 192.168.1.0/24 --os-detection --output my_network.html
 
 # Several ranges at once (e.g. your LAN and a homelab subnet behind another router)
 sudo topology-scanner 192.168.1.0/24 10.0.10.0/24
@@ -88,14 +88,17 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 | `range`           | CIDR range(s) to scan, space-separated; history is kept per range  | (required)            |
 | `--ports`         | Ports to scan (nmap format)                                        | common ports           |
 | `--nmap-args`     | Extra arguments passed to nmap                                     | `-sV -T4`             |
-| `--output`        | Output HTML file name                                              | `topologia_red.html`  |
-| `--con-so`        | Enables OS detection (-O), the slowest option                      | disabled               |
-| `--sin-2-fases`   | Disables the preliminary ping scan, scans the full range directly  | disabled               |
-| `--rapido`        | Max-speed preset, ports only (incompatible with `--con-so`/`--nmap-args`) | disabled         |
+| `--output`        | Output HTML file name                                              | `network_topology.html` |
+| `--os-detection`  | Enables OS detection (-O), the slowest option                      | disabled               |
+| `--no-discovery`  | Disables the preliminary ping scan, scans the full range directly  | disabled               |
+| `--fast`          | Max-speed preset, ports only (incompatible with `--os-detection`/`--nmap-args`) | disabled   |
 | `--csv`           | Also exports a CSV inventory to the given path                     | disabled               |
 | `--history-db`    | SQLite file where scan history is stored                           | `historial.db`         |
-| `--sin-historial` | Skips saving the scan to history / diffing against the previous one | disabled              |
-| `--snmp`          | Routers/switches to query over SNMP v2c (comma-separated IPs)      | disabled (star layout) |
+| `--no-history`    | Skips saving the scan to history / diffing against the previous one | disabled              |
+| `--snmp`          | Routers/switches to query over SNMP v2c/v3 (comma-separated IPs)   | disabled (star layout) |
+
+The Spanish flags from v1.0 (`--rapido`, `--con-so`, `--sin-2-fases`,
+`--sin-historial`) still work as hidden aliases.
 
 ## Web interface
 

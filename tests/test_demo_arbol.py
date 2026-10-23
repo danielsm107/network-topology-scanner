@@ -56,3 +56,13 @@ def test_generar_escribe_el_html(tmp_path):
     salida = tmp_path / "arbol.html"
     _cargar_demo().generar(str(salida))
     assert "vis-network" in salida.read_text(encoding="utf-8")
+
+
+def test_los_nombres_de_la_demo_estan_en_ingles():
+    """Salen en las capturas del README, que lee un público anglohablante."""
+    resultados, _, topologia = _cargar_demo().datos_demo()
+    nombres = [d["hostname"] for d in resultados.values()] + [e["nombre"] for e in topologia["equipos"].values()]
+    nombres += [u["interfaz"] or "" for u in topologia["ubicaciones"].values()]
+
+    for palabra in ("salon", "planta", "oficina", "impresora", "enchufe", "camara", "jardin", "entrada"):
+        assert not any(palabra in nombre for nombre in nombres), palabra

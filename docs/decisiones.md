@@ -17,7 +17,7 @@ contexto completo.
   escaneo completo solo de los hosts vivos) porque escanear un /24 completo
   con `-sV -O` era demasiado lento.
 - `-O` (detección de SO) está desactivado por defecto por lentitud; se activa
-  con `--con-so`.
+  con `--os-detection` (antes `--con-so`).
 - El HTML usa `height: 100vh` + CSS inyectado a mano (no confiar solo en lo
   que genera pyvis) para que el grafo ocupe toda la ventana del navegador.
   Ojo: pyvis también mete un `<center><h1></h1></center>` vacío en el body
@@ -404,3 +404,39 @@ contexto completo.
     estrenar el pipeline sin gastar una versión real.
   - Las imágenes del README van con URL absoluta (raw.githubusercontent):
     PyPI muestra el README y no resuelve rutas relativas del repo.
+- Interfaz en inglés (v1.1), para poder enseñar el proyecto fuera (Reddit,
+  público anglohablante). Solo lo que ve el usuario: el código (funciones,
+  variables, docstrings, tests) sigue en español, porque traducirlo es una
+  refactorización enorme que nadie que use la herramienta nota. Nada de
+  i18n con selector de idioma: sobreingeniería para un proyecto sin
+  usuarios todavía. Se hace por partes, un commit por superficie (CLI,
+  web, salidas, capturas). En el CLI:
+  - Flags nuevos en inglés (`--fast`, `--os-detection`, `--no-discovery`,
+    `--no-history`). Los de la v1.0 en español siguen funcionando como
+    alias ocultos (`help=argparse.SUPPRESS`, mismo `dest`): la v1.0 ya está
+    en PyPI y romper un cron al actualizar no compensa.
+  - El HTML por defecto pasa a `network_topology.html`, pero el historial
+    sigue en `historial.db`: renombrarlo dejaría de comparar con los
+    escaneos anteriores sin avisar.
+  - Los mensajes se traducen en el módulo que los genera (scanner, snmp,
+    rangos, history, export), no en quien los muestra: así salen en inglés
+    en el CLI y en la web sin duplicar nada.
+  - Valores de datos: la categoría y el SO sin identificar pasan de
+    `desconocido` a `unknown` (las demás claves de categoría ya estaban en
+    inglés), y el nodo central de cada rango de `Red <rango>` a
+    `Network <rango>`. Es seguro porque el historial guarda la categoría
+    pero nunca la vuelve a leer para comparar. Las columnas del CSV
+    también cambian, y queda avisado en el CHANGELOG.
+- Capturas de la web del README (`dashboard.png`, `inventario.png`): salen
+  de `scripts/demo_web.py`, que reutiliza los datos de `demo_arbol.py`, les
+  añade un diff inventado y los deja en `session_state` antes de llamar a
+  `webapp.main()`. Antes se hicieron a mano y no se podían regenerar.
+  **La demo sustituye `listar_escaneos_recientes`**: el `historial.db` del
+  directorio de trabajo es el de la red real de quien la lance, y en la
+  primera captura en inglés salieron rangos reales en "Recent history"
+  (se vio antes de publicar). Lo cubre `tests/test_demo_web.py`. El
+  `--screenshot` de Chrome dispara antes de que Streamlit pinte (el
+  websocket no avanza con `--virtual-time-budget`), así que se captura por
+  DevTools Protocol esperando a que la página muestre "Changes", con una
+  ventana de 1600x2900, y se recorta: dashboard `(0, 0, 1600, 1030)`,
+  inventario `(300, 1035, 1600, 2400)`.

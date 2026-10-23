@@ -40,7 +40,7 @@ def _grafo_estrella(resultados: dict, rangos: list[str]) -> nx.Graph:
     grafo = nx.Graph()
 
     for rango in rangos:
-        grafo.add_node(_nodo_red(rango), tipo="red", rango=rango, titulo=f"Rango escaneado: {rango}")
+        grafo.add_node(_nodo_red(rango), tipo="red", rango=rango, titulo=f"Scanned range: {rango}")
 
     for ip, datos in resultados.items():
         nodo_red = _nodo_red(rango_de(ip, rangos))
@@ -51,33 +51,33 @@ def _grafo_estrella(resultados: dict, rangos: list[str]) -> nx.Graph:
 
 
 def _nodo_red(rango: str) -> str:
-    return f"Red {rango}"
+    return f"Network {rango}"
 
 
 def _atributos_host(ip: str, datos: dict) -> dict:
     etiqueta_puertos = ", ".join(
         f"{p['puerto']}/{p['servicio']}" for p in datos["puertos"]
-    ) or "sin puertos abiertos detectados"
+    ) or "no open ports found"
 
     alertas = datos.get("alertas", [])
 
     tooltip = (
         f"IP: {ip}\n"
-        f"Hostname: {datos['hostname'] or 'N/D'}\n"
-        f"MAC: {datos.get('mac') or 'N/D'}\n"
-        f"Fabricante: {datos.get('vendor') or 'N/D'}\n"
-        f"SO estimado: {datos['so']}\n"
-        f"Puertos: {etiqueta_puertos}"
+        f"Hostname: {datos['hostname'] or 'N/A'}\n"
+        f"MAC: {datos.get('mac') or 'N/A'}\n"
+        f"Vendor: {datos.get('vendor') or 'N/A'}\n"
+        f"Estimated OS: {datos['so']}\n"
+        f"Ports: {etiqueta_puertos}"
     )
     if alertas:
         etiqueta_alertas = ", ".join(f"{a['puerto']} ({a['motivo']})" for a in alertas)
-        tooltip += f"\n\n⚠ Puertos sensibles abiertos: {etiqueta_alertas}"
+        tooltip += f"\n\n⚠ Open sensitive ports: {etiqueta_alertas}"
 
     return {
         "tipo": "host",
         "titulo": tooltip,
         "hostname": datos["hostname"],
-        "categoria": datos.get("categoria", "desconocido"),
+        "categoria": datos.get("categoria", "unknown"),
         "num_puertos": len(datos["puertos"]),
         "alertas": alertas,
     }
@@ -95,13 +95,13 @@ def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx
         grafo.nodes[nodo]["padre"] = padre
         grafo.add_edge(padre, nodo, interfaz=interfaz)
         donde = f"{nombre_de(padre)} ({interfaz})" if interfaz else nombre_de(padre)
-        grafo.nodes[nodo]["titulo"] += f"\nConectado a: {donde}"
+        grafo.nodes[nodo]["titulo"] += f"\nConnected to: {donde}"
 
     # 1. Equipos de red (con los datos de nmap si también los escaneó)
     for ip, equipo in equipos.items():
         if ip in resultados:
             atributos = _atributos_host(ip, resultados[ip])
-            if atributos["categoria"] == "desconocido":
+            if atributos["categoria"] == "unknown":
                 atributos["categoria"] = "router"
         else:
             atributos = {"titulo": f"IP: {ip}", "hostname": "", "categoria": "router",
@@ -135,8 +135,8 @@ def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx
             rango = rango_de(ip, rangos)
             nodo_red = _nodo_red(rango)
             if nodo_red not in grafo:
-                grafo.add_node(nodo_red, tipo="red", rango=rango, titulo=f"Rango escaneado: {rango}\n"
-                               "(hosts sin ubicación en la topología SNMP)")
+                grafo.add_node(nodo_red, tipo="red", rango=rango, titulo=f"Scanned range: {rango}\n"
+                               "(hosts not placed in the SNMP topology)")
             colgar(ip, nodo_red, None)
 
     # 3. Hosts que solo ha visto SNMP (nmap no los detectó o no tienen IP)
@@ -145,10 +145,10 @@ def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx
             continue
         nodo = ubicacion["ip"] or mac
         grafo.add_node(
-            nodo, tipo="host", hostname="", categoria="desconocido", num_puertos=0, alertas=[],
+            nodo, tipo="host", hostname="", categoria="unknown", num_puertos=0, alertas=[],
             solo_snmp=True,
-            titulo=(f"IP: {ubicacion['ip'] or 'N/D'}\nMAC: {mac}\n"
-                    "Visto por SNMP, no detectado por nmap"),
+            titulo=(f"IP: {ubicacion['ip'] or 'N/A'}\nMAC: {mac}\n"
+                    "Seen over SNMP, not found by nmap"),
         )
         colgar(nodo, ubicacion["padre"], ubicacion["interfaz"])
 
@@ -156,13 +156,13 @@ def _grafo_topologia(resultados: dict, rangos: list[str], topologia: dict) -> nx
 
 
 def _descripcion_equipo(equipo: dict) -> str:
-    lineas = [f"\n\nEquipo de red: {equipo['nombre'] or 'sin nombre'}"]
+    lineas = [f"\n\nNetwork device: {equipo['nombre'] or 'unnamed'}"]
     if equipo["plataforma"] or equipo["version"]:
-        lineas.append(f"Plataforma: {equipo['plataforma']} {equipo['version']}".rstrip())
+        lineas.append(f"Platform: {equipo['plataforma']} {equipo['version']}".rstrip())
     if equipo["consultado"]:
-        lineas.append("Consultado por SNMP")
+        lineas.append("Queried over SNMP")
     elif equipo["upstream"]:
-        lineas.append("Puerta de enlace (upstream, no consultado por SNMP)")
+        lineas.append("Gateway (upstream, not queried over SNMP)")
     return "\n".join(lineas)
 
 

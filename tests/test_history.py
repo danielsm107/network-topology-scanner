@@ -140,7 +140,7 @@ def test_rangos_distintos_no_se_mezclan(tmp_path):
 def test_error_de_sqlite_se_convierte_en_historyerror(tmp_path):
     db = str(tmp_path / "carpeta_que_no_existe" / "historial.db")
 
-    with pytest.raises(HistoryError):
+    with pytest.raises(HistoryError, match="Error accessing the scan history"):
         registrar_y_comparar({"192.168.1.10": _resultado_fake()}, "192.168.1.0/24", db_path=db)
 
 

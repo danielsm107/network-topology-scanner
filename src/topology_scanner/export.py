@@ -126,7 +126,7 @@ def posiciones_jerarquicas(grafo: nx.Graph) -> dict:
     def orden(padre, hijo):
         interfaz = (grafo.get_edge_data(padre, hijo) or {}).get("interfaz") or ""
         # IPs como números (.2 antes que .10); lo que no es IP (MACs de hosts
-        # vistos solo por SNMP, nodos "Red ...") después, como texto
+        # vistos solo por SNMP, nodos "Network ...") después, como texto
         try:
             return (interfaz, 0, int(ipaddress.ip_address(hijo)), "")
         except ValueError:
@@ -173,7 +173,7 @@ def posiciones_jerarquicas(grafo: nx.Graph) -> dict:
         if centros:
             posiciones[nodo] = ((centros[0] + centros[-1]) / 2, y)
 
-    # El nodo "Red <rango>" (hosts sin ubicar) va después del árbol principal
+    # El nodo "Network <rango>" (hosts sin ubicar) va después del árbol principal
     raices.sort(key=lambda nodo: (grafo.nodes[nodo].get("tipo") == "red", str(nodo)))
     total = sum(ancho(raiz) for raiz in raices) + SEPARACION_X * max(len(raices) - 1, 0)
     izquierda = -total / 2
@@ -206,13 +206,13 @@ def _generar_leyenda_html() -> str:
     fila_alerta = (
         f'<div style="margin:3px 0; border-top:1px solid #555; padding-top:5px;">'
         f'<span style="color:{COLOR_ALERTA}; display:inline-block; width:20px;">⚠</span> '
-        f'Puerto sensible abierto</div>'
+        f'Open sensitive port</div>'
     )
     return (
         '<div id="leyenda" style="position:fixed; top:16px; left:16px; '
         'background:rgba(30,30,30,0.9); color:white; padding:10px 14px; '
         'border-radius:6px; font-family:sans-serif; font-size:13px; z-index:1000;">'
-        '<div style="font-weight:bold; margin-bottom:6px;">Leyenda</div>'
+        '<div style="font-weight:bold; margin-bottom:6px;">Legend</div>'
         f'{filas}{fila_alerta}'
         '</div>'
     )
@@ -267,7 +267,7 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
                 x=posiciones.get(nodo, (0, 0))[0], y=posiciones.get(nodo, (0, 0))[1], physics=False,
             )
         else:
-            categoria = atributos.get("categoria", "desconocido")
+            categoria = atributos.get("categoria", "unknown")
             icono = icono_para_categoria(categoria)
             # Sin hostname, la IP una sola vez (antes salía "IP (IP)")
             hostname = atributos.get("hostname")
@@ -306,29 +306,29 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
     with open(archivo_salida, "w", encoding="utf-8") as f:
         f.write(html)
 
-    log.info(f"Topología exportada a: {archivo_salida}")
+    log.info(f"Topology exported to: {archivo_salida}")
 
 
 def exportar_texto(resultados: dict):
     """Resumen en texto plano por si no se quiere abrir el HTML."""
     print("\n" + "=" * 60)
-    print(f"INFORME DE RED - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"NETWORK REPORT - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("=" * 60)
     for ip, datos in sorted(resultados.items()):
         print(f"\n[{ip}] {datos['hostname'] or ''}")
-        print(f"  SO estimado : {datos['so']}")
-        print(f"  MAC         : {datos.get('mac') or 'N/D'}")
-        print(f"  Fabricante  : {datos.get('vendor') or 'N/D'} ({datos.get('categoria', 'desconocido')})")
+        print(f"  Estimated OS: {datos['so']}")
+        print(f"  MAC         : {datos.get('mac') or 'N/A'}")
+        print(f"  Vendor      : {datos.get('vendor') or 'N/A'} ({datos.get('categoria', 'desconocido')})")
         if datos["puertos"]:
             for p in datos["puertos"]:
                 extra = f" ({p['producto']})" if p["producto"] else ""
                 print(f"  - {p['puerto']}/tcp  {p['servicio']}{extra}")
         else:
-            print("  - Sin puertos abiertos detectados")
+            print("  - No open ports found")
     print("\n" + "=" * 60 + "\n")
 
 
-CABECERA_CSV = ["ip", "hostname", "mac", "vendor", "categoria", "so", "puertos", "alertas"]
+CABECERA_CSV = ["ip", "hostname", "mac", "vendor", "category", "os", "ports", "alerts"]
 
 
 def exportar_csv(resultados: dict, archivo_salida: str):
@@ -347,13 +347,13 @@ def exportar_csv(resultados: dict, archivo_salida: str):
                 datos.get("hostname", ""),
                 datos.get("mac", ""),
                 datos.get("vendor", ""),
-                datos.get("categoria", "desconocido"),
+                datos.get("categoria", "unknown"),
                 datos.get("so", ""),
                 puertos,
                 alertas,
             ])
 
-    log.info(f"Inventario exportado a: {archivo_salida}")
+    log.info(f"Inventory exported to: {archivo_salida}")
 
 
 def exportar_diff_texto(diff: dict, rango: str | None = None):
@@ -361,32 +361,32 @@ def exportar_diff_texto(diff: dict, rango: str | None = None):
     del mismo rango (ver history.registrar_y_comparar). Con varios rangos se
     imprime uno por rango, con el rango en la cabecera."""
     print("-" * 60)
-    print(f"HISTORIAL - {rango}" if rango else "HISTORIAL")
+    print(f"HISTORY - {rango}" if rango else "HISTORY")
     print("-" * 60)
 
     if diff["primera_vez"]:
-        print("Primer escaneo de este rango, nada con qué comparar todavía.")
+        print("First scan of this range, nothing to compare against yet.")
         print("-" * 60 + "\n")
         return
 
     if not hay_cambios(diff):
-        print("Sin cambios respecto al escaneo anterior.")
+        print("No changes since the previous scan.")
         print("-" * 60 + "\n")
         return
 
     if diff["hosts_nuevos"]:
-        print(f"  + Hosts nuevos: {', '.join(diff['hosts_nuevos'])}")
+        print(f"  + New hosts: {', '.join(diff['hosts_nuevos'])}")
     if diff["hosts_caidos"]:
-        print(f"  - Hosts caídos: {', '.join(diff['hosts_caidos'])}")
+        print(f"  - Hosts down: {', '.join(diff['hosts_caidos'])}")
     for ip, cambios in diff["puertos_cambiados"].items():
         if cambios["nuevos"]:
-            print(f"  [{ip}] puertos nuevos: {', '.join(map(str, cambios['nuevos']))}")
+            print(f"  [{ip}] new ports: {', '.join(map(str, cambios['nuevos']))}")
         for sensible in cambios.get("nuevos_sensibles", []):
             # Marcador ASCII, no el emoji ⚠: en Windows con la consola en
             # cp1252 (el caso por defecto, no UTF-8) print() lo revienta con
             # UnicodeEncodeError. El HTML sí puede llevar el emoji porque se
             # escribe a archivo con encoding="utf-8" explícito.
-            print(f"  [{ip}] [!] puerto nuevo Y sensible: {sensible['puerto']} ({sensible['motivo']})")
+            print(f"  [{ip}] [!] new AND sensitive port: {sensible['puerto']} ({sensible['motivo']})")
         if cambios["cerrados"]:
-            print(f"  [{ip}] puertos cerrados: {', '.join(map(str, cambios['cerrados']))}")
+            print(f"  [{ip}] closed ports: {', '.join(map(str, cambios['cerrados']))}")
     print("-" * 60 + "\n")

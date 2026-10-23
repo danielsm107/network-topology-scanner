@@ -318,9 +318,9 @@ def test_consultar_equipo_pide_todas_las_tablas_con_timeout_y_reintentos(mock_re
     mock_recorrer.assert_called_once_with("192.0.2.1", "community", TABLAS_A_CONSULTAR, 5, 3)
 
 
-@patch("topology_scanner.snmp._recorrer", side_effect=SnmpError("192.0.2.1 no responde por SNMP"))
+@patch("topology_scanner.snmp._recorrer", side_effect=SnmpError("192.0.2.1 is not responding over SNMP"))
 def test_consultar_equipo_propaga_snmperror(_mock_recorrer):
-    with pytest.raises(SnmpError, match="no responde"):
+    with pytest.raises(SnmpError, match="not responding"):
         consultar_equipo("192.0.2.1", "community")
 
 
@@ -399,7 +399,7 @@ def test_recorrer_descarta_valores_de_no_existe(pysnmp_falso):
 def test_recorrer_si_la_primera_tabla_falla_el_equipo_no_responde(pysnmp_falso):
     respuestas = [[("No SNMP response received before timeout", 0, [])]]
 
-    with pysnmp_falso(respuestas), pytest.raises(SnmpError, match=r"192\.0\.2\.1 no responde"):
+    with pysnmp_falso(respuestas), pytest.raises(SnmpError, match=r"192\.0\.2\.1 is not responding"):
         _recorrer("192.0.2.1", "community", (OID_SYS_NAME, OID_IF_NAME), 1, 0)
 
 
@@ -419,7 +419,7 @@ def test_recorrer_si_falla_una_tabla_posterior_sigue_con_las_demas(pysnmp_falso,
 
     assert tablas[OID_IF_NAME] == []
     assert len(tablas[OID_ARP]) == 1
-    assert "no se pudo leer" in caplog.text
+    assert "could not read table" in caplog.text
 
 
 def test_recorrer_un_error_de_estado_snmp_cuenta_como_fallo(pysnmp_falso):
@@ -607,25 +607,25 @@ def test_parsear_lista_ips_separa_por_comas_y_quita_espacios():
 
 
 def test_parsear_lista_ips_rechaza_lo_que_no_es_una_ipv4():
-    with pytest.raises(ValueError, match="router-casa"):
+    with pytest.raises(ValueError, match="'router-casa' is not a valid IPv4"):
         parsear_lista_ips("192.0.2.1,router-casa")
 
 
 @patch("topology_scanner.snmp.inferir_topologia")
 @patch("topology_scanner.snmp.consultar_equipo")
 def test_obtener_topologia_salta_los_que_no_responden_y_lo_avisa(mock_consultar, mock_inferir):
-    mock_consultar.side_effect = [SnmpError("192.0.2.1 no responde por SNMP"), {"ip": "192.0.2.2"}]
+    mock_consultar.side_effect = [SnmpError("192.0.2.1 is not responding over SNMP"), {"ip": "192.0.2.2"}]
     mock_inferir.return_value = {"equipos": {}, "enlaces": [], "redes": {}, "ubicaciones": {}}
 
     topologia, avisos = obtener_topologia(["192.0.2.1", "192.0.2.2"], "community")
 
     mock_inferir.assert_called_once_with([{"ip": "192.0.2.2"}])
     assert topologia == mock_inferir.return_value
-    assert avisos == ["192.0.2.1 no responde por SNMP"]
+    assert avisos == ["192.0.2.1 is not responding over SNMP"]
 
 
 @patch("topology_scanner.snmp.inferir_topologia")
-@patch("topology_scanner.snmp.consultar_equipo", side_effect=SnmpError("192.0.2.1 no responde por SNMP"))
+@patch("topology_scanner.snmp.consultar_equipo", side_effect=SnmpError("192.0.2.1 is not responding over SNMP"))
 def test_obtener_topologia_si_no_responde_ninguno_devuelve_none(_mock_consultar, mock_inferir):
     """None = dibujar la estrella: el escaneo de nmap ya ha funcionado y
     perder la topología no es motivo para no mostrar nada."""
@@ -633,7 +633,7 @@ def test_obtener_topologia_si_no_responde_ninguno_devuelve_none(_mock_consultar,
 
     assert topologia is None
     mock_inferir.assert_not_called()
-    assert avisos[-1].endswith("se dibuja la topología en estrella.")
+    assert avisos[-1].endswith("falling back to the star layout.")
 
 
 def test_inferir_topologia_ignora_las_rutas_sin_siguiente_salto():
@@ -803,9 +803,9 @@ def test_credenciales_v3_por_defecto_sha_y_aes():
 
 
 @pytest.mark.parametrize("argumentos, mensaje", [
-    (("", "clave-auth"), "usuario"),
-    (("lector", "corta"), "8 caracteres"),
-    (("lector", "clave-auth", "corta"), "8 caracteres"),
+    (("", "clave-auth"), "missing user"),
+    (("lector", "corta"), "at least 8 characters"),
+    (("lector", "clave-auth", "corta"), "at least 8 characters"),
     (("lector", "clave-auth", "", "SHA999"), "SHA999"),
     (("lector", "clave-auth", "clave-priv", "SHA", "ROT13"), "ROT13"),
 ])
@@ -835,7 +835,7 @@ def test_credenciales_desde_entorno_sin_nada_es_none():
 
 
 def test_credenciales_desde_entorno_v3_mal_configurado_es_un_error():
-    with pytest.raises(ValueError, match="8 caracteres"):
+    with pytest.raises(ValueError, match="at least 8 characters"):
         credenciales_desde_entorno({"TOPOLOGY_SNMP_USER": "lector", "TOPOLOGY_SNMP_AUTH_KEY": "corta"})
 
 
@@ -862,10 +862,10 @@ def test_recorrer_con_v3_sin_clave_de_cifrado_es_auth_no_priv(pysnmp_falso):
 
 
 @pytest.mark.parametrize("error, pista", [
-    ("unknownUserName", "usuario"),
-    ("wrongDigest", "autenticación"),
-    ("decryptionError", "cifrado"),
-    ("unsupportedSecurityLevel", "nivel de seguridad"),
+    ("unknownUserName", "unknown SNMPv3 user"),
+    ("wrongDigest", "authentication key"),
+    ("decryptionError", "privacy key"),
+    ("unsupportedSecurityLevel", "security level"),
 ])
 def test_recorrer_explica_los_errores_tipicos_de_v3(pysnmp_falso, error, pista):
     from pysnmp.proto import errind
@@ -890,7 +890,7 @@ def test_v3_con_cifrado_sin_cryptography_da_un_error_claro_antes_de_consultar():
         _recorrer("192.0.2.1", credenciales, (OID_SYS_NAME,), 1, 0)
 
     assert r"[snmp]" in str(excinfo.value)
-    assert "no responde" not in str(excinfo.value)
+    assert "not responding" not in str(excinfo.value)
 
 
 def test_recorrer_un_fallo_local_de_cifrado_no_dice_que_el_equipo_no_responde(pysnmp_falso):
@@ -901,4 +901,4 @@ def test_recorrer_un_fallo_local_de_cifrado_no_dice_que_el_equipo_no_responde(py
         _recorrer("192.0.2.1", credenciales, (OID_SYS_NAME,), 1, 0)
 
     assert "cryptography" in str(excinfo.value)
-    assert "no responde" not in str(excinfo.value)
+    assert "not responding" not in str(excinfo.value)

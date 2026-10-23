@@ -23,15 +23,15 @@ def parsear_rangos(objetivos: list[str]) -> list[str]:
     qué rango pertenece cada host. Lanza ValueError si no."""
     unicos = list(dict.fromkeys(objetivo.strip() for objetivo in objetivos if objetivo.strip()))
     if not unicos:
-        raise ValueError("indica al menos un rango a escanear")
+        raise ValueError("give at least one range to scan")
     if len(unicos) > 1:
         for objetivo in unicos:
             try:
                 ipaddress.ip_network(objetivo, strict=False)
             except ValueError as e:
                 raise ValueError(
-                    f"'{objetivo}' no es una IP ni un CIDR: con varios rangos, cada uno tiene que "
-                    "serlo (para saber a cuál pertenece cada host)"
+                    f"'{objetivo}' is not an IP or CIDR: with several ranges, each one must be "
+                    "(to know which range each host belongs to)"
                 ) from e
     return unicos
 
