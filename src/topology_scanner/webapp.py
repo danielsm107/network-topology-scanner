@@ -79,6 +79,7 @@ from topology_scanner.scanner import (
     ScannerError,
     avisar_si_nmap_reporto_error,
     descubrir_hosts_vivos,
+    error_de_nmap,
     parsear_host,
 )
 from topology_scanner.snmp import (
@@ -200,7 +201,7 @@ def _construir_comando_nmap(hosts: str, ports: str, arguments: str, archivo_xml:
     try:
         nmap_path = nmap.PortScanner()._nmap_path
     except nmap.PortScannerError as e:
-        raise ScannerError(f"nmap error (are you running with sudo?): {e}") from e
+        raise error_de_nmap(e) from e
     return [
         nmap_path, "-v", "-oX", archivo_xml,
         *shlex.split(hosts), "-p", ports, *shlex.split(arguments),

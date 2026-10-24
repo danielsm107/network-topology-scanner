@@ -478,3 +478,34 @@ contexto completo.
   texto externo. El mínimo sube de 1.33 a 1.56; el 1.33 ya era falso
   (`st.fragment(run_every=...)` es de 1.37). Validado pasando la suite con
   Streamlit 1.56.0 exacto. Lo cubre `test_la_web_de_demo_no_usa_la_api_obsoleta_de_componentes`.
+- Imagen Docker (fase DevOps 1, runbook `docs/devops/runbooks/01-contenedor.md`):
+  - **nmap sin root**: capacidades de archivo en el binario (`setcap
+    cap_net_raw,cap_net_admin+eip`) + `NMAP_PRIVILEGED=1`
+    y usuario `scanner` con UID fijo 10001. El contenedor necesita
+    `--cap-add NET_RAW --cap-add NET_ADMIN` y nada de `no-new-privileges` /
+    `allowPrivilegeEscalation: false`, que anulan las capacidades de archivo.
+    Sin ellas el kernel no ejecuta nmap y python-nmap lo disfraza de "nmap
+    program was not found in path": `scanner.error_de_nmap` lo distingue
+    (nmap está en el PATH pero no arranca) y dice qué hacer. Se encontró al
+    probar la imagen como la usaría alguien de fuera, igual que el traceback
+    de un `/data` sin permisos (ahora `ExportError`, ver `export._escribir_archivo`).
+  - **Trivy como imagen oficial fijada por digest, sin su action**, y las
+    actions de Docker por SHA: en marzo de 2026 robaron credenciales de Aqua y
+    reescribieron casi todas las tags de `aquasecurity/trivy-action` y
+    `setup-trivy`. Versión 0.75.0 y no la última (0.76.x): llevaba tres semanas
+    publicada, y una versión recién salida es justo el riesgo de ese ataque.
+    La CI falla con críticas que tengan arreglo (`--ignore-unfixed`).
+  - **amd64 + arm64** en la release (Raspberry Pi en homelabs), arm64 emulado
+    con QEMU. La CI solo construye amd64: arm64 no se prueba antes de publicar.
+  - **GHCR crea los paquetes privados**: tras la primera publicación hay que
+    ponerlo en público a mano (una vez). Sin eso k3s no la descarga sin credenciales.
+  - **`compose.yaml` en inglés y con la web en `127.0.0.1`**: es para que lo
+    copie gente de fuera, y la web no tiene autenticación y escanea lo que le
+    pidan. Abrirla a la LAN es una línea, pero tiene que ser una decisión
+    consciente. En el clúster lo resuelve la lista de rangos permitidos (fase 3).
+  - **Solo `cap_net_raw,cap_net_admin` en el binario.** Llevaba también
+    `cap_net_bind_service`, que nmap no usa: el kernel no ejecuta un binario
+    cuyas capacidades de archivo no estén todas en el contenedor, así que con
+    `--cap-drop ALL --cap-add NET_RAW --cap-add NET_ADMIN` (lo mismo que el
+    `drop: [ALL]` habitual en Kubernetes) nmap no arrancaba. Lo encontró la
+    revisión final de la fase 1; la CI lo prueba con `--cap-drop ALL`.

@@ -6,6 +6,7 @@ o informe de texto plano por consola.
 """
 
 import csv
+import io
 import ipaddress
 import logging
 import math
@@ -26,7 +27,7 @@ class ExportError(RuntimeError):
 try:
     from pyvis.network import Network
 except ImportError as e:
-    raise ExportError("Falta pyvis. Instala con: pip install pyvis") from e
+    raise ExportError("pyvis is missing. Install it with: pip install pyvis") from e
 
 log = logging.getLogger("topology_scanner")
 
@@ -303,10 +304,20 @@ def exportar_html(grafo: nx.Graph, archivo_salida: str):
     html = html.replace("</head>", f"{CDN_FONTAWESOME}{CSS_PANTALLA_COMPLETA}</head>")
     html = html.replace("</body>", f"{_generar_leyenda_html()}{SCRIPT_AJUSTAR_VISTA}</body>")
 
-    with open(archivo_salida, "w", encoding="utf-8") as f:
-        f.write(html)
-
+    _escribir_archivo(archivo_salida, html)
     log.info(f"Topology exported to: {archivo_salida}")
+
+
+def _escribir_archivo(archivo_salida: str, contenido: str, newline: str | None = None):
+    """Escribe una salida y convierte cualquier fallo del sistema (carpeta
+    sin permisos o que no existe, disco lleno...) en ExportError, que cli.py
+    muestra como un mensaje y no como un traceback. Caso real: el volumen
+    /data de la imagen Docker sin permiso de escritura para su usuario."""
+    try:
+        with open(archivo_salida, "w", newline=newline, encoding="utf-8") as f:
+            f.write(contenido)
+    except OSError as e:
+        raise ExportError(f"Could not write {archivo_salida}: {e.strerror}") from e
 
 
 def exportar_texto(resultados: dict):
@@ -336,23 +347,25 @@ def exportar_csv(resultados: dict, archivo_salida: str):
     SO, puertos, alertas de puertos sensibles) para auditoría/inventario.
     Una fila por host; puertos y alertas se listan separados por comas
     dentro de su celda (el módulo csv se encarga del quoting)."""
-    with open(archivo_salida, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(CABECERA_CSV)
-        for ip, datos in sorted(resultados.items()):
-            puertos = ", ".join(f"{p['puerto']}/{p['servicio']}" for p in datos.get("puertos", []))
-            alertas = ", ".join(f"{a['puerto']} ({a['motivo']})" for a in datos.get("alertas", []))
-            writer.writerow([
-                ip,
-                datos.get("hostname", ""),
-                datos.get("mac", ""),
-                datos.get("vendor", ""),
-                datos.get("categoria", "unknown"),
-                datos.get("so", ""),
-                puertos,
-                alertas,
-            ])
+    salida = io.StringIO()
+    writer = csv.writer(salida)
+    writer.writerow(CABECERA_CSV)
+    for ip, datos in sorted(resultados.items()):
+        puertos = ", ".join(f"{p['puerto']}/{p['servicio']}" for p in datos.get("puertos", []))
+        alertas = ", ".join(f"{a['puerto']} ({a['motivo']})" for a in datos.get("alertas", []))
+        writer.writerow([
+            ip,
+            datos.get("hostname", ""),
+            datos.get("mac", ""),
+            datos.get("vendor", ""),
+            datos.get("categoria", "unknown"),
+            datos.get("so", ""),
+            puertos,
+            alertas,
+        ])
 
+    # newline="": el módulo csv ya pone sus \r\n, sin traducir otra vez en Windows
+    _escribir_archivo(archivo_salida, salida.getvalue(), newline="")
     log.info(f"Inventory exported to: {archivo_salida}")
 
 

@@ -9,6 +9,7 @@ Esto permite testear la lógica de descubrimiento sin tocar networkx/pyvis.
 """
 
 import logging
+import shutil
 
 from .classifier import clasificar_dispositivo, puertos_sensibles_abiertos
 
@@ -27,6 +28,24 @@ except ImportError as e:
     ) from e
 
 log = logging.getLogger("topology_scanner")
+
+
+def error_de_nmap(e: nmap.PortScannerError) -> ScannerError:
+    """Traduce un PortScannerError a un mensaje que diga qué hacer. Lo usan
+    las dos fases del escaneo y la web, que lanza nmap por su cuenta.
+
+    python-nmap dice "nmap program was not found in path" siempre que no
+    consigue ejecutar el binario, también cuando sí está pero el sistema se
+    niega a lanzarlo. Es el caso de la imagen Docker sin --cap-add: nmap
+    lleva capacidades de archivo y el kernel no ejecuta un binario que pide
+    capacidades que el contenedor no tiene."""
+    ruta = shutil.which("nmap")
+    if "was not found" in str(e) and ruta:
+        return ScannerError(
+            f"nmap is installed ({ruta}) but the system refused to run it. If you're running the "
+            "Docker image, add --cap-add NET_RAW --cap-add NET_ADMIN (and don't use no-new-privileges)."
+        )
+    return ScannerError(f"nmap error (are you running with sudo?): {e}")
 
 # Única fuente de verdad para los valores por defecto de nmap: cli.py y
 # webapp.py los reutilizan en vez de tener cada uno su propia copia
@@ -57,7 +76,7 @@ def descubrir_hosts_vivos(rango: str) -> list:
         scanner = nmap.PortScanner()
         scanner.scan(hosts=rango, arguments="-sn -T4")
     except nmap.PortScannerError as e:
-        raise ScannerError(f"nmap error (are you running with sudo?): {e}") from e
+        raise error_de_nmap(e) from e
 
     avisar_si_nmap_reporto_error(scanner)
     vivos = [h for h in scanner.all_hosts() if scanner[h].state() == "up"]
@@ -146,7 +165,7 @@ def escanear_red(rango: str, puertos: str, argumentos_nmap: str, dos_fases: bool
         scanner = nmap.PortScanner()
         scanner.scan(hosts=objetivo, ports=puertos, arguments=argumentos_nmap)
     except nmap.PortScannerError as e:
-        raise ScannerError(f"nmap error (are you running with sudo?): {e}") from e
+        raise error_de_nmap(e) from e
 
     avisar_si_nmap_reporto_error(scanner)
     resultados = {}
