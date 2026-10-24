@@ -12,10 +12,28 @@ routers/switches over SNMP to draw the **real topology** (which host hangs
 from which switch port or access point) instead of an approximate star.
 Available as a CLI or as a local web interface (Streamlit, optional).
 
+![Real topology via SNMP in the web UI, flat and isometric views](https://raw.githubusercontent.com/danielsm107/network-topology-scanner/main/docs/screenshots/topologia.gif)
 ![Command Center dashboard](https://raw.githubusercontent.com/danielsm107/network-topology-scanner/main/docs/screenshots/dashboard.png)
 ![Inventory and changes](https://raw.githubusercontent.com/danielsm107/network-topology-scanner/main/docs/screenshots/inventario.png)
 
 *Screenshots use fictional demo data — no real network is exposed here.*
+
+## Quick start
+
+With [Docker](#docker) on Linux (nmap included, runs as an unprivileged user):
+
+```bash
+docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN \
+    -v topology-data:/data ghcr.io/danielsm107/topology-scanner 192.168.1.0/24 --fast
+```
+
+Or with pip (needs [nmap](https://nmap.org/download) installed):
+
+```bash
+pip install "topology-scanner[web,snmp]"
+topology-scanner 192.168.1.0/24 --fast    # writes an interactive HTML graph
+topology-scanner-web                      # or open the web UI
+```
 
 ## ⚠️ Legal notice
 Only use this tool **on networks you own or have explicit authorization to
@@ -139,6 +157,9 @@ graph. Several ranges can be scanned at once by separating them with
 spaces in the range field. The "Real topology via SNMP" switch in the sidebar draws the tree
 described below, over SNMP v2c or v3 (community and keys are password
 inputs; leave them empty to use the `TOPOLOGY_SNMP_*` environment variables).
+The topology panel has a flat view and an isometric one (each switch or
+access point gets its own platform with the hosts hanging from it), with
+pan and zoom.
 
 ```bash
 topology-scanner-web
@@ -239,5 +260,10 @@ run without a real network or the nmap binary installed.
 - [x] Standard LLDP-MIB (links between devices from any vendor, with the port on both ends)
 - [x] SNMPv3 (authentication and encryption)
 - [x] v1.0 on PyPI, published by GitHub Actions from a tag (trusted publishing, no tokens)
+- [x] Isometric topology view in the web interface
+- [x] Docker image on GHCR (amd64/arm64, nmap without root, scanned with Trivy in CI)
+- [ ] Vendor lookup (nmap's OUI database) for hosts only seen over SNMP, which show up as "?" today
+- [ ] Tell access points, switches and routers apart using the capabilities LLDP advertises
+- [ ] Scheduled scans with alerts on changes (self-hosted on Kubernetes)
 
 See [CHANGELOG.md](https://github.com/danielsm107/network-topology-scanner/blob/main/CHANGELOG.md) for release notes.

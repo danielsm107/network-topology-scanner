@@ -712,6 +712,14 @@ def test_generar_topologia_html_es_un_documento_autocontenido_con_pan_zoom():
     assert "font-awesome" in html
 
 
+def test_arrastrar_el_lienzo_no_selecciona_texto():
+    """Sin preventDefault() en el mousedown, arrastrar para hacer pan va
+    seleccionando las IPs y nombres de los nodos que cruza el ratón."""
+    html = _generar_topologia_html({"192.168.1.10": _resultado_fake()}, rango="192.168.1.0/24", accent="#00D2D3")
+    mousedown = html.split("addEventListener('mousedown'")[1].split("});")[0]
+    assert "e.preventDefault()" in mousedown
+
+
 def test_generar_estado_vacio_html_incluye_el_acento():
     html = _generar_estado_vacio_html("#123456")
     assert "#123456" in html
