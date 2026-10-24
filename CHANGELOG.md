@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Web UI: dragging the topology to pan no longer selects the text of the
+  nodes under the cursor.
+
 ## [1.2.1] - 2026-10-23
 
 ### Added
