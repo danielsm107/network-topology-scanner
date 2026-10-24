@@ -440,6 +440,13 @@ contexto completo.
   DevTools Protocol esperando a que la página muestre "Changes", con una
   ventana de 1600x2900, y se recorta: dashboard `(0, 0, 1600, 1030)`,
   inventario `(300, 1035, 1600, 2400)`.
+- GIF de la topología del README (`docs/screenshots/topologia.gif`): también
+  sale de `scripts/demo_web.py` por DevTools Protocol (ventana de 1600x1100):
+  vista plana, clic en "Isometric", 3 pasos de rueda y un arrastre, con una
+  captura del iframe de la topología cada ~100 ms. Los fotogramas se juntan
+  con ffmpeg a 9,5 fps, 960 px de ancho y paleta de 128 colores (~1 MB).
+  Al grabarlo salió un bug real: el `mousedown` del pan no hacía
+  `preventDefault()` y arrastrar seleccionaba el texto de los nodos.
 - Vista isométrica de la topología en la web (estilo FossFLOW), con un
   botón Flat / Isometric junto a "Topology" (`st.radio`, `key="vista_topologia"`):
   cambiar de vista es un rerun normal con el resultado ya en `session_state`,
