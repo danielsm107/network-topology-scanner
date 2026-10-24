@@ -1147,6 +1147,7 @@ def _documento_topologia_html(ancho: float, alto: float, svg: str, nodos_html: s
     aplicar();
   }}, {{passive: false}});
   viewport.addEventListener('mousedown', function(e) {{
+    e.preventDefault();  // si no, el arrastre va seleccionando el texto de los nodos
     dragging = true; moved = false; lastX = e.clientX; lastY = e.clientY;
     viewport.style.cursor = 'grabbing';
   }});
