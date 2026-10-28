@@ -33,6 +33,34 @@ jobs:
       - name: pytest
         run: pytest tests/ -v
 
+  # La infraestructura como código: formato, validez y los terraform test. Sin
+  # backend ni credenciales (init -backend=false; los tests usan el provider
+  # simulado): el plan/apply de verdad se lanza a mano desde el PC.
+  # tests/test_workflows.py comprueba que cada raíz de infra/ tiene su validate.
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          # La misma que en el PC: el formato de fmt cambia entre versiones
+          terraform_version: 1.16.6
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive infra/
+
+      - name: Bootstrap (bucket del estado)
+        run: |
+          terraform -chdir=infra/aws/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/aws/bootstrap validate
+
+      - name: VM de Proxmox
+        run: |
+          terraform -chdir=infra/proxmox init -backend=false -input=false
+          terraform -chdir=infra/proxmox validate
+          terraform -chdir=infra/proxmox test
+
   # La imagen Docker: se construye, se prueba por fuera (como la usaría
   # alguien) y se escanea. Publicarla es cosa de release.yml.
   #
