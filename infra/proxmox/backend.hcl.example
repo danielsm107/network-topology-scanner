@@ -1,0 +1,9 @@
+# Copiar a backend.hcl (ignorado por git) con el bucket real, que sale del
+# bootstrap: terraform -chdir=infra/aws/bootstrap output bucket_estado
+# Uso: terraform init -backend-config=backend.hcl
+
+bucket       = "topology-scanner-tfstate-123456789012"
+key          = "proxmox/terraform.tfstate"
+region       = "eu-south-2"
+profile      = "personal" # nunca el perfil default: en este PC es la cuenta del trabajo
+use_lockfile = true       # bloqueo con un objeto .tflock en S3, sin tabla de DynamoDB
