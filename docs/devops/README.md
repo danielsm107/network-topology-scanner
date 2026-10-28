@@ -10,8 +10,8 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 | # | Fase | Estado | Runbook |
 |---|------|--------|---------|
 | 0 | Higiene de la cuenta AWS | Hecha | [00-cuenta-aws.md](runbooks/00-cuenta-aws.md) |
-| 1 | Contenedor | Hecha salvo la primera publicación en GHCR (v1.2.1) | [01-contenedor.md](runbooks/01-contenedor.md) |
-| 2 | VM de Proxmox como código | Pendiente | |
+| 1 | Contenedor | Hecha | [01-contenedor.md](runbooks/01-contenedor.md) |
+| 2 | VM de Proxmox como código | En curso | |
 | 3 | Despliegue en Kubernetes | Pendiente | |
 | 4 | AWS como código + hallazgos | Pendiente | |
 | 5 | Jenkins (CD) | Pendiente | |
