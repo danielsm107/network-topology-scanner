@@ -62,10 +62,12 @@ from topology_scanner.export import (
 )
 from topology_scanner.graph import construir_grafo
 from topology_scanner.history import (
+    DB_POR_DEFECTO,
+    VARIABLE_DB,
     HistoryError,
     combinar_diffs,
     listar_escaneos_recientes,
-    registrar_y_comparar,
+    registrar_ejecucion,
 )
 from topology_scanner.rangos import (
     VARIABLE_RANGOS_PERMITIDOS,
@@ -303,6 +305,12 @@ def _procesar_salida_nmap(salida_xml: bytes) -> dict:
     return {host: parsear_host(nm[host]) for host in nm.all_hosts()}
 
 
+def _ruta_historial() -> str:
+    """historial.db de la web: TOPOLOGY_HISTORY_DB si está (en el clúster,
+    el volumen que comparte con el CronJob), si no el de siempre en el cwd."""
+    return os.environ.get(VARIABLE_DB, DB_POR_DEFECTO)
+
+
 def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_historial: bool,
                           snmp: dict | None = None) -> dict:
     """A partir de resultados ya escaneados (formato de scanner.py), hace
@@ -328,19 +336,20 @@ def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_hist
         return {"resultados": {}, "diff": None, "rango": " ".join(rangos), "rangos": rangos,
                 "topologia": None, "avisos_snmp": []}
 
+    # Sin respuesta SNMP, topologia=None y se dibuja la estrella (los avisos
+    # explican por qué); mismo criterio que el CLI. Antes que el historial:
+    # la topología se guarda con la ejecución.
+    topologia, avisos_snmp = obtener_topologia(snmp["ips"], snmp["credenciales"]) if snmp else (None, [])
+
     diff = None
     if guardar_historial:
         try:
-            diff = combinar_diffs([
-                registrar_y_comparar(resultados_rango, r)
-                for r, resultados_rango in repartir_por_rango(resultados, rangos).items()
-            ])
+            diffs = registrar_ejecucion(
+                repartir_por_rango(resultados, rangos), topologia, origen="web", db_path=_ruta_historial()
+            )
+            diff = combinar_diffs(list(diffs.values()))
         except HistoryError:
             diff = None  # perder el historial no es fatal, solo no se muestra el diff
-
-    # Sin respuesta SNMP, topologia=None y se dibuja la estrella (los avisos
-    # explican por qué); mismo criterio que el CLI.
-    topologia, avisos_snmp = obtener_topologia(snmp["ips"], snmp["credenciales"]) if snmp else (None, [])
 
     return {"resultados": resultados, "diff": diff, "rango": " ".join(rangos), "rangos": rangos,
             "topologia": topologia, "avisos_snmp": avisos_snmp}
@@ -1922,7 +1931,7 @@ def main():
         st.divider()
         st.markdown('<div class="section-eyebrow">Recent history</div>', unsafe_allow_html=True)
         try:
-            recientes = listar_escaneos_recientes()
+            recientes = listar_escaneos_recientes(_ruta_historial())
         except HistoryError:
             recientes = []  # mismo criterio que el resto de la app: fallo de historial no bloquea la UI
         if recientes:

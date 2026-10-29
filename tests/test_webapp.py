@@ -293,14 +293,14 @@ def test_finalizar_resultados_sin_hosts():
 def test_finalizar_resultados_no_llama_al_historial_si_no_se_pide():
     resultados = {"192.168.1.10": _resultado_fake()}
 
-    with patch("topology_scanner.webapp.registrar_y_comparar") as mock_registrar:
+    with patch("topology_scanner.webapp.registrar_ejecucion") as mock_registrar:
         resultado = _finalizar_resultados(resultados, "192.168.1.0/24", guardar_historial=False)
 
     mock_registrar.assert_not_called()
     assert resultado["diff"] is None
 
 
-@patch("topology_scanner.webapp.registrar_y_comparar")
+@patch("topology_scanner.webapp.registrar_ejecucion")
 def test_finalizar_resultados_continua_si_falla_el_historial(mock_registrar):
     """Mismo criterio que cli.py: un fallo guardando el historial no debe
     tirar un escaneo que sí ha funcionado."""
@@ -1163,21 +1163,20 @@ def test_progreso_escapa_el_rango_y_las_lineas_del_log():
 
 # === Varios rangos en la web ================================================
 
-@patch("topology_scanner.webapp.registrar_y_comparar")
+@patch("topology_scanner.webapp.registrar_ejecucion")
 def test_finalizar_resultados_con_varios_rangos_guarda_el_historial_por_rango(mock_registrar):
     lan_a = {"192.168.50.10": _resultado_fake()}
     lan_b = {"10.0.10.10": _resultado_fake(hostname="proxmox")}
-    mock_registrar.side_effect = [
-        {"primera_vez": False, "hosts_nuevos": ["192.168.50.10"], "hosts_caidos": [], "puertos_cambiados": {}},
-        {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}},
-    ]
+    mock_registrar.return_value = {
+        "192.168.50.0/24": {"primera_vez": False, "hosts_nuevos": ["192.168.50.10"], "hosts_caidos": [],
+                            "puertos_cambiados": {}},
+        "10.0.10.0/24": {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}},
+    }
 
     resultado = _finalizar_resultados({**lan_a, **lan_b}, ["192.168.50.0/24", "10.0.10.0/24"],
                                       guardar_historial=True)
 
-    assert [c.args[:2] for c in mock_registrar.call_args_list] == [
-        (lan_a, "192.168.50.0/24"), (lan_b, "10.0.10.0/24"),
-    ]
+    assert mock_registrar.call_args.args[0] == {"192.168.50.0/24": lan_a, "10.0.10.0/24": lan_b}
     assert resultado["diff"]["hosts_nuevos"] == ["192.168.50.10"]   # diffs combinados
     assert resultado["diff"]["primera_vez"] is False
     assert resultado["rangos"] == ["192.168.50.0/24", "10.0.10.0/24"]
@@ -1419,3 +1418,27 @@ def test_variable_de_permitidos_invalida_bloquea_el_escaneo(sin_escaneos_reales,
 def test_sin_variable_se_escanea_como_antes(monkeypatch):
     monkeypatch.delenv("TOPOLOGY_ALLOWED_RANGES", raising=False)
     assert _validar_rangos("203.0.113.0/24") == (["203.0.113.0/24"], None)
+
+
+# === Ejecuciones (v1.3.0) ===================================================
+
+@patch("topology_scanner.webapp.obtener_topologia")
+@patch("topology_scanner.webapp.registrar_ejecucion")
+def test_finalizar_registra_ejecucion_web(mock_registrar, mock_obtener, monkeypatch):
+    """La pasada de la web se guarda como una ejecución (origen "web") con su
+    topología, en el historial de TOPOLOGY_HISTORY_DB (en el clúster, el
+    volumen compartido con el CronJob)."""
+    monkeypatch.setenv("TOPOLOGY_HISTORY_DB", "/data/historial.db")
+    mock_obtener.return_value = (_topologia_fake(), [])
+    mock_registrar.return_value = {
+        "192.0.2.0/24": {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}},
+    }
+    resultados = {"192.0.2.10": _resultado_fake()}
+
+    resultado = _finalizar_resultados(resultados, "192.0.2.0/24", guardar_historial=True,
+                                      snmp={"ips": ["192.0.2.1"], "credenciales": "secreta"})
+
+    mock_registrar.assert_called_once_with(
+        {"192.0.2.0/24": resultados}, _topologia_fake(), origen="web", db_path="/data/historial.db"
+    )
+    assert resultado["diff"]["primera_vez"] is True
