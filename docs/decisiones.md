@@ -516,3 +516,31 @@ contexto completo.
     `--cap-drop ALL --cap-add NET_RAW --cap-add NET_ADMIN` (lo mismo que el
     `drop: [ALL]` habitual en Kubernetes) nmap no arrancaba. Lo encontró la
     revisión final de la fase 1; la CI lo prueba con `--cap-drop ALL`.
+- VM de Proxmox como código (fase DevOps 2, runbook `docs/devops/runbooks/02-proxmox-vm.md`):
+  - **Bucket del estado de Terraform ya en esta fase**, no en la fase 4 (AWS
+    como código) como decía el diseño: sin él, el estado de Proxmox viviría en
+    el PC y habría que migrarlo después. El bucket se crea con estado local
+    (`infra/aws/bootstrap/`, no puede guardarse en sí mismo), con
+    `prevent_destroy`, versionado y **SSE-S3, no KMS**: una clave KMS propia
+    cuesta ~1 $/mes y no aporta nada a un estado que solo lee una persona.
+    Bloqueo con `use_lockfile` (objeto en S3), sin tabla de DynamoDB.
+  - **Token de API con un rol de privilegios mínimos** (`TerraformProv`, lista
+    en el runbook), no el de la documentación del provider, que cubre todos sus
+    recursos. El secreto va por entorno (`PROXMOX_VE_API_TOKEN`), nunca en
+    variables: acabaría en el plan y en el estado.
+  - **SSH como root al nodo solo para los snippets**: la API de Proxmox no deja
+    subirlos y es lo que exige `bpg/proxmox`. Con la huella del host verificada
+    a mano antes de aceptarla.
+  - **IP fija fuera del pool DHCP**, en `terraform.tfvars` (no versionado). Se
+    descartó una reserva DHCP: exige MAC fija en la VM y DHCP en cloud-init, y
+    ata la VM a la configuración del router.
+  - **8 GiB de RAM** (lo del diseño): implica tener apagada la VM 202. Si se
+    enciende, `memoria_mib = 6144`.
+  - **Red por network-config propio, no `ip_config`** (el `ipconfig0` de
+    Proxmox): ese genera la red para `eth0` y renombra la tarjeta, y en Ubuntu
+    26.04 el renombrado falla porque dracut ya la ha levantado por DHCP; la VM
+    se quedaba con una IP del pool. El snippet busca la tarjeta por `en*` sin
+    renombrarla. Se vio en el primer `apply` real (los tests con el provider
+    simulado no lo pueden ver); ahora lo fija `terraform test`.
+  - **`apply` solo desde el PC**, nunca en la CI: la API de Proxmox está en la
+    LAN y no se abre hacia fuera. La CI hace `fmt`, `validate` y `terraform test`.
