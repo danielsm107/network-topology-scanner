@@ -1417,10 +1417,10 @@ _EJECUCION = {"id": 7, "fecha": "2026-10-29T03:00:00", "origen": "cli",
 def test_etiqueta_ejecucion():
     from topology_scanner.webapp import _etiqueta_ejecucion
 
-    assert _etiqueta_ejecucion(_EJECUCION) == "29 Oct 03:00 · cli · 2 ranges · 34 hosts · 2⚠"
+    assert _etiqueta_ejecucion(_EJECUCION) == "29 Oct 03:00 · cli · 2 ranges · 34 hosts · 2⚠ · #7"
     antigua = {**_EJECUCION, "fecha": "2026-10-01T09:05:00", "origen": "antiguo",
                "rangos": ["192.0.2.0/24"], "total_hosts": 1, "alertas": 0}
-    assert _etiqueta_ejecucion(antigua) == "01 Oct 09:05 · old · 1 range · 1 host"
+    assert _etiqueta_ejecucion(antigua) == "01 Oct 09:05 · old · 1 range · 1 host · #7"
 
 
 def test_resultado_desde_ejecucion_tiene_formato_de_finalizar():
@@ -1468,3 +1468,28 @@ def test_lista_vacia():
 
     assert any(c.value == "No saved scans yet." for c in at.sidebar.caption)
     assert not any(s.label == "Saved scans" for s in at.sidebar.selectbox)
+
+
+def test_dos_ejecuciones_con_la_misma_etiqueta_abren_la_elegida(sin_escaneos_reales, monkeypatch, tmp_path):
+    """Streamlit guarda la elección del selectbox por su texto: con dos
+    etiquetas iguales (mismo minuto, mismo origen, mismos hosts) abría la
+    otra ejecución sin avisar. Cada etiqueta tiene que ser única."""
+    from streamlit.testing.v1 import AppTest
+
+    from topology_scanner.history import listar_ejecuciones, registrar_ejecucion
+
+    db = str(tmp_path / "compartido.db")
+    monkeypatch.setenv("TOPOLOGY_HISTORY_DB", db)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.10": _resultado_fake(hostname="equipo-primero")}},
+                        origen="web", db_path=db)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.10": _resultado_fake(hostname="equipo-segundo")}},
+                        origen="web", db_path=db)
+    reciente = listar_ejecuciones(db)[0]["id"]
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    next(s for s in at.sidebar.selectbox if s.label == "Saved scans").set_value(reciente).run()
+
+    assert not at.exception
+    assert any("equipo-segundo" in md.value for md in at.markdown)
+    assert not any("equipo-primero" in md.value for md in at.markdown)

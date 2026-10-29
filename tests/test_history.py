@@ -415,3 +415,89 @@ def test_registrar_espera_a_otra_escritura(tmp_path):
     hilo.join()
 
     assert len(listar_ejecuciones(db)) == 2
+
+
+def test_migracion_a_medias_o_version_antigua_se_completa(tmp_path):
+    """Si la migración se cortó tras crear la columna, o una v1.2 escribió en
+    una base ya migrada, quedan escaneos sin ejecución: se migran la próxima
+    vez que se abre, en vez de quedarse fuera de la lista para siempre."""
+    db = str(tmp_path / "historial.db")
+    registrar_ejecucion({RED_A: {"192.0.2.10": _resultado_fake()}}, db_path=db)
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO escaneos (rango, fecha) VALUES (?, '2026-10-30T03:00:00')", (RED_B,))
+    conn.execute("INSERT INTO hosts (escaneo_id, ip) VALUES (last_insert_rowid(), '198.51.100.20')")
+    conn.commit()
+    conn.close()
+
+    ejecuciones = listar_ejecuciones(db)
+
+    assert [e["rangos"] for e in ejecuciones] == [[RED_B], [RED_A]]
+    assert ejecuciones[0]["origen"] == "antiguo"
+    assert ejecuciones[0]["total_hosts"] == 1
+
+
+def test_ejecuciones_vacias_de_una_purga_antigua_no_se_listan(tmp_path):
+    """La purga de una v1.2 borra escaneos sin tocar ejecuciones: esas
+    ejecuciones vacías no pueden salir en la lista como "0 ranges"."""
+    db = str(tmp_path / "historial.db")
+    registrar_ejecucion({RED_A: {"192.0.2.10": _resultado_fake()}}, db_path=db)
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO ejecuciones (fecha, origen) VALUES ('2026-10-30T03:00:00', 'cli')")
+    conn.commit()
+    conn.close()
+
+    assert [e["rangos"] for e in listar_ejecuciones(db)] == [[RED_A]]
+
+
+def test_dos_procesos_migran_a_la_vez_sin_fallar(tmp_path, monkeypatch):
+    """CronJob y web abren a la vez un historial antiguo: los dos ven que
+    falta la columna. Antes el segundo fallaba con "duplicate column name" y
+    su escaneo no se guardaba; ahora la transacción vuelve a mirarla."""
+    from topology_scanner import history
+
+    db = str(tmp_path / "historial.db")
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE escaneos (id INTEGER PRIMARY KEY AUTOINCREMENT, rango TEXT NOT NULL, fecha TEXT NOT NULL);
+        CREATE TABLE hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, escaneo_id INTEGER NOT NULL,
+                            ip TEXT NOT NULL, hostname TEXT, mac TEXT, vendor TEXT, categoria TEXT, so TEXT);
+        CREATE TABLE puertos (id INTEGER PRIMARY KEY AUTOINCREMENT, host_id INTEGER NOT NULL,
+                              puerto INTEGER NOT NULL, servicio TEXT);
+        INSERT INTO escaneos (rango, fecha) VALUES ('192.0.2.0/24', '2026-10-01T03:00:00');
+    """)
+    conn.commit()
+    conn.close()
+    barrera = threading.Barrier(2)
+
+    class ConexionSincronizada(sqlite3.Connection):
+        """Los dos hilos hacen a la vez su primera comprobación de la columna."""
+        primera = True
+
+        def execute(self, sql, *args):
+            cursor = super().execute(sql, *args)
+            if sql.startswith("PRAGMA table_info") and self.primera:
+                self.primera = False
+                filas = cursor.fetchall()
+                barrera.wait(timeout=5)
+                return iter(filas)
+            return cursor
+
+    monkeypatch.setattr(history, "_conectar", lambda ruta: sqlite3.connect(ruta, timeout=30,
+                                                                          factory=ConexionSincronizada))
+    errores = []
+
+    def escanear():
+        try:
+            registrar_ejecucion({RED_A: {"192.0.2.10": _resultado_fake()}}, origen="web", db_path=db)
+        except Exception as e:  # el test quiere ver cualquier fallo
+            errores.append(repr(e))
+
+    hilos = [threading.Thread(target=escanear) for _ in range(2)]
+    for hilo in hilos:
+        hilo.start()
+    for hilo in hilos:
+        hilo.join()
+    monkeypatch.undo()
+
+    assert errores == []
+    assert sorted(e["origen"] for e in listar_ejecuciones(db)) == ["antiguo", "web", "web"]

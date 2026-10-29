@@ -90,9 +90,16 @@ def _permitidos():
 
 
 def test_parsear_permitidos_sin_variable():
-    """Sin la variable (o vacía) no hay límite: el uso local de siempre."""
+    """Sin la variable no hay límite: el uso local de siempre."""
     assert parsear_permitidos(None) is None
-    assert parsear_permitidos("  ") is None
+
+
+@pytest.mark.parametrize("valor", ["", "   "])
+def test_parsear_permitidos_vacia_no_es_sin_limite(valor):
+    """Definida pero vacía (p. ej. `TOPOLOGY_ALLOWED_RANGES: ${RANGOS:-}` en
+    Compose) es casi seguro un error: la web no escanea, no queda sin límite."""
+    with pytest.raises(ValueError, match="empty"):
+        parsear_permitidos(valor)
 
 
 def test_parsear_permitidos_lista():

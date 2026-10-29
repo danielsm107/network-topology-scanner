@@ -66,15 +66,47 @@ def _migrar_a_ejecuciones(conn: sqlite3.Connection):
     """Historiales de antes de la v1.3.0: cada escaneo era suelto. Se añade
     la columna ejecucion_id y cada escaneo antiguo pasa a ser una ejecución
     de un solo rango (origen "antiguo", sin topología), para que salga en la
-    lista de la web sin perder nada."""
-    columnas = {fila[1] for fila in conn.execute("PRAGMA table_info(escaneos)")}
-    if "ejecucion_id" in columnas:
+    lista de la web sin perder nada.
+
+    Idempotente: migra todo escaneo sin ejecución, no solo la primera vez.
+    Así se completa una migración que se cortó a medias y se recogen los
+    escaneos que escriba una v1.2 en una base ya migrada (y las ejecuciones
+    vacías que deja su purga). Todo en una transacción BEGIN IMMEDIATE que
+    vuelve a mirar la columna dentro: dos procesos que abren a la vez un
+    historial antiguo no intentan crearla los dos."""
+    if not _hace_falta_migrar(conn):
         return
-    conn.execute("ALTER TABLE escaneos ADD COLUMN ejecucion_id INTEGER REFERENCES ejecuciones(id)")
-    for escaneo_id, fecha in conn.execute("SELECT id, fecha FROM escaneos").fetchall():
-        cur = conn.execute("INSERT INTO ejecuciones (fecha, origen) VALUES (?, 'antiguo')", (fecha,))
-        conn.execute("UPDATE escaneos SET ejecucion_id = ? WHERE id = ?", (cur.lastrowid, escaneo_id))
-    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        columnas = {fila[1] for fila in conn.execute("PRAGMA table_info(escaneos)")}
+        if "ejecucion_id" not in columnas:
+            conn.execute("ALTER TABLE escaneos ADD COLUMN ejecucion_id INTEGER REFERENCES ejecuciones(id)")
+        for escaneo_id, fecha in conn.execute(
+            "SELECT id, fecha FROM escaneos WHERE ejecucion_id IS NULL"
+        ).fetchall():
+            cur = conn.execute("INSERT INTO ejecuciones (fecha, origen) VALUES (?, 'antiguo')", (fecha,))
+            conn.execute("UPDATE escaneos SET ejecucion_id = ? WHERE id = ?", (cur.lastrowid, escaneo_id))
+        conn.execute(f"DELETE FROM ejecuciones WHERE {_EJECUCION_VACIA}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+# Una ejecución sin escaneos ya no tiene nada que enseñar
+_EJECUCION_VACIA = "id NOT IN (SELECT ejecucion_id FROM escaneos WHERE ejecucion_id IS NOT NULL)"
+
+
+def _hace_falta_migrar(conn: sqlite3.Connection) -> bool:
+    """Comprobación de solo lectura, para no pedir el bloqueo de escritura
+    en cada apertura (la web lista el historial en cada rerun)."""
+    columnas = {fila[1] for fila in conn.execute("PRAGMA table_info(escaneos)")}
+    if "ejecucion_id" not in columnas:
+        return True
+    return bool(
+        conn.execute("SELECT 1 FROM escaneos WHERE ejecucion_id IS NULL LIMIT 1").fetchone()
+        or conn.execute(f"SELECT 1 FROM ejecuciones WHERE {_EJECUCION_VACIA} LIMIT 1").fetchone()
+    )
 
 
 def _conectar(db_path: str) -> sqlite3.Connection:
@@ -192,9 +224,7 @@ def _purgar_antiguos(conn: sqlite3.Connection, rango: str, mantener: int):
     )
     conn.execute(f"DELETE FROM hosts WHERE escaneo_id IN ({marcadores})", ids_a_borrar)
     conn.execute(f"DELETE FROM escaneos WHERE id IN ({marcadores})", ids_a_borrar)
-    # Una ejecución sin escaneos ya no tiene nada que enseñar
-    conn.execute("DELETE FROM ejecuciones WHERE id NOT IN "
-                 "(SELECT ejecucion_id FROM escaneos WHERE ejecucion_id IS NOT NULL)")
+    conn.execute(f"DELETE FROM ejecuciones WHERE {_EJECUCION_VACIA}")
 
 
 def registrar_y_comparar(

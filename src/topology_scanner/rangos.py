@@ -74,11 +74,14 @@ VARIABLE_RANGOS_PERMITIDOS = "TOPOLOGY_ALLOWED_RANGES"
 
 def parsear_permitidos(texto: str | None) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network] | None:
     """Lista de redes permitidas a partir del valor de la variable (CIDRs o
-    IPs separados por espacios). None si no hay variable o está vacía (sin
-    límite). Lanza ValueError si algún elemento no es una red válida: mejor
-    no escanear nada que escanear sin límites por una errata."""
-    if texto is None or not texto.strip():
+    IPs separados por espacios). None si no hay variable (sin límite).
+    Lanza ValueError si está vacía o algún elemento no es una red válida:
+    mejor no escanear nada que escanear sin límites por una errata (una
+    variable vacía suele ser una sustitución de Compose que no se resolvió)."""
+    if texto is None:
         return None
+    if not texto.strip():
+        raise ValueError("it is set but empty; unset it to scan without limits")
     try:
         return [ipaddress.ip_network(red, strict=False) for red in texto.split()]
     except ValueError as e:

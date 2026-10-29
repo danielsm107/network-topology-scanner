@@ -59,7 +59,16 @@ def historial_demo(*_args, **_kwargs) -> list:
     ]
 
 
+def cargar_demo(ejecucion_id, *_args, **_kwargs) -> dict:
+    """Sustituye a history.cargar_ejecucion: elegir una entrada de la lista
+    tampoco puede abrir el historial real. Todas muestran el escaneo de la demo."""
+    ejecucion = next(e for e in historial_demo() if e["id"] == ejecucion_id)
+    demo = resultado_demo()
+    return {**ejecucion, "resultados": demo["resultados"], "topologia": demo["topologia"], "diff": demo["diff"]}
+
+
 webapp.listar_ejecuciones = historial_demo
+webapp.cargar_ejecucion = cargar_demo
 st.session_state.setdefault("rango_detectado", "192.0.2.0/24 198.51.100.0/24")
 st.session_state.setdefault("resultado", resultado_demo())
 webapp.main()

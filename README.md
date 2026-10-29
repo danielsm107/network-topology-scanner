@@ -164,7 +164,7 @@ in full, including the ones run by the CLI.
 
 | Environment variable | Purpose | Default |
 |---|---|---|
-| `TOPOLOGY_ALLOWED_RANGES` | Space-separated CIDRs: the web UI only scans ranges (and queries SNMP routers) inside them. Set it whenever other people can reach the web UI | no limit |
+| `TOPOLOGY_ALLOWED_RANGES` | Space-separated CIDRs: the web UI only scans ranges (and queries SNMP routers) inside them; set but empty (or malformed) means no scans at all. Set it whenever other people can reach the web UI | no limit (when unset) |
 | `TOPOLOGY_HISTORY_DB` | History file used by the web UI (point it at the same file as the CLI's `--history-db` to see scheduled scans) | `historial.db` |
 
 ```bash

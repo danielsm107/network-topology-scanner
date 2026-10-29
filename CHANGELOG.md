@@ -14,7 +14,8 @@ follows [Semantic Versioning](https://semver.org/).
 - Web UI: `TOPOLOGY_ALLOWED_RANGES` (space-separated CIDRs) limits what the
   web UI can scan. With it set, every range, and every SNMP router address,
   must be an IP or CIDR inside one of those networks; if the variable itself
-  is malformed, the UI refuses to scan at all. Without it, nothing changes.
+  is malformed or set but empty, the UI refuses to scan at all. Without it,
+  nothing changes.
   Meant for running the web UI on a shared machine or cluster.
 - Web UI: `TOPOLOGY_HISTORY_DB` sets where the web UI keeps its history, so
   it can share one with scheduled CLI scans.

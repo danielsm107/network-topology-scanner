@@ -98,3 +98,22 @@ def test_la_web_de_demo_no_lee_el_historial_real(monkeypatch):
     lista = next(s for s in at.sidebar.selectbox if s.label == "Saved scans")
     assert len(lista.options) == 3
     assert any("2 ranges" in opcion for opcion in lista.options)
+
+
+def test_elegir_un_escaneo_en_la_demo_no_lee_el_historial_real(monkeypatch):
+    """Elegir una entrada de la lista de la demo tampoco puede abrir el
+    historial.db real (las capturas del README son públicas)."""
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.syspath_prepend(str(CARPETA_SCRIPTS))
+    monkeypatch.setattr("topology_scanner.history.cargar_ejecucion",
+                        lambda *a, **k: pytest.fail("la demo ha leído el historial real"))
+    monkeypatch.setattr("topology_scanner.webapp.cargar_ejecucion",
+                        lambda *a, **k: pytest.fail("la demo ha leído el historial real"))
+    at = AppTest.from_file(str(CARPETA_SCRIPTS / "demo_web.py"))
+    at.run()
+    lista = next(s for s in at.sidebar.selectbox if s.label == "Saved scans")
+    lista.set_value(2).run()
+
+    assert not at.exception
+    assert any("Saved scan" in i.value for i in at.info)

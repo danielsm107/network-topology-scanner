@@ -1679,7 +1679,7 @@ def _plural(n: int, palabra: str) -> str:
 
 def _etiqueta_ejecucion(ejecucion: dict) -> str:
     """Texto de una ejecución en la lista de escaneos guardados:
-    "29 Oct 03:00 · cli · 2 ranges · 34 hosts · 2⚠". El origen va tal cual
+    "29 Oct 03:00 · cli · 2 ranges · 34 hosts · 2⚠ · #7". El origen va tal cual
     (no se deduce "nocturno" de la hora: un escaneo a mano a las 3 también
     sería cli). Texto plano: el selectbox de Streamlit no interpreta HTML."""
     partes = [
@@ -1690,6 +1690,9 @@ def _etiqueta_ejecucion(ejecucion: dict) -> str:
     ]
     if ejecucion["alertas"]:
         partes.append(f"{ejecucion['alertas']}⚠")
+    # El id hace la etiqueta única: Streamlit guarda la elección por el texto,
+    # y con dos iguales (mismo minuto, origen y hosts) abría la otra
+    partes.append(f"#{ejecucion['id']}")
     return " · ".join(partes)
 
 
