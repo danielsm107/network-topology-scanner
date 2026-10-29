@@ -1,0 +1,21 @@
+#cloud-config
+# Solo corre en el primer arranque: cambiarlo después no reconfigura la VM.
+hostname: k3s
+
+users:
+  - name: ubuntu
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${clave_publica}
+
+package_update: true
+packages:
+  - qemu-guest-agent
+
+runcmd:
+  # El agente le dice a Proxmox (y a Terraform) la IP y cuándo la VM está lista
+  - systemctl enable --now qemu-guest-agent
+  # --tls-san: la IP en el certificado, para usar kubectl desde el PC
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} sh -s - --tls-san ${ip} --write-kubeconfig-mode 0600

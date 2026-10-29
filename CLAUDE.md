@@ -50,6 +50,11 @@ topology-scanner-web                            # o: streamlit run src/topology_
 
 docker build -t topology-scanner:dev .          # imagen (en el PC: context `docker-lab`, la VM de Proxmox)
 docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN -v ts-datos:/data topology-scanner:dev <rango> --fast
+
+# Terraform (infra/): fmt/validate/test sin credenciales; plan/apply solo desde el PC del mantenedor
+terraform fmt -check -recursive infra/
+cd infra/proxmox && terraform init -backend=false && terraform validate && terraform test
+# apply real: runbook docs/devops/runbooks/02-proxmox-vm.md (token por entorno, perfil AWS `personal`)
 ```
 
 El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
@@ -59,7 +64,9 @@ CI (`.github/workflows/ci.yml`) ejecuta `ruff check src/ tests/ scripts/` + `pyt
 en Python 3.10 y 3.12 en cada push/PR a `main` — ambos tienen que pasar. El job
 `imagen` construye la imagen Docker, la prueba por fuera (UID 10001, nmap con y
 sin capacidades) y la escanea con Trivy (falla con críticas que tengan arreglo).
-Toda action que no sea de GitHub (`actions/...`) va **fijada por SHA**, y Trivy
+El job `terraform` pasa `fmt`, `validate` en cada raíz de `infra/` (un test
+obliga a añadir las nuevas) y `terraform test` con el provider simulado; nunca
+`apply` (la API de Proxmox solo es accesible desde la LAN). Toda action que no sea de GitHub (`actions/...`) va **fijada por SHA**, y Trivy
 por digest, no por tag (ataque a las tags de `trivy-action`, marzo de 2026); lo
 comprueba `tests/test_workflows.py`. Las de `actions/` van por tag.
 
@@ -90,6 +97,8 @@ scripts/demo_web.py    # web con un escaneo inventado cargado, para las capturas
 Dockerfile, .dockerignore  # imagen: nmap sin root (setcap, UID 10001), /data, web por STREAMLIT_*
 compose.yaml           # uso con Docker Compose (en inglés: es para copiarlo); web solo en 127.0.0.1
 docs/devops/           # fase DevOps: README (estado por fase) y runbooks/NN-<fase>.md
+infra/aws/bootstrap/   # Terraform: bucket S3 del estado (estado local, ignorado)
+infra/proxmox/         # Terraform: VM k3s en Proxmox (cloud-init + network-config propios); tfvars/backend.hcl ignorados
 ```
 
 **Principio de diseño**: cada módulo no sabe nada de los demás salvo lo

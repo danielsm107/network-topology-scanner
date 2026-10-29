@@ -1,0 +1,14 @@
+# Copiar a terraform.tfvars (ignorado por git) y poner los valores reales.
+# La IP tiene que estar fuera del pool DHCP del router.
+
+ip_cidr     = "192.0.2.50/24"
+gateway     = "192.0.2.1"
+k3s_version = "v1.34.1+k3s1" # la del canal stable: https://update.k3s.io/v1-release/channels/stable
+
+# Opcionales (estos son los valores por defecto):
+# nodo              = "pve"
+# dns               = ["192.0.2.1"]
+# memoria_mib       = 8192
+# ssh_clave_publica = "~/.ssh/homelab_ed25519.pub"
+# ssh_clave_privada = "~/.ssh/homelab_ed25519"
+# proxmox_insecure  = true

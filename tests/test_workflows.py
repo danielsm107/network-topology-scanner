@@ -33,3 +33,21 @@ def test_las_actions_de_terceros_van_fijadas_por_sha():
         if not uso.startswith(("actions/", "./")) and not _SHA.match(uso.partition("@")[2])
     ]
     assert sin_fijar == []
+
+
+def test_la_ci_valida_cada_raiz_de_terraform():
+    # Una raíz = carpeta de infra/ con .tf propios (los tests van en tests/, aparte;
+    # .terraform/ es la caché de init, donde caen los módulos descargados).
+    # Si se crea una nueva y no se añade al job terraform, nadie la valida.
+    raiz_repo = CARPETA_WORKFLOWS.parents[1]
+    raices = sorted(
+        {
+            tf.parent.relative_to(raiz_repo).as_posix()
+            for tf in (raiz_repo / "infra").rglob("*.tf")
+            if ".terraform" not in tf.parts
+        }
+    )
+    ci = (CARPETA_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+
+    assert raices
+    assert [raiz for raiz in raices if f"-chdir={raiz} validate" not in ci] == []

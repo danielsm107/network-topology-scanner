@@ -1,0 +1,15 @@
+# Estado y caché de Terraform: el estado puede contener datos reales de la
+# infraestructura (y el de Proxmox vive en S3, no aquí)
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Configuración real (IPs, nombre del bucket con el ID de la cuenta...):
+# en el repo solo van los .example
+*.tfvars
+!*.tfvars.example
+backend.hcl
+
+kubeconfig*
+
+# .terraform.lock.hcl SÍ se versiona: fija los providers exactos (con sus hashes)
