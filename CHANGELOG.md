@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-10-29
+
+### Added
+- Web UI: "Saved scans" list in the sidebar. Pick any saved scan to see it
+  again in full (inventory, changes against the scan before it, and the SNMP
+  tree), whether it was run from the web or by the CLI (for example, a
+  scheduled scan).
+- Web UI: `TOPOLOGY_ALLOWED_RANGES` (space-separated CIDRs) limits what the
+  web UI can scan. With it set, every range, and every SNMP router address,
+  must be an IP or CIDR inside one of those networks; if the variable itself
+  is malformed, the UI refuses to scan at all. Without it, nothing changes.
+  Meant for running the web UI on a shared machine or cluster.
+- Web UI: `TOPOLOGY_HISTORY_DB` sets where the web UI keeps its history, so
+  it can share one with scheduled CLI scans.
+
+### Changed
+- History: each run is now saved as a whole (all its ranges plus the SNMP
+  topology), so it can be reopened later. Existing `historial.db` files are
+  migrated automatically the first time they're opened; older scans show up
+  in the list as single-range scans without a topology.
+- History: CLI and web wait for each other instead of failing with
+  "database is locked" when both write to the same file.
+
 ## [1.2.2] - 2026-10-24
 
 ### Fixed

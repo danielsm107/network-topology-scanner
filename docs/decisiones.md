@@ -544,3 +544,27 @@ contexto completo.
     simulado no lo pueden ver); ahora lo fija `terraform test`.
   - **`apply` solo desde el PC**, nunca en la CI: la API de Proxmox está en la
     LAN y no se abre hacia fuera. La CI hace `fmt`, `validate` y `terraform test`.
+- v1.3.0, cambios en la app para desplegarla en el clúster (fase DevOps 3,
+  diseño `docs/superpowers/specs/2026-10-29-fase-3-kubernetes-design.md`):
+  - **Rangos permitidos solo en la web** (`TOPOLOGY_ALLOWED_RANGES`), no en el
+    CLI: quien ejecuta el CLI ya tiene la máquina. Con la variable, solo IPs y
+    CIDRs (la sintaxis de nmap como `.1-5` no se puede comprobar de forma
+    fiable), contenidos enteros en un permitido (un /23 que contiene al /24
+    permitido se rechaza), y **también las IPs de SNMP**, para que la web no
+    sirva para consultar equipos de fuera. Si la variable está mal escrita, la
+    web no escanea nada: falla cerrado, nunca "sin límites" por una errata.
+  - **Ejecuciones en el historial**: una pasada guarda todos sus rangos y la
+    topología SNMP (JSON) juntos, para que la web la reabra entera. Cada rango
+    se sigue comparando con su propio escaneo anterior. Al reabrir una antigua,
+    el diff es contra el escaneo anterior a ella, no contra el último. Migración
+    en sitio al abrir la base: cada escaneo de antes pasa a ser una ejecución de
+    un rango (origen "antiguo", sin topología), sin perder nada. Las alertas se
+    recalculan al cargar (como ya hacía la lista antigua), no se guardan aparte.
+  - **Espera de 30 s ante bloqueos de SQLite**: el CronJob y la web escriben en
+    el mismo archivo. Con escrituras de milisegundos basta de sobra; sqlite3 ya
+    esperaba 5 s por defecto, los 30 son margen.
+  - **La lista de la web es un `st.selectbox`**, no el panel HTML de antes:
+    tiene que poder elegirse, y en texto plano no hay HTML que escapar. Vuelve a
+    "sin elegir" tras cada escaneo cambiando su `key` (no se puede asignar la
+    de un widget ya creado). El origen se muestra tal cual (`cli`, `web`, `old`):
+    deducir "nocturno" de la hora sería inventar.

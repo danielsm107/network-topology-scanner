@@ -49,7 +49,7 @@ network-topology-scanner/
 │   ├── classifier.py      # Device classification by MAC/vendor
 │   ├── graph.py            # Graph construction (networkx)
 │   ├── export.py           # HTML export (pyvis), text and CSV
-│   ├── history.py          # Scan history in SQLite (diff vs. the previous scan)
+│   ├── history.py          # Scan history in SQLite (whole runs, diff vs. the previous scan)
 │   ├── snmp.py             # Real topology via SNMP (ARP, routes, MAC table, neighbors)
 │   ├── cli.py               # Command-line interface
 │   └── webapp.py            # Web interface (Streamlit, optional)
@@ -159,7 +159,13 @@ described below, over SNMP v2c or v3 (community and keys are password
 inputs; leave them empty to use the `TOPOLOGY_SNMP_*` environment variables).
 The topology panel has a flat view and an isometric one (each switch or
 access point gets its own platform with the hosts hanging from it), with
-pan and zoom.
+pan and zoom. The "Saved scans" list in the sidebar reopens any saved scan
+in full, including the ones run by the CLI.
+
+| Environment variable | Purpose | Default |
+|---|---|---|
+| `TOPOLOGY_ALLOWED_RANGES` | Space-separated CIDRs: the web UI only scans ranges (and queries SNMP routers) inside them. Set it whenever other people can reach the web UI | no limit |
+| `TOPOLOGY_HISTORY_DB` | History file used by the web UI (point it at the same file as the CLI's `--history-db` to see scheduled scans) | `historial.db` |
 
 ```bash
 topology-scanner-web
