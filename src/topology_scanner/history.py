@@ -341,40 +341,6 @@ def _cargar_hosts(conn: sqlite3.Connection, escaneo_id: int) -> dict:
     return resultados
 
 
-def listar_escaneos_recientes(db_path: str = DB_POR_DEFECTO, limite: int = 5) -> list:
-    """Devuelve los últimos `limite` escaneos guardados, de cualquier rango,
-    más reciente primero:
-        [{"rango": .., "fecha": .., "total_hosts": .., "alertas": ..}, ...]
-
-    Pensado para el panel de "historial reciente" del sidebar de webapp.py
-    (cli.py no lo usa). "alertas" reutiliza PUERTOS_SENSIBLES sobre los
-    puertos ya guardados en vez de añadir una columna aparte - mismo
-    criterio que _comparar()."""
-    try:
-        with closing(_conectar(db_path)) as conn:
-            _crear_tablas(conn)
-            escaneos = conn.execute(
-                "SELECT id, rango, fecha FROM escaneos ORDER BY fecha DESC, id DESC LIMIT ?",
-                (limite,),
-            ).fetchall()
-
-            resultado = []
-            for escaneo_id, rango, fecha in escaneos:
-                total_hosts = conn.execute(
-                    "SELECT COUNT(*) FROM hosts WHERE escaneo_id = ?", (escaneo_id,)
-                ).fetchone()[0]
-                puertos = conn.execute(
-                    "SELECT puerto FROM puertos WHERE host_id IN "
-                    "(SELECT id FROM hosts WHERE escaneo_id = ?)",
-                    (escaneo_id,),
-                ).fetchall()
-                alertas = sum(1 for (puerto,) in puertos if puerto in PUERTOS_SENSIBLES)
-                resultado.append(
-                    {"rango": rango, "fecha": fecha, "total_hosts": total_hosts, "alertas": alertas}
-                )
-            return resultado
-    except sqlite3.Error as e:
-        raise HistoryError(f"Error accessing the scan history ({db_path}): {e}") from e
 
 
 def hay_cambios(diff: dict) -> bool:

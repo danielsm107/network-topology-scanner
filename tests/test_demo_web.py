@@ -89,11 +89,12 @@ def test_la_web_de_demo_no_lee_el_historial_real(monkeypatch):
     from streamlit.testing.v1 import AppTest
 
     monkeypatch.syspath_prepend(str(CARPETA_SCRIPTS))
-    monkeypatch.setattr("topology_scanner.webapp.listar_escaneos_recientes",
+    monkeypatch.setattr("topology_scanner.webapp.listar_ejecuciones",
                         lambda *a, **k: pytest.fail("la demo ha leído el historial real"))
     at = AppTest.from_file(str(CARPETA_SCRIPTS / "demo_web.py"))
     at.run()
 
     assert not at.exception
-    historial = next(md.value for md in at.sidebar.markdown if "history-list" in md.value)
-    assert "192.0.2.0/24" in historial and "198.51.100.0/24" in historial
+    lista = next(s for s in at.sidebar.selectbox if s.label == "Saved scans")
+    assert len(lista.options) == 3
+    assert any("2 ranges" in opcion for opcion in lista.options)

@@ -43,7 +43,6 @@ from topology_scanner.webapp import (
     _generar_chips_categorias_html,
     _generar_css,
     _generar_estado_vacio_html,
-    _generar_historial_html,
     _generar_kpis_html,
     _generar_progreso_html,
     _generar_tabla_inventario_html,
@@ -611,43 +610,12 @@ def test_generar_cambios_html_con_varios_items_no_deja_lineas_en_blanco():
     assert not any(linea.strip() == "" for linea in html.split("\n"))
 
 
-def test_generar_historial_html_incluye_una_fila_por_escaneo():
-    escaneos = [
-        {"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 12, "alertas": 2},
-        {"rango": "10.0.0.0/24", "fecha": "2026-08-21T08:00:00", "total_hosts": 7, "alertas": 0},
-    ]
-    html = _generar_historial_html(escaneos)
-    assert html.count("history-row") >= 2
-    assert "192.168.1.0/24" in html
-    assert "10.0.0.0/24" in html
 
 
-def test_generar_historial_html_muestra_alertas_si_las_hay():
-    escaneos = [{"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 12, "alertas": 2}]
-    html = _generar_historial_html(escaneos)
-    assert "#ff5c5c" in html
-    assert "2⚠" in html
 
 
-def test_generar_historial_html_sin_alertas_usa_verde_y_no_fabrica_el_simbolo():
-    escaneos = [{"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 7, "alertas": 0}]
-    html = _generar_historial_html(escaneos)
-    assert "#2ecc71" in html
-    assert "⚠" not in html
 
 
-def test_generar_historial_html_con_varios_escaneos_no_deja_lineas_en_blanco():
-    """Bug real reproducido en el sidebar: con varios escaneos guardados,
-    las líneas en blanco entre <div class="history-row"> cortaban el
-    bloque de HTML a medias y se veía el código en vez del historial."""
-    escaneos = [
-        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 47, "alertas": 13},
-        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:59:00", "total_hosts": 47, "alertas": 13},
-        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:46:00", "total_hosts": 47, "alertas": 13},
-        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:43:00", "total_hosts": 47, "alertas": 13},
-    ]
-    html = _generar_historial_html(escaneos)
-    assert not any(linea.strip() == "" for linea in html.split("\n"))
 
 
 def test_generar_topologia_html_un_nodo_por_host():
@@ -1147,10 +1115,6 @@ def test_kpis_escapa_el_rango():
     _assert_escapado(html, _HTML_MALICIOSO)
 
 
-def test_historial_escapa_el_rango_guardado():
-    escaneos = [{"rango": _HTML_MALICIOSO, "fecha": datetime.now().isoformat(), "total_hosts": 1, "alertas": 0}]
-
-    _assert_escapado(_generar_historial_html(escaneos), _HTML_MALICIOSO)
 
 
 def test_progreso_escapa_el_rango_y_las_lineas_del_log():
@@ -1442,3 +1406,65 @@ def test_finalizar_registra_ejecucion_web(mock_registrar, mock_obtener, monkeypa
         {"192.0.2.0/24": resultados}, _topologia_fake(), origen="web", db_path="/data/historial.db"
     )
     assert resultado["diff"]["primera_vez"] is True
+
+
+# === Lista de escaneos guardados ============================================
+
+_EJECUCION = {"id": 7, "fecha": "2026-10-29T03:00:00", "origen": "cli",
+              "rangos": ["192.0.2.0/24", "198.51.100.0/24"], "total_hosts": 34, "alertas": 2}
+
+
+def test_etiqueta_ejecucion():
+    from topology_scanner.webapp import _etiqueta_ejecucion
+
+    assert _etiqueta_ejecucion(_EJECUCION) == "29 Oct 03:00 · cli · 2 ranges · 34 hosts · 2⚠"
+    antigua = {**_EJECUCION, "fecha": "2026-10-01T09:05:00", "origen": "antiguo",
+               "rangos": ["192.0.2.0/24"], "total_hosts": 1, "alertas": 0}
+    assert _etiqueta_ejecucion(antigua) == "01 Oct 09:05 · old · 1 range · 1 host"
+
+
+def test_resultado_desde_ejecucion_tiene_formato_de_finalizar():
+    """_mostrar_resultado pinta igual un escaneo recién hecho que uno guardado."""
+    from topology_scanner.webapp import _resultado_desde_ejecucion
+
+    ejecucion = {**_EJECUCION, "resultados": {"192.0.2.10": _resultado_fake()}, "topologia": None,
+                 "diff": {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}}
+
+    resultado = _resultado_desde_ejecucion(ejecucion)
+
+    claves_de_un_escaneo = set(_finalizar_resultados({}, "192.0.2.0/24", guardar_historial=False))
+    assert claves_de_un_escaneo <= set(resultado)
+    assert resultado["rangos"] == ["192.0.2.0/24", "198.51.100.0/24"]
+    assert resultado["guardado"] == {"fecha": "2026-10-29T03:00:00", "origen": "cli"}
+
+
+def test_elegir_ejecucion_la_muestra(sin_escaneos_reales, monkeypatch, tmp_path):
+    from streamlit.testing.v1 import AppTest
+
+    from topology_scanner.history import listar_ejecuciones, registrar_ejecucion
+
+    db = str(tmp_path / "compartido.db")
+    monkeypatch.setenv("TOPOLOGY_HISTORY_DB", db)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.10": _resultado_fake(hostname="equipo-viejo")}}, db_path=db)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.20": _resultado_fake(hostname="equipo-nuevo")}}, db_path=db)
+    antigua = listar_ejecuciones(db)[1]["id"]
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    lista = next(s for s in at.sidebar.selectbox if s.label == "Saved scans")
+    lista.set_value(antigua).run()
+
+    assert not at.exception
+    assert any("equipo-viejo" in md.value for md in at.markdown)
+    assert not any("equipo-nuevo" in md.value for md in at.markdown)
+    assert any("Saved scan" in i.value and "cli" in i.value for i in at.info)
+
+
+def test_lista_vacia():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+
+    assert any(c.value == "No saved scans yet." for c in at.sidebar.caption)
+    assert not any(s.label == "Saved scans" for s in at.sidebar.selectbox)

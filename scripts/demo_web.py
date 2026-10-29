@@ -45,19 +45,21 @@ def resultado_demo() -> dict:
 
 
 def historial_demo(*_args, **_kwargs) -> list:
-    """Sustituye a history.listar_escaneos_recientes: el historial.db del
+    """Sustituye a history.listar_ejecuciones: el historial.db del
     directorio de trabajo es el de la red real de quien lance la demo."""
     def hace(**delta) -> str:
-        return (datetime.now() - timedelta(**delta)).isoformat()
+        return (datetime.now() - timedelta(**delta)).isoformat(timespec="seconds")
 
+    rangos = ["192.0.2.0/24", "198.51.100.0/24"]
     return [
-        {"rango": "192.0.2.0/24", "fecha": hace(minutes=3), "total_hosts": 11, "alertas": 2},
-        {"rango": "198.51.100.0/24", "fecha": hace(minutes=3), "total_hosts": 2, "alertas": 0},
-        {"rango": "192.0.2.0/24", "fecha": hace(days=1), "total_hosts": 11, "alertas": 1},
+        {"id": 3, "fecha": hace(minutes=3), "origen": "web", "rangos": rangos, "total_hosts": 13, "alertas": 2},
+        {"id": 2, "fecha": hace(hours=9), "origen": "cli", "rangos": rangos, "total_hosts": 13, "alertas": 1},
+        {"id": 1, "fecha": hace(days=1), "origen": "cli", "rangos": ["192.0.2.0/24"], "total_hosts": 11,
+         "alertas": 1},
     ]
 
 
-webapp.listar_escaneos_recientes = historial_demo
+webapp.listar_ejecuciones = historial_demo
 st.session_state.setdefault("rango_detectado", "192.0.2.0/24 198.51.100.0/24")
 st.session_state.setdefault("resultado", resultado_demo())
 webapp.main()

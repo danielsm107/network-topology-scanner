@@ -65,8 +65,9 @@ from topology_scanner.history import (
     DB_POR_DEFECTO,
     VARIABLE_DB,
     HistoryError,
+    cargar_ejecucion,
     combinar_diffs,
-    listar_escaneos_recientes,
+    listar_ejecuciones,
     registrar_ejecucion,
 )
 from topology_scanner.rangos import (
@@ -1215,6 +1216,12 @@ def _mostrar_resultado(resultado: dict, accent: str):
         st.warning("No hosts found. Check the range and your permissions (try with sudo).")
         return
 
+    guardado = resultado.get("guardado")
+    if guardado:
+        fecha = datetime.fromisoformat(guardado["fecha"])
+        origen = _ORIGEN_VISIBLE.get(guardado["origen"], guardado["origen"])
+        st.info(f"Saved scan · {fecha:%d %b %Y %H:%M} ({_tiempo_relativo(guardado['fecha'])}) · {origen}")
+
     diff = resultado["diff"]
     st.markdown(_generar_kpis_html(resultados, resultado["rango"], diff, accent), unsafe_allow_html=True)
 
@@ -1322,6 +1329,8 @@ def _fragmento_progreso():
                 # podía dejar pagina_inventario apuntando a una página que ya
                 # no existe (tabla vacía hasta que el usuario pulsara "Anterior").
                 st.session_state.pagina_inventario = 1
+                # Lista de escaneos guardados otra vez sin elegir (ver main)
+                st.session_state.version_lista = st.session_state.get("version_lista", 0) + 1
     finally:
         # Las credenciales ya no hacen falta: no se dejan en session_state más
         # tiempo del imprescindible (también si se canceló o falló nmap).
@@ -1493,22 +1502,6 @@ h1, h2, h3 {{
     background: rgba(227,232,238,0.04);
 }}
 
-.history-list {{ display: flex; flex-direction: column; gap: 8px; }}
-.history-row {{
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 12px; border-radius: 9px;
-    border: 1px solid rgba(227,232,238,0.07); background: rgba(227,232,238,0.02);
-}}
-.history-left {{ display: flex; flex-direction: column; gap: 3px; }}
-.history-range {{ font-size: 12.5px; font-weight: 500; }}
-.history-time {{ display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: #5A6B7C; }}
-.history-badge {{
-    display: flex; align-items: center; gap: 5px;
-    font-size: 11px; color: #B8C2CC;
-    padding: 3px 8px; border-radius: 12px; background: rgba(227,232,238,0.06);
-}}
-.history-dot {{ width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }}
-
 .phase-row {{ display: flex; align-items: center; gap: 0; margin-top: 14px; }}
 .phase-chip {{
     display: flex; align-items: center; gap: 9px;
@@ -1657,16 +1650,9 @@ def _generar_topbar_html(version: str, accent: str) -> str:
 """
 
 
-_SVG_RELOJ = (
-    '<svg viewBox="0 0 20 20" width="11" height="11" fill="none" stroke="currentColor" '
-    'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
-    '<circle cx="10" cy="10" r="7.2"/><path d="M10 6v4l3 2"/></svg>'
-)
-
-
 def _tiempo_relativo(fecha_iso: str, ahora: datetime | None = None) -> str:
     """Convierte el ISO datetime que guarda history.py en un texto relativo
-    corto ("hace 2 días") para las filas del historial del sidebar. Acepta
+    corto ("hace 2 días") para el aviso de un escaneo guardado. Acepta
     `ahora` para que los tests no dependan del reloj real."""
     momento = datetime.fromisoformat(fecha_iso)
     ahora = ahora or datetime.now()
@@ -1683,26 +1669,54 @@ def _tiempo_relativo(fecha_iso: str, ahora: datetime | None = None) -> str:
     return f"{dias} day ago" if dias == 1 else f"{dias} days ago"
 
 
-def _generar_historial_html(escaneos: list) -> str:
-    """HTML de la lista de "historial reciente" del sidebar, a partir de
-    history.listar_escaneos_recientes(). Aparte en su propia función para
-    poder comprobar el contenido sin renderizar Streamlit, igual que
-    _generar_topbar_html."""
-    filas = []
-    for escaneo in escaneos:
-        alertas = escaneo["alertas"]
-        color = "#ff5c5c" if alertas else "#2ecc71"
-        cifra = f"{escaneo['total_hosts']} · {alertas}⚠" if alertas else str(escaneo["total_hosts"])
-        filas.append(f"""
-        <div class="history-row">
-          <div class="history-left">
-            <div class="history-range mono">{escape(escaneo["rango"])}</div>
-            <div class="history-time">{_SVG_RELOJ}{_tiempo_relativo(escaneo["fecha"])}</div>
-          </div>
-          <div class="history-badge mono"><div class="history-dot" style="background:{color}"></div>{cifra}</div>
-        </div>
-        """)
-    return _compactar_html(f'<div class="history-list">{"".join(filas)}</div>')
+# El "antiguo" de la migración del historial, en inglés como el resto de la interfaz
+_ORIGEN_VISIBLE = {"antiguo": "old"}
+
+
+def _plural(n: int, palabra: str) -> str:
+    return f"{n} {palabra}" if n == 1 else f"{n} {palabra}s"
+
+
+def _etiqueta_ejecucion(ejecucion: dict) -> str:
+    """Texto de una ejecución en la lista de escaneos guardados:
+    "29 Oct 03:00 · cli · 2 ranges · 34 hosts · 2⚠". El origen va tal cual
+    (no se deduce "nocturno" de la hora: un escaneo a mano a las 3 también
+    sería cli). Texto plano: el selectbox de Streamlit no interpreta HTML."""
+    partes = [
+        datetime.fromisoformat(ejecucion["fecha"]).strftime("%d %b %H:%M"),
+        _ORIGEN_VISIBLE.get(ejecucion["origen"], ejecucion["origen"]),
+        _plural(len(ejecucion["rangos"]), "range"),
+        _plural(ejecucion["total_hosts"], "host"),
+    ]
+    if ejecucion["alertas"]:
+        partes.append(f"{ejecucion['alertas']}⚠")
+    return " · ".join(partes)
+
+
+def _resultado_desde_ejecucion(ejecucion: dict) -> dict:
+    """Una ejecución de history.cargar_ejecucion con el formato que devuelve
+    _finalizar_resultados, para que _mostrar_resultado la pinte igual que un
+    escaneo recién hecho. "guardado" marca que viene del historial."""
+    return {
+        "resultados": ejecucion["resultados"], "diff": ejecucion["diff"],
+        "rango": " ".join(ejecucion["rangos"]), "rangos": ejecucion["rangos"],
+        "topologia": ejecucion["topologia"], "avisos_snmp": [],
+        "guardado": {"fecha": ejecucion["fecha"], "origen": ejecucion["origen"]},
+    }
+
+
+def _al_elegir_ejecucion(clave: str):
+    """on_change de la lista: carga la ejecución elegida una sola vez (no en
+    cada rerun, que pisaría un escaneo nuevo)."""
+    ejecucion_id = st.session_state.get(clave)
+    if ejecucion_id is None:
+        return
+    try:
+        st.session_state.resultado = _resultado_desde_ejecucion(cargar_ejecucion(ejecucion_id, _ruta_historial()))
+    except HistoryError as e:
+        st.session_state.mensaje = ("error", str(e))
+        return
+    st.session_state.pagina_inventario = 1
 
 
 def _formatear_tiempo_transcurrido(segundos: float) -> str:
@@ -1830,6 +1844,7 @@ def main():
     st.session_state.setdefault("estado", "idle")
     st.session_state.setdefault("rango_detectado", "")
     st.session_state.setdefault("resultado", None)
+    st.session_state.setdefault("version_lista", 0)
 
     # Mensaje dejado por _fragmento_progreso() justo antes de su propio
     # st.rerun(): si se pintara ahí mismo, ese mismo rerun lo borraría antes
@@ -1929,13 +1944,21 @@ def main():
         parar = st.button("⏹ Stop scan", disabled=not escaneando, use_container_width=True)
 
         st.divider()
-        st.markdown('<div class="section-eyebrow">Recent history</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-eyebrow">Saved scans</div>', unsafe_allow_html=True)
         try:
-            recientes = listar_escaneos_recientes(_ruta_historial())
+            ejecuciones = listar_ejecuciones(_ruta_historial())
         except HistoryError:
-            recientes = []  # mismo criterio que el resto de la app: fallo de historial no bloquea la UI
-        if recientes:
-            st.markdown(_generar_historial_html(recientes), unsafe_allow_html=True)
+            ejecuciones = []  # mismo criterio que el resto de la app: fallo de historial no bloquea la UI
+        if ejecuciones:
+            etiquetas = {ejecucion["id"]: _etiqueta_ejecucion(ejecucion) for ejecucion in ejecuciones}
+            # La clave cambia con cada escaneo terminado: así la lista vuelve a
+            # "sin elegir" (no se puede asignar la clave de un widget ya creado)
+            clave = f"ejecucion_elegida_{st.session_state.version_lista}"
+            st.selectbox(
+                "Saved scans", list(etiquetas), format_func=etiquetas.get, index=None,
+                placeholder="Choose a saved scan", key=clave, label_visibility="collapsed",
+                on_change=_al_elegir_ejecucion, args=(clave,), disabled=escaneando,
+            )
         else:
             st.caption("No saved scans yet.")
 
