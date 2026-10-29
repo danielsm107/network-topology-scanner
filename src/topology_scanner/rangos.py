@@ -64,3 +64,37 @@ def repartir_por_rango(resultados: dict, rangos: list[str]) -> dict[str, dict]:
     for ip, datos in resultados.items():
         reparto[rango_de(ip, rangos)][ip] = datos
     return reparto
+
+
+# Rangos permitidos: la web del clúster no tiene login y escanea lo que le
+# pidan, así que con esta variable solo acepta rangos dentro de estas redes.
+# Sin ella no hay límite (uso local en el PC, como siempre).
+VARIABLE_RANGOS_PERMITIDOS = "TOPOLOGY_ALLOWED_RANGES"
+
+
+def parsear_permitidos(texto: str | None) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network] | None:
+    """Lista de redes permitidas a partir del valor de la variable (CIDRs o
+    IPs separados por espacios). None si no hay variable o está vacía (sin
+    límite). Lanza ValueError si algún elemento no es una red válida: mejor
+    no escanear nada que escanear sin límites por una errata."""
+    if texto is None or not texto.strip():
+        return None
+    try:
+        return [ipaddress.ip_network(red, strict=False) for red in texto.split()]
+    except ValueError as e:
+        raise ValueError(f"'{texto.strip()}' is not a list of IPs or CIDRs ({e})") from e
+
+
+def validar_permitidos(objetivos: list[str], permitidos: list[ipaddress.IPv4Network | ipaddress.IPv6Network]) -> None:
+    """Lanza ValueError si algún objetivo no es una IP o un CIDR contenido
+    entero en alguna red permitida. La sintaxis de nmap (192.0.2.1-5) se
+    rechaza: no se puede comprobar de forma fiable qué cubre."""
+    texto_permitidos = ", ".join(str(red) for red in permitidos)
+    for objetivo in objetivos:
+        try:
+            red = ipaddress.ip_network(objetivo, strict=False)
+        except ValueError:
+            red = None
+        # subnet_of lanza TypeError si se mezclan IPv4 e IPv6: se compara la versión antes
+        if red is None or not any(red.version == p.version and red.subnet_of(p) for p in permitidos):
+            raise ValueError(f"'{objetivo}' is outside the allowed ranges ({texto_permitidos})")

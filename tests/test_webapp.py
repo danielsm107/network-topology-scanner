@@ -1376,3 +1376,46 @@ def test_los_widgets_del_sidebar_estan_en_ingles():
     assert "Network range (CIDR)" in textos
     for texto in textos:
         _sin_español(texto)
+
+
+# === Rangos permitidos (TOPOLOGY_ALLOWED_RANGES) ============================
+#
+# En el clúster la web no tiene login: con la variable, solo escanea rangos
+# (y consulta por SNMP equipos) dentro de las redes permitidas.
+
+def _pulsar_escanear_con(rango, monkeypatch, permitidos=None, ip_snmp=None):
+    from streamlit.testing.v1 import AppTest
+
+    if permitidos is not None:
+        monkeypatch.setenv("TOPOLOGY_ALLOWED_RANGES", permitidos)
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    at.sidebar.text_input[0].set_value(rango).run()
+    if ip_snmp:
+        monkeypatch.setenv("TOPOLOGY_SNMP_COMMUNITY", "comunidad-de-prueba")
+        next(t for t in at.sidebar.toggle if "SNMP" in t.label).set_value(True).run()
+        next(t for t in at.sidebar.text_input if "Routers" in t.label).set_value(ip_snmp).run()
+    next(b for b in at.button if b.label == "▶ Scan").click().run()
+    assert not at.exception
+    return at
+
+
+def test_rango_fuera_de_permitidos_no_escanea(sin_escaneos_reales, monkeypatch):
+    at = _pulsar_escanear_con("203.0.113.0/24", monkeypatch, permitidos="192.0.2.0/24")
+    assert any("outside the allowed ranges" in w.value for w in at.warning)
+
+
+def test_ip_snmp_fuera_de_permitidos_no_escanea(sin_escaneos_reales, monkeypatch):
+    at = _pulsar_escanear_con("192.0.2.0/24", monkeypatch, permitidos="192.0.2.0/24", ip_snmp="203.0.113.1")
+    assert any("203.0.113.1" in w.value and "outside the allowed ranges" in w.value for w in at.warning)
+
+
+def test_variable_de_permitidos_invalida_bloquea_el_escaneo(sin_escaneos_reales, monkeypatch):
+    """Una errata en la variable no puede dejar la web escaneando sin límites."""
+    at = _pulsar_escanear_con("192.0.2.0/24", monkeypatch, permitidos="basura")
+    assert any("TOPOLOGY_ALLOWED_RANGES" in w.value for w in at.warning)
+
+
+def test_sin_variable_se_escanea_como_antes(monkeypatch):
+    monkeypatch.delenv("TOPOLOGY_ALLOWED_RANGES", raising=False)
+    assert _validar_rangos("203.0.113.0/24") == (["203.0.113.0/24"], None)

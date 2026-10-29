@@ -67,7 +67,13 @@ from topology_scanner.history import (
     listar_escaneos_recientes,
     registrar_y_comparar,
 )
-from topology_scanner.rangos import parsear_rangos, repartir_por_rango
+from topology_scanner.rangos import (
+    VARIABLE_RANGOS_PERMITIDOS,
+    parsear_permitidos,
+    parsear_rangos,
+    repartir_por_rango,
+    validar_permitidos,
+)
 
 # Imports absolutos (no relativos): streamlit run ejecuta este archivo como
 # script suelto, sin contexto de paquete, así que "from .scanner import..."
@@ -115,6 +121,9 @@ def _validar_snmp(activado: bool, texto_ips: str, community: str, *, version: st
         return None, f"SNMP topology: {e}."
     if not ips:
         return None, "SNMP topology: enter the IP of at least one router or switch."
+    error_permitidos = _error_si_no_permitidos(ips)
+    if error_permitidos:
+        return None, f"SNMP topology: {error_permitidos}"
 
     if version == "v3":
         try:
@@ -142,9 +151,31 @@ def _validar_rangos(texto: str) -> tuple[list[str] | None, str | None]:
     if not texto.strip():
         return None, "Enter a network range in CIDR notation (e.g. 192.168.1.0/24)."
     try:
-        return parsear_rangos(texto.split()), None
+        rangos = parsear_rangos(texto.split())
     except ValueError as e:
         return None, f"Invalid range: {e}."
+    error_permitidos = _error_si_no_permitidos(rangos)
+    if error_permitidos:
+        return None, error_permitidos
+    return rangos, None
+
+
+def _error_si_no_permitidos(objetivos: list[str]) -> str | None:
+    """Mensaje de error si algún objetivo (rango o IP SNMP) queda fuera de
+    TOPOLOGY_ALLOWED_RANGES, o si la variable está mal escrita: en ese caso
+    no se escanea nada (mejor que escanear sin límites). None si todo está
+    dentro, o si no hay variable (uso local, sin límite)."""
+    try:
+        permitidos = parsear_permitidos(os.environ.get(VARIABLE_RANGOS_PERMITIDOS))
+    except ValueError as e:
+        return f"{VARIABLE_RANGOS_PERMITIDOS} is invalid: {e}. No scans until it is fixed."
+    if permitidos is None:
+        return None
+    try:
+        validar_permitidos(objetivos, permitidos)
+    except ValueError as e:
+        return f"{e}."
+    return None
 
 
 def _detectar_rango_local() -> str | None:

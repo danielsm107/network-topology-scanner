@@ -4,9 +4,17 @@ rango (para el historial, que compara cada rango por separado, y para el
 grafo en estrella, que dibuja un centro por rango).
 """
 
+import re
+
 import pytest
 
-from topology_scanner.rangos import parsear_rangos, rango_de, repartir_por_rango
+from topology_scanner.rangos import (
+    parsear_permitidos,
+    parsear_rangos,
+    rango_de,
+    repartir_por_rango,
+    validar_permitidos,
+)
 
 
 def test_un_solo_objetivo_se_deja_tal_cual():
@@ -70,3 +78,51 @@ def test_repartir_por_rango_incluye_rangos_sin_hosts():
         "10.0.10.0/24": {"10.0.10.10": {"b": 2}},
         "172.16.0.0/24": {},
     }
+
+
+# === Rangos permitidos (web del clúster) ====================================
+
+PERMITIDOS = ["192.0.2.0/24", "198.51.100.0/24"]
+
+
+def _permitidos():
+    return parsear_permitidos(" ".join(PERMITIDOS))
+
+
+def test_parsear_permitidos_sin_variable():
+    """Sin la variable (o vacía) no hay límite: el uso local de siempre."""
+    assert parsear_permitidos(None) is None
+    assert parsear_permitidos("  ") is None
+
+
+def test_parsear_permitidos_lista():
+    assert [str(red) for red in _permitidos()] == PERMITIDOS
+
+
+def test_parsear_permitidos_invalida():
+    with pytest.raises(ValueError):
+        parsear_permitidos("192.0.2.0/24 basura")
+
+
+def test_validar_permitidos_acepta_contenidos():
+    """Una IP suelta o una subred más pequeña dentro de un permitido valen."""
+    validar_permitidos(["192.0.2.7", "192.0.2.128/25", "198.51.100.0/24"], _permitidos())
+
+
+def test_validar_permitidos_rechaza_supered():
+    """Un /23 contiene al /24 permitido, pero escanearía también la mitad de fuera."""
+    with pytest.raises(ValueError, match=re.escape("192.0.2.0/23")):
+        validar_permitidos(["192.0.2.0/23"], _permitidos())
+
+
+@pytest.mark.parametrize("objetivo", ["203.0.113.0/24", "2001:db8::/64"])
+def test_validar_permitidos_rechaza_otra_red_e_ipv6(objetivo):
+    with pytest.raises(ValueError, match="outside the allowed ranges"):
+        validar_permitidos([objetivo], _permitidos())
+
+
+def test_validar_permitidos_rechaza_sintaxis_nmap():
+    """192.0.2.1-5 no se puede comprobar de forma fiable: con lista de
+    permitidos, solo IPs y CIDRs."""
+    with pytest.raises(ValueError, match=re.escape("192.0.2.1-5")):
+        validar_permitidos(["192.0.2.1-5"], _permitidos())
