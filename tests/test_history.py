@@ -4,14 +4,19 @@ Tests de history.py. Cada test usa una base de datos SQLite temporal
 """
 
 import sqlite3
+import threading
+import time
 
 import pytest
 
 from topology_scanner.history import (
     HistoryError,
+    cargar_ejecucion,
     combinar_diffs,
     hay_cambios,
+    listar_ejecuciones,
     listar_escaneos_recientes,
+    registrar_ejecucion,
     registrar_y_comparar,
 )
 
@@ -307,3 +312,149 @@ def test_combinar_un_solo_diff_lo_devuelve_igual():
     diff = _diff(nuevos=["192.168.1.20"])
 
     assert combinar_diffs([diff]) == diff
+
+
+# === Ejecuciones: una pasada con todos sus rangos y su topología ============
+
+RED_A = "192.0.2.0/24"
+RED_B = "198.51.100.0/24"
+
+TOPOLOGIA_EJEMPLO = {
+    "equipos": {"192.0.2.1": {"nombre": "router", "plataforma": "RouterOS", "version": "6.49",
+                              "mac": "02:00:00:00:00:01", "consultado": True, "upstream": False}},
+    "enlaces": [{"padre": "192.0.2.1", "hijo": "198.51.100.1", "interfaz_padre": "ether3", "interfaz_hijo": ""}],
+    "redes": {RED_B: "198.51.100.1"},
+    "ubicaciones": {"02:00:00:00:00:10": {"ip": "192.0.2.10", "padre": "192.0.2.1", "interfaz": "ether2"}},
+}
+
+
+def _con_puertos(*puertos):
+    return [{"puerto": p, "servicio": "svc"} for p in puertos]
+
+
+def _por_rango():
+    return {
+        RED_A: {"192.0.2.10": _resultado_fake(puertos=_con_puertos(22, 23))},
+        RED_B: {"198.51.100.20": _resultado_fake(hostname="nas"), "198.51.100.21": _resultado_fake()},
+    }
+
+
+def test_registrar_ejecucion_varios_rangos(tmp_path):
+    db = str(tmp_path / "historial.db")
+
+    diffs = registrar_ejecucion(_por_rango(), db_path=db)
+
+    assert set(diffs) == {RED_A, RED_B}
+    ejecuciones = listar_ejecuciones(db)
+    assert len(ejecuciones) == 1
+    assert ejecuciones[0]["rangos"] == [RED_A, RED_B]
+    assert ejecuciones[0]["origen"] == "cli"
+    assert ejecuciones[0]["total_hosts"] == 3
+    assert ejecuciones[0]["alertas"] == 1  # el 23/telnet
+
+
+def test_cargar_ejecucion_completa(tmp_path):
+    db = str(tmp_path / "historial.db")
+    registrar_ejecucion(_por_rango(), topologia=TOPOLOGIA_EJEMPLO, origen="web", db_path=db)
+
+    ejecucion = cargar_ejecucion(listar_ejecuciones(db)[0]["id"], db)
+
+    assert ejecucion["origen"] == "web"
+    assert ejecucion["rangos"] == [RED_A, RED_B]
+    assert ejecucion["topologia"] == TOPOLOGIA_EJEMPLO
+    host = ejecucion["resultados"]["192.0.2.10"]
+    assert host["hostname"] == "server01"
+    assert host["mac"] == "AA:BB:CC:DD:EE:FF"
+    assert [p["puerto"] for p in host["puertos"]] == [22, 23]
+    assert host["alertas"] == [{"puerto": 23, "motivo": "Telnet (unencrypted)"}]
+    assert ejecucion["diff"]["primera_vez"] is True
+
+
+def test_cargar_ejecucion_sin_topologia(tmp_path):
+    """SNMP fallido: la ejecución se guarda igual y se reabre como estrella."""
+    db = str(tmp_path / "historial.db")
+    registrar_ejecucion(_por_rango(), topologia=None, db_path=db)
+
+    ejecucion = cargar_ejecucion(listar_ejecuciones(db)[0]["id"], db)
+
+    assert ejecucion["topologia"] is None
+    assert len(ejecucion["resultados"]) == 3
+
+
+def test_diff_de_una_ejecucion_antigua(tmp_path):
+    """Reabrir la 2.ª de tres compara con la 1.ª, no con la última."""
+    db = str(tmp_path / "historial.db")
+    host = {"192.0.2.10": _resultado_fake()}
+    registrar_ejecucion({RED_A: host}, db_path=db)
+    registrar_ejecucion({RED_A: {**host, "192.0.2.11": _resultado_fake()}}, db_path=db)
+    registrar_ejecucion({RED_A: {**host, "192.0.2.12": _resultado_fake()}}, db_path=db)
+
+    segunda = listar_ejecuciones(db)[1]  # más reciente primero
+    diff = cargar_ejecucion(segunda["id"], db)["diff"]
+
+    assert diff["primera_vez"] is False
+    assert diff["hosts_nuevos"] == ["192.0.2.11"]
+    assert diff["hosts_caidos"] == []
+
+
+def test_migra_historial_antiguo(tmp_path):
+    """Un historial.db de la v1.2.x se migra al abrirlo, sin perder escaneos."""
+    db = str(tmp_path / "historial.db")
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE escaneos (id INTEGER PRIMARY KEY AUTOINCREMENT, rango TEXT NOT NULL, fecha TEXT NOT NULL);
+        CREATE TABLE hosts (id INTEGER PRIMARY KEY AUTOINCREMENT, escaneo_id INTEGER NOT NULL REFERENCES escaneos(id),
+                            ip TEXT NOT NULL, hostname TEXT, mac TEXT, vendor TEXT, categoria TEXT, so TEXT);
+        CREATE TABLE puertos (id INTEGER PRIMARY KEY AUTOINCREMENT, host_id INTEGER NOT NULL REFERENCES hosts(id),
+                              puerto INTEGER NOT NULL, servicio TEXT);
+        INSERT INTO escaneos (rango, fecha) VALUES ('192.0.2.0/24', '2026-10-01T03:00:00');
+        INSERT INTO escaneos (rango, fecha) VALUES ('198.51.100.0/24', '2026-10-02T03:00:00');
+        INSERT INTO hosts (escaneo_id, ip, hostname, mac, vendor, categoria, so)
+            VALUES (1, '192.0.2.10', 'pc', '02:00:00:00:00:10', 'Dell Inc.', 'pc', 'Linux');
+        INSERT INTO puertos (host_id, puerto, servicio) VALUES (1, 22, 'ssh');
+    """)
+    conn.commit()
+    conn.close()
+
+    ejecuciones = listar_ejecuciones(db)
+
+    assert [e["rangos"] for e in ejecuciones] == [[RED_B], [RED_A]]
+    assert all(e["origen"] == "antiguo" for e in ejecuciones)
+    antigua = cargar_ejecucion(ejecuciones[1]["id"], db)
+    assert antigua["resultados"]["192.0.2.10"]["puertos"][0]["puerto"] == 22
+    assert antigua["topologia"] is None
+
+
+def test_purga_borra_ejecuciones_huerfanas(tmp_path):
+    db = str(tmp_path / "historial.db")
+    for _ in range(3):
+        registrar_ejecucion({RED_A: {"192.0.2.10": _resultado_fake()}}, db_path=db, mantener_ultimos=2)
+
+    ejecuciones = listar_ejecuciones(db)
+
+    assert len(ejecuciones) == 2
+    assert all(e["total_hosts"] == 1 for e in ejecuciones)
+
+
+def test_registrar_espera_a_otra_escritura(tmp_path):
+    """El CronJob y la web escriben en el mismo historial.db: si uno está
+    escribiendo, el otro espera en vez de fallar con "database is locked"."""
+    db = str(tmp_path / "historial.db")
+    registrar_ejecucion({RED_A: {"192.0.2.10": _resultado_fake()}}, db_path=db)  # crea las tablas
+    bloqueada = threading.Event()
+
+    def escritura_larga():
+        conn = sqlite3.connect(db, isolation_level=None)
+        conn.execute("BEGIN IMMEDIATE")
+        bloqueada.set()
+        time.sleep(1)
+        conn.execute("COMMIT")
+        conn.close()
+
+    hilo = threading.Thread(target=escritura_larga)
+    hilo.start()
+    bloqueada.wait()
+    registrar_ejecucion({RED_A: {"192.0.2.10": _resultado_fake()}}, db_path=db)
+    hilo.join()
+
+    assert len(listar_ejecuciones(db)) == 2
