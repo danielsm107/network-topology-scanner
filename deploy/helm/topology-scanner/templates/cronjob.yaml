@@ -44,6 +44,6 @@ spec:
                 - {{ join "," .Values.escaneo.snmp | quote }}
                 {{- end }}
               env:
-                {{- include "topology-scanner.envSnmp" . | nindent 16 }}
+                {{- include "topology-scanner.envComun" . | nindent 16 }}
               resources:
                 {{- toYaml .Values.resources.escaneo | nindent 16 }}

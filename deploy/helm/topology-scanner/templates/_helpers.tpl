@@ -54,8 +54,10 @@ volumeMounts:
     mountPath: /data
 {{- end -}}
 
-{{/* Credenciales SNMPv3 del Secret creado a mano; optional: sin SNMP no hace falta */}}
-{{- define "topology-scanner.envSnmp" -}}
+{{/* Hora local (TZ) y credenciales SNMPv3 del Secret creado a mano; optional: sin SNMP no hace falta */}}
+{{- define "topology-scanner.envComun" -}}
+- name: TZ
+  value: {{ .Values.zonaHoraria | quote }}
 {{- range list "TOPOLOGY_SNMP_USER" "TOPOLOGY_SNMP_AUTH_KEY" "TOPOLOGY_SNMP_PRIV_KEY" }}
 - name: {{ . }}
   valueFrom:

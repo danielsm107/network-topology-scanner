@@ -157,3 +157,13 @@ def test_tag_latest_se_rechaza():
 
     assert salida.returncode != 0
     assert "latest" in salida.stderr
+
+
+@pytest.mark.parametrize("kind", ["CronJob", "Deployment"])
+def test_hora_local_en_los_pods(kind):
+    """Sin TZ, el historial guarda la hora en UTC y el nocturno de las 3:00
+    sale en la lista como 02:00. Formato POSIX: lo entiende la libc sin el
+    paquete tzdata, que la imagen slim puede no traer."""
+    env = _env(_contenedor(_renderizar(), kind))
+
+    assert env["TZ"]["value"] == "CET-1CEST,M3.5.0,M10.5.0/3"

@@ -21,6 +21,11 @@ escaneo:
   # Límite de duración del Job. Ajustarlo con lo que tarde el primer escaneo real
   activeDeadlineSeconds: 14400
 
+# Hora local de los pods (variable TZ), en formato POSIX: así funciona sin
+# el paquete tzdata. Sin ella, el historial guardaría la hora en UTC y el
+# nocturno de las 3:00 saldría en la lista como 02:00. Este es Europe/Madrid.
+zonaHoraria: "CET-1CEST,M3.5.0,M10.5.0/3"
+
 # Redes que la web puede escanear (TOPOLOGY_ALLOWED_RANGES). Vacío = las de
 # escaneo.rangos: en el clúster la web nunca queda sin límite.
 rangosPermitidos: []

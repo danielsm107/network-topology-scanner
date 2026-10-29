@@ -36,7 +36,7 @@ spec:
               value: /data/historial.db
             - name: STREAMLIT_SERVER_PORT
               value: {{ .Values.web.puerto | quote }}
-            {{- include "topology-scanner.envSnmp" . | nindent 12 }}
+            {{- include "topology-scanner.envComun" . | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /_stcore/health
