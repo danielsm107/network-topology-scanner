@@ -1,0 +1,2 @@
+# Valores reales del despliegue (redes, IP del router): nunca en git
+values.local.yaml

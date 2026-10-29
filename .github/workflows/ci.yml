@@ -30,6 +30,11 @@ jobs:
       - name: ruff check
         run: ruff check src/ tests/ scripts/
 
+      # tests/test_helm.py renderiza el chart: sin Helm se saltaría en silencio
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+        with:
+          version: v4.3.1
+
       - name: pytest
         run: pytest tests/ -v
 
@@ -60,6 +65,25 @@ jobs:
           terraform -chdir=infra/proxmox init -backend=false -input=false
           terraform -chdir=infra/proxmox validate
           terraform -chdir=infra/proxmox test
+
+  # El chart de Helm del despliegue en k3s: lint y que renderice con los
+  # values de ejemplo. Lo que tiene que cumplir cada pod lo comprueba
+  # tests/test_helm.py (job test). El helm install lo lanza el mantenedor.
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+        with:
+          # La misma que en el PC
+          version: v4.3.1
+
+      - name: helm lint
+        run: helm lint deploy/helm/topology-scanner -f deploy/helm/topology-scanner/values.example.yaml --strict
+
+      - name: helm template
+        run: helm template ci deploy/helm/topology-scanner -f deploy/helm/topology-scanner/values.example.yaml
 
   # La imagen Docker: se construye, se prueba por fuera (como la usaría
   # alguien) y se escanea. Publicarla es cosa de release.yml.

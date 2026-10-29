@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "topology-scanner.fullname" . }}-escaneo
+  labels:
+    {{- include "topology-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: escaneo
+spec:
+  schedule: {{ .Values.escaneo.schedule | quote }}
+  timeZone: {{ .Values.escaneo.timeZone }}
+  # Si uno se alarga, el siguiente no arranca encima
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # Sin reintentos: un escaneo fallido se ve en el clúster, no se repite a ciegas
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.escaneo.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "topology-scanner.labels" . | nindent 12 }}
+            app.kubernetes.io/component: escaneo
+        spec:
+          restartPolicy: Never
+          {{- include "topology-scanner.podComun" . | nindent 10 }}
+          containers:
+            - name: escaneo
+              {{- include "topology-scanner.contenedorComun" . | nindent 14 }}
+              # El ENTRYPOINT de la imagen es topology-scanner; el HTML y el CSV
+              # van al directorio de trabajo, /data
+              args:
+                {{- range (required "escaneo.rangos no puede estar vacío" .Values.escaneo.rangos) }}
+                - {{ . | quote }}
+                {{- end }}
+                - --history-db
+                - /data/historial.db
+                {{- if .Values.escaneo.osDetection }}
+                - --os-detection
+                {{- end }}
+                {{- if .Values.escaneo.snmp }}
+                - --snmp
+                - {{ join "," .Values.escaneo.snmp | quote }}
+                {{- end }}
+              env:
+                {{- include "topology-scanner.envSnmp" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.resources.escaneo | nindent 16 }}

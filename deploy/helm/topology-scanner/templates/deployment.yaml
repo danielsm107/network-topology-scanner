@@ -1,0 +1,46 @@
+{{- $permitidos := .Values.rangosPermitidos | default .Values.escaneo.rangos -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "topology-scanner.fullname" . }}-web
+  labels:
+    {{- include "topology-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: 1
+  # Con hostNetwork, en un RollingUpdate la web nueva y la vieja pelearían por
+  # el mismo puerto del nodo y la nueva no arrancaría nunca
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        {{- include "topology-scanner.labels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+    spec:
+      {{- include "topology-scanner.podComun" . | nindent 6 }}
+      containers:
+        - name: web
+          {{- include "topology-scanner.contenedorComun" . | nindent 10 }}
+          command: [topology-scanner-web]
+          env:
+            # Sin login: solo escanea dentro de estas redes (y si faltara, en el
+            # clúster no se cae a "sin límite": por defecto, las del escaneo)
+            - name: TOPOLOGY_ALLOWED_RANGES
+              value: {{ join " " (required "rangosPermitidos o escaneo.rangos" $permitidos) | quote }}
+            - name: TOPOLOGY_HISTORY_DB
+              value: /data/historial.db
+            - name: STREAMLIT_SERVER_PORT
+              value: {{ .Values.web.puerto | quote }}
+            {{- include "topology-scanner.envSnmp" . | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: {{ .Values.web.puerto }}
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources.web | nindent 12 }}

@@ -1,0 +1,16 @@
+topology-scanner instalado en el namespace {{ .Release.Namespace }}.
+
+Escaneo nocturno: {{ .Values.escaneo.schedule }} ({{ .Values.escaneo.timeZone }}).
+Lanzarlo ahora, a mano:
+
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "topology-scanner.fullname" . }}-escaneo prueba
+  kubectl -n {{ .Release.Namespace }} logs -f job/prueba
+
+Web: escucha en el puerto {{ .Values.web.puerto }} del nodo (hostNetwork, sin Service).
+En Nginx Proxy Manager: proxy host → <IP del nodo>:{{ .Values.web.puerto }},
+con "Websockets Support" activado (sin eso, Streamlit se queda colgado).
+{{- if .Values.escaneo.snmp }}
+
+SNMP: el Secret {{ .Values.snmpSecret }} tiene que existir en este namespace
+(TOPOLOGY_SNMP_USER, TOPOLOGY_SNMP_AUTH_KEY, TOPOLOGY_SNMP_PRIV_KEY).
+{{- end }}
