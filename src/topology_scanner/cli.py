@@ -19,7 +19,7 @@ try:
         exportar_texto,
     )
     from .graph import construir_grafo
-    from .history import DB_POR_DEFECTO, HistoryError, registrar_y_comparar
+    from .history import DB_POR_DEFECTO, HistoryError, registrar_ejecucion
     from .rangos import parsear_rangos, repartir_por_rango
     from .scanner import (
         DEFAULT_NMAP_ARGS,
@@ -187,20 +187,25 @@ def main():
         except ExportError as e:
             sys.exit(str(e))
 
-    if not args.no_history:
-        # Un registro por rango: cada uno se compara con su propio escaneo
-        # anterior (rangos distintos no se mezclan), así que un rango que
-        # antes se escaneaba solo sigue comparándose bien.
-        for rango, resultados_rango in repartir_por_rango(resultados, rangos).items():
-            try:
-                diff = registrar_y_comparar(resultados_rango, rango, db_path=args.history_db)
-                exportar_diff_texto(diff, rango=rango if len(rangos) > 1 else None)
-            except HistoryError as e:
-                # Perder el historial no es motivo para tirar un escaneo que sí
-                # ha funcionado: se avisa y se sigue con el grafo/export normal.
-                log.warning(str(e))
-
+    # La topología antes que el historial: se guarda con la ejecución, para
+    # que la web pueda reabrir la pasada con su árbol
     topologia = _obtener_topologia(args.snmp, credenciales) if args.snmp else None
+
+    if not args.no_history:
+        # Una ejecución con todos los rangos, pero cada rango se compara con
+        # su propio escaneo anterior (rangos distintos no se mezclan), así
+        # que un rango que antes se escaneaba solo sigue comparándose bien.
+        try:
+            diffs = registrar_ejecucion(
+                repartir_por_rango(resultados, rangos), topologia, origen="cli", db_path=args.history_db
+            )
+            for rango, diff in diffs.items():
+                exportar_diff_texto(diff, rango=rango if len(rangos) > 1 else None)
+        except HistoryError as e:
+            # Perder el historial no es motivo para tirar un escaneo que sí
+            # ha funcionado: se avisa y se sigue con el grafo/export normal.
+            log.warning(str(e))
+
     grafo = construir_grafo(resultados, rangos, topologia=topologia)
     try:
         exportar_html(grafo, args.output)

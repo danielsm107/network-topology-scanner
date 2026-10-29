@@ -51,3 +51,17 @@ def test_la_ci_valida_cada_raiz_de_terraform():
 
     assert raices
     assert [raiz for raiz in raices if f"-chdir={raiz} validate" not in ci] == []
+
+
+def test_la_ci_valida_el_chart_de_helm():
+    """helm lint y helm template del chart con los values de ejemplo, y Helm
+    también en el job de pytest: si no, tests/test_helm.py se saltaría en
+    silencio y nadie comprobaría la seguridad de los pods."""
+    ci = (CARPETA_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    chart = "deploy/helm/topology-scanner"
+    trabajos = re.split(r"^  (?=[a-z]+:$)", ci, flags=re.MULTILINE)
+    test = next(t for t in trabajos if t.startswith("test:"))
+
+    assert f"helm lint {chart} -f {chart}/values.example.yaml" in ci
+    assert f"helm template ci {chart} -f {chart}/values.example.yaml" in ci
+    assert "azure/setup-helm@" in test

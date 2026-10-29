@@ -1,0 +1,7 @@
+apiVersion: v2
+name: topology-scanner
+description: Escaneo nocturno de la red de casa (CronJob) y la web de topology-scanner, en k3s.
+type: application
+# Versión del chart; appVersion es la de la imagen por defecto (values.yaml → image.tag)
+version: 0.1.0
+appVersion: "1.3.0"

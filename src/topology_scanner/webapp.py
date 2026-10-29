@@ -62,12 +62,21 @@ from topology_scanner.export import (
 )
 from topology_scanner.graph import construir_grafo
 from topology_scanner.history import (
+    DB_POR_DEFECTO,
+    VARIABLE_DB,
     HistoryError,
+    cargar_ejecucion,
     combinar_diffs,
-    listar_escaneos_recientes,
-    registrar_y_comparar,
+    listar_ejecuciones,
+    registrar_ejecucion,
 )
-from topology_scanner.rangos import parsear_rangos, repartir_por_rango
+from topology_scanner.rangos import (
+    VARIABLE_RANGOS_PERMITIDOS,
+    parsear_permitidos,
+    parsear_rangos,
+    repartir_por_rango,
+    validar_permitidos,
+)
 
 # Imports absolutos (no relativos): streamlit run ejecuta este archivo como
 # script suelto, sin contexto de paquete, así que "from .scanner import..."
@@ -115,6 +124,9 @@ def _validar_snmp(activado: bool, texto_ips: str, community: str, *, version: st
         return None, f"SNMP topology: {e}."
     if not ips:
         return None, "SNMP topology: enter the IP of at least one router or switch."
+    error_permitidos = _error_si_no_permitidos(ips)
+    if error_permitidos:
+        return None, f"SNMP topology: {error_permitidos}"
 
     if version == "v3":
         try:
@@ -142,9 +154,31 @@ def _validar_rangos(texto: str) -> tuple[list[str] | None, str | None]:
     if not texto.strip():
         return None, "Enter a network range in CIDR notation (e.g. 192.168.1.0/24)."
     try:
-        return parsear_rangos(texto.split()), None
+        rangos = parsear_rangos(texto.split())
     except ValueError as e:
         return None, f"Invalid range: {e}."
+    error_permitidos = _error_si_no_permitidos(rangos)
+    if error_permitidos:
+        return None, error_permitidos
+    return rangos, None
+
+
+def _error_si_no_permitidos(objetivos: list[str]) -> str | None:
+    """Mensaje de error si algún objetivo (rango o IP SNMP) queda fuera de
+    TOPOLOGY_ALLOWED_RANGES, o si la variable está mal escrita: en ese caso
+    no se escanea nada (mejor que escanear sin límites). None si todo está
+    dentro, o si no hay variable (uso local, sin límite)."""
+    try:
+        permitidos = parsear_permitidos(os.environ.get(VARIABLE_RANGOS_PERMITIDOS))
+    except ValueError as e:
+        return f"{VARIABLE_RANGOS_PERMITIDOS} is invalid: {e}. No scans until it is fixed."
+    if permitidos is None:
+        return None
+    try:
+        validar_permitidos(objetivos, permitidos)
+    except ValueError as e:
+        return f"{e}."
+    return None
 
 
 def _detectar_rango_local() -> str | None:
@@ -272,6 +306,12 @@ def _procesar_salida_nmap(salida_xml: bytes) -> dict:
     return {host: parsear_host(nm[host]) for host in nm.all_hosts()}
 
 
+def _ruta_historial() -> str:
+    """historial.db de la web: TOPOLOGY_HISTORY_DB si está (en el clúster,
+    el volumen que comparte con el CronJob), si no el de siempre en el cwd."""
+    return os.environ.get(VARIABLE_DB, DB_POR_DEFECTO)
+
+
 def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_historial: bool,
                           snmp: dict | None = None) -> dict:
     """A partir de resultados ya escaneados (formato de scanner.py), hace
@@ -297,19 +337,20 @@ def _finalizar_resultados(resultados: dict, rango: str | list[str], guardar_hist
         return {"resultados": {}, "diff": None, "rango": " ".join(rangos), "rangos": rangos,
                 "topologia": None, "avisos_snmp": []}
 
+    # Sin respuesta SNMP, topologia=None y se dibuja la estrella (los avisos
+    # explican por qué); mismo criterio que el CLI. Antes que el historial:
+    # la topología se guarda con la ejecución.
+    topologia, avisos_snmp = obtener_topologia(snmp["ips"], snmp["credenciales"]) if snmp else (None, [])
+
     diff = None
     if guardar_historial:
         try:
-            diff = combinar_diffs([
-                registrar_y_comparar(resultados_rango, r)
-                for r, resultados_rango in repartir_por_rango(resultados, rangos).items()
-            ])
+            diffs = registrar_ejecucion(
+                repartir_por_rango(resultados, rangos), topologia, origen="web", db_path=_ruta_historial()
+            )
+            diff = combinar_diffs(list(diffs.values()))
         except HistoryError:
             diff = None  # perder el historial no es fatal, solo no se muestra el diff
-
-    # Sin respuesta SNMP, topologia=None y se dibuja la estrella (los avisos
-    # explican por qué); mismo criterio que el CLI.
-    topologia, avisos_snmp = obtener_topologia(snmp["ips"], snmp["credenciales"]) if snmp else (None, [])
 
     return {"resultados": resultados, "diff": diff, "rango": " ".join(rangos), "rangos": rangos,
             "topologia": topologia, "avisos_snmp": avisos_snmp}
@@ -1175,6 +1216,12 @@ def _mostrar_resultado(resultado: dict, accent: str):
         st.warning("No hosts found. Check the range and your permissions (try with sudo).")
         return
 
+    guardado = resultado.get("guardado")
+    if guardado:
+        fecha = datetime.fromisoformat(guardado["fecha"])
+        origen = _ORIGEN_VISIBLE.get(guardado["origen"], guardado["origen"])
+        st.info(f"Saved scan · {fecha:%d %b %Y %H:%M} ({_tiempo_relativo(guardado['fecha'])}) · {origen}")
+
     diff = resultado["diff"]
     st.markdown(_generar_kpis_html(resultados, resultado["rango"], diff, accent), unsafe_allow_html=True)
 
@@ -1282,6 +1329,8 @@ def _fragmento_progreso():
                 # podía dejar pagina_inventario apuntando a una página que ya
                 # no existe (tabla vacía hasta que el usuario pulsara "Anterior").
                 st.session_state.pagina_inventario = 1
+                # Lista de escaneos guardados otra vez sin elegir (ver main)
+                st.session_state.version_lista = st.session_state.get("version_lista", 0) + 1
     finally:
         # Las credenciales ya no hacen falta: no se dejan en session_state más
         # tiempo del imprescindible (también si se canceló o falló nmap).
@@ -1453,22 +1502,6 @@ h1, h2, h3 {{
     background: rgba(227,232,238,0.04);
 }}
 
-.history-list {{ display: flex; flex-direction: column; gap: 8px; }}
-.history-row {{
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 12px; border-radius: 9px;
-    border: 1px solid rgba(227,232,238,0.07); background: rgba(227,232,238,0.02);
-}}
-.history-left {{ display: flex; flex-direction: column; gap: 3px; }}
-.history-range {{ font-size: 12.5px; font-weight: 500; }}
-.history-time {{ display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: #5A6B7C; }}
-.history-badge {{
-    display: flex; align-items: center; gap: 5px;
-    font-size: 11px; color: #B8C2CC;
-    padding: 3px 8px; border-radius: 12px; background: rgba(227,232,238,0.06);
-}}
-.history-dot {{ width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }}
-
 .phase-row {{ display: flex; align-items: center; gap: 0; margin-top: 14px; }}
 .phase-chip {{
     display: flex; align-items: center; gap: 9px;
@@ -1617,16 +1650,9 @@ def _generar_topbar_html(version: str, accent: str) -> str:
 """
 
 
-_SVG_RELOJ = (
-    '<svg viewBox="0 0 20 20" width="11" height="11" fill="none" stroke="currentColor" '
-    'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
-    '<circle cx="10" cy="10" r="7.2"/><path d="M10 6v4l3 2"/></svg>'
-)
-
-
 def _tiempo_relativo(fecha_iso: str, ahora: datetime | None = None) -> str:
     """Convierte el ISO datetime que guarda history.py en un texto relativo
-    corto ("hace 2 días") para las filas del historial del sidebar. Acepta
+    corto ("hace 2 días") para el aviso de un escaneo guardado. Acepta
     `ahora` para que los tests no dependan del reloj real."""
     momento = datetime.fromisoformat(fecha_iso)
     ahora = ahora or datetime.now()
@@ -1643,26 +1669,57 @@ def _tiempo_relativo(fecha_iso: str, ahora: datetime | None = None) -> str:
     return f"{dias} day ago" if dias == 1 else f"{dias} days ago"
 
 
-def _generar_historial_html(escaneos: list) -> str:
-    """HTML de la lista de "historial reciente" del sidebar, a partir de
-    history.listar_escaneos_recientes(). Aparte en su propia función para
-    poder comprobar el contenido sin renderizar Streamlit, igual que
-    _generar_topbar_html."""
-    filas = []
-    for escaneo in escaneos:
-        alertas = escaneo["alertas"]
-        color = "#ff5c5c" if alertas else "#2ecc71"
-        cifra = f"{escaneo['total_hosts']} · {alertas}⚠" if alertas else str(escaneo["total_hosts"])
-        filas.append(f"""
-        <div class="history-row">
-          <div class="history-left">
-            <div class="history-range mono">{escape(escaneo["rango"])}</div>
-            <div class="history-time">{_SVG_RELOJ}{_tiempo_relativo(escaneo["fecha"])}</div>
-          </div>
-          <div class="history-badge mono"><div class="history-dot" style="background:{color}"></div>{cifra}</div>
-        </div>
-        """)
-    return _compactar_html(f'<div class="history-list">{"".join(filas)}</div>')
+# El "antiguo" de la migración del historial, en inglés como el resto de la interfaz
+_ORIGEN_VISIBLE = {"antiguo": "old"}
+
+
+def _plural(n: int, palabra: str) -> str:
+    return f"{n} {palabra}" if n == 1 else f"{n} {palabra}s"
+
+
+def _etiqueta_ejecucion(ejecucion: dict) -> str:
+    """Texto de una ejecución en la lista de escaneos guardados:
+    "29 Oct 03:00 · cli · 2 ranges · 34 hosts · 2⚠ · #7". El origen va tal cual
+    (no se deduce "nocturno" de la hora: un escaneo a mano a las 3 también
+    sería cli). Texto plano: el selectbox de Streamlit no interpreta HTML."""
+    partes = [
+        datetime.fromisoformat(ejecucion["fecha"]).strftime("%d %b %H:%M"),
+        _ORIGEN_VISIBLE.get(ejecucion["origen"], ejecucion["origen"]),
+        _plural(len(ejecucion["rangos"]), "range"),
+        _plural(ejecucion["total_hosts"], "host"),
+    ]
+    if ejecucion["alertas"]:
+        partes.append(f"{ejecucion['alertas']}⚠")
+    # El id hace la etiqueta única: Streamlit guarda la elección por el texto,
+    # y con dos iguales (mismo minuto, origen y hosts) abría la otra
+    partes.append(f"#{ejecucion['id']}")
+    return " · ".join(partes)
+
+
+def _resultado_desde_ejecucion(ejecucion: dict) -> dict:
+    """Una ejecución de history.cargar_ejecucion con el formato que devuelve
+    _finalizar_resultados, para que _mostrar_resultado la pinte igual que un
+    escaneo recién hecho. "guardado" marca que viene del historial."""
+    return {
+        "resultados": ejecucion["resultados"], "diff": ejecucion["diff"],
+        "rango": " ".join(ejecucion["rangos"]), "rangos": ejecucion["rangos"],
+        "topologia": ejecucion["topologia"], "avisos_snmp": [],
+        "guardado": {"fecha": ejecucion["fecha"], "origen": ejecucion["origen"]},
+    }
+
+
+def _al_elegir_ejecucion(clave: str):
+    """on_change de la lista: carga la ejecución elegida una sola vez (no en
+    cada rerun, que pisaría un escaneo nuevo)."""
+    ejecucion_id = st.session_state.get(clave)
+    if ejecucion_id is None:
+        return
+    try:
+        st.session_state.resultado = _resultado_desde_ejecucion(cargar_ejecucion(ejecucion_id, _ruta_historial()))
+    except HistoryError as e:
+        st.session_state.mensaje = ("error", str(e))
+        return
+    st.session_state.pagina_inventario = 1
 
 
 def _formatear_tiempo_transcurrido(segundos: float) -> str:
@@ -1790,6 +1847,7 @@ def main():
     st.session_state.setdefault("estado", "idle")
     st.session_state.setdefault("rango_detectado", "")
     st.session_state.setdefault("resultado", None)
+    st.session_state.setdefault("version_lista", 0)
 
     # Mensaje dejado por _fragmento_progreso() justo antes de su propio
     # st.rerun(): si se pintara ahí mismo, ese mismo rerun lo borraría antes
@@ -1889,13 +1947,21 @@ def main():
         parar = st.button("⏹ Stop scan", disabled=not escaneando, use_container_width=True)
 
         st.divider()
-        st.markdown('<div class="section-eyebrow">Recent history</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-eyebrow">Saved scans</div>', unsafe_allow_html=True)
         try:
-            recientes = listar_escaneos_recientes()
+            ejecuciones = listar_ejecuciones(_ruta_historial())
         except HistoryError:
-            recientes = []  # mismo criterio que el resto de la app: fallo de historial no bloquea la UI
-        if recientes:
-            st.markdown(_generar_historial_html(recientes), unsafe_allow_html=True)
+            ejecuciones = []  # mismo criterio que el resto de la app: fallo de historial no bloquea la UI
+        if ejecuciones:
+            etiquetas = {ejecucion["id"]: _etiqueta_ejecucion(ejecucion) for ejecucion in ejecuciones}
+            # La clave cambia con cada escaneo terminado: así la lista vuelve a
+            # "sin elegir" (no se puede asignar la clave de un widget ya creado)
+            clave = f"ejecucion_elegida_{st.session_state.version_lista}"
+            st.selectbox(
+                "Saved scans", list(etiquetas), format_func=etiquetas.get, index=None,
+                placeholder="Choose a saved scan", key=clave, label_visibility="collapsed",
+                on_change=_al_elegir_ejecucion, args=(clave,), disabled=escaneando,
+            )
         else:
             st.caption("No saved scans yet.")
 

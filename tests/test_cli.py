@@ -79,7 +79,7 @@ def _resultado_dummy():
 
 
 @patch("topology_scanner.cli.exportar_diff_texto")
-@patch("topology_scanner.cli.registrar_y_comparar")
+@patch("topology_scanner.cli.registrar_ejecucion")
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
@@ -90,18 +90,18 @@ def test_main_guarda_historial_y_muestra_el_diff(
 ):
     mock_escanear_red.return_value = _resultado_dummy()
     diff_falso = {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
-    mock_registrar.return_value = diff_falso
+    mock_registrar.return_value = {"192.168.1.0/24": diff_falso}
 
     _run_main_con_argv(["192.168.1.0/24", "--history-db", "db_de_prueba.sqlite"])
 
     mock_registrar.assert_called_once_with(
-        mock_escanear_red.return_value, "192.168.1.0/24", db_path="db_de_prueba.sqlite"
+        {"192.168.1.0/24": mock_escanear_red.return_value}, None, origen="cli", db_path="db_de_prueba.sqlite"
     )
     mock_exportar_diff.assert_called_once_with(diff_falso, rango=None)
 
 
 @patch("topology_scanner.cli.exportar_diff_texto")
-@patch("topology_scanner.cli.registrar_y_comparar")
+@patch("topology_scanner.cli.registrar_ejecucion")
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
@@ -119,7 +119,7 @@ def test_main_no_llama_al_historial_con_no_history(
 
 
 @patch("topology_scanner.cli.exportar_diff_texto")
-@patch("topology_scanner.cli.registrar_y_comparar")
+@patch("topology_scanner.cli.registrar_ejecucion")
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
@@ -404,7 +404,7 @@ def test_varios_rangos_con_uno_no_valido_falla_antes_de_escanear(mock_escanear_r
 
 
 @patch("topology_scanner.cli.exportar_diff_texto")
-@patch("topology_scanner.cli.registrar_y_comparar")
+@patch("topology_scanner.cli.registrar_ejecucion")
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
@@ -419,20 +419,18 @@ def test_varios_rangos_se_escanean_juntos_y_el_historial_va_por_rango(
     lan_a = {"192.168.50.10": _resultado_dummy()["192.168.1.10"]}
     lan_b = {"10.0.10.10": _resultado_dummy()["192.168.1.10"]}
     mock_escanear_red.return_value = {**lan_a, **lan_b}
-    mock_registrar.return_value = {"primera_vez": True}
+    mock_registrar.return_value = {"192.168.50.0/24": {"primera_vez": True}, "10.0.10.0/24": {"primera_vez": True}}
 
     _run_main_con_argv(["192.168.50.0/24", "10.0.10.0/24"])
 
     assert mock_escanear_red.call_args.args[0] == "192.168.50.0/24 10.0.10.0/24"
-    assert [c.args[:2] for c in mock_registrar.call_args_list] == [
-        (lan_a, "192.168.50.0/24"), (lan_b, "10.0.10.0/24"),
-    ]
+    assert mock_registrar.call_args.args[0] == {"192.168.50.0/24": lan_a, "10.0.10.0/24": lan_b}
     assert [c.kwargs.get("rango") for c in mock_exportar_diff.call_args_list] == ["192.168.50.0/24", "10.0.10.0/24"]
     assert mock_construir_grafo.call_args.args[1] == ["192.168.50.0/24", "10.0.10.0/24"]
 
 
 @patch("topology_scanner.cli.exportar_diff_texto")
-@patch("topology_scanner.cli.registrar_y_comparar")
+@patch("topology_scanner.cli.registrar_ejecucion")
 @patch("topology_scanner.cli.exportar_html")
 @patch("topology_scanner.cli.exportar_texto")
 @patch("topology_scanner.cli.construir_grafo")
@@ -442,7 +440,7 @@ def test_un_solo_rango_no_cambia_la_salida_del_historial(
     mock_exportar_html, mock_registrar, mock_exportar_diff,
 ):
     mock_escanear_red.return_value = _resultado_dummy()
-    mock_registrar.return_value = {"primera_vez": True}
+    mock_registrar.return_value = {"192.168.1.0/24": {"primera_vez": True}}
 
     _run_main_con_argv(["192.168.1.0/24"])
 
@@ -484,3 +482,55 @@ def test_snmp_v3_mal_configurado_falla_antes_de_escanear(mock_escanear_red, monk
 
     mock_escanear_red.assert_not_called()
     assert "at least 8 characters" in capsys.readouterr().err
+
+
+# === Ejecuciones (v1.3.0): una pasada = una ejecución con su topología =======
+
+@patch("topology_scanner.cli.exportar_diff_texto")
+@patch("topology_scanner.cli.registrar_ejecucion")
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.snmp.inferir_topologia")
+@patch("topology_scanner.snmp.consultar_equipo")
+@patch("topology_scanner.cli.escanear_red")
+def test_cli_registra_una_ejecucion_con_topologia(
+    mock_escanear_red, mock_consultar, mock_inferir, mock_construir_grafo,
+    mock_exportar_texto, mock_exportar_html, mock_registrar, mock_exportar_diff, monkeypatch,
+):
+    """Los dos rangos y la topología SNMP van juntos en una sola ejecución,
+    para que la web pueda reabrir la pasada completa (con el árbol)."""
+    monkeypatch.setenv(VARIABLE_COMMUNITY, "community-de-prueba")
+    red_a = {"192.0.2.10": _resultado_dummy()["192.168.1.10"]}
+    red_b = {"198.51.100.10": _resultado_dummy()["192.168.1.10"]}
+    mock_escanear_red.return_value = {**red_a, **red_b}
+    mock_consultar.side_effect = lambda ip, community: {"ip": ip}
+    topologia = {"equipos": {}, "enlaces": [], "redes": {}, "ubicaciones": {}}
+    mock_inferir.return_value = topologia
+    diff = {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
+    mock_registrar.return_value = {"192.0.2.0/24": diff, "198.51.100.0/24": diff}
+
+    _run_main_con_argv(["192.0.2.0/24", "198.51.100.0/24", "--snmp", "192.0.2.1", "--history-db", "h.db"])
+
+    mock_registrar.assert_called_once_with(
+        {"192.0.2.0/24": red_a, "198.51.100.0/24": red_b}, topologia, origen="cli", db_path="h.db"
+    )
+    assert [c.kwargs.get("rango") for c in mock_exportar_diff.call_args_list] == ["192.0.2.0/24", "198.51.100.0/24"]
+
+
+@patch("topology_scanner.cli.exportar_diff_texto")
+@patch("topology_scanner.cli.registrar_ejecucion")
+@patch("topology_scanner.cli.exportar_html")
+@patch("topology_scanner.cli.exportar_texto")
+@patch("topology_scanner.cli.construir_grafo")
+@patch("topology_scanner.cli.escanear_red")
+def test_cli_sin_snmp_registra_topologia_none(
+    mock_escanear_red, mock_construir_grafo, mock_exportar_texto,
+    mock_exportar_html, mock_registrar, mock_exportar_diff,
+):
+    mock_escanear_red.return_value = _resultado_dummy()
+    mock_registrar.return_value = {"192.168.1.0/24": {"primera_vez": True}}
+
+    _run_main_con_argv(["192.168.1.0/24"])
+
+    assert mock_registrar.call_args.args[1] is None

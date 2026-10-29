@@ -1,0 +1,17 @@
+# historial.db (y el último HTML/CSV), compartido por el CronJob y la web.
+# keep: un `helm uninstall` no se lleva el historial por delante.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "topology-scanner.fullname" . }}-datos
+  labels:
+    {{- include "topology-scanner.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  # Un solo nodo: ReadWriteOnce basta aunque lo monten dos pods
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.persistencia.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.persistencia.tamano }}

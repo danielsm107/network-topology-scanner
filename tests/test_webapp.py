@@ -43,7 +43,6 @@ from topology_scanner.webapp import (
     _generar_chips_categorias_html,
     _generar_css,
     _generar_estado_vacio_html,
-    _generar_historial_html,
     _generar_kpis_html,
     _generar_progreso_html,
     _generar_tabla_inventario_html,
@@ -293,14 +292,14 @@ def test_finalizar_resultados_sin_hosts():
 def test_finalizar_resultados_no_llama_al_historial_si_no_se_pide():
     resultados = {"192.168.1.10": _resultado_fake()}
 
-    with patch("topology_scanner.webapp.registrar_y_comparar") as mock_registrar:
+    with patch("topology_scanner.webapp.registrar_ejecucion") as mock_registrar:
         resultado = _finalizar_resultados(resultados, "192.168.1.0/24", guardar_historial=False)
 
     mock_registrar.assert_not_called()
     assert resultado["diff"] is None
 
 
-@patch("topology_scanner.webapp.registrar_y_comparar")
+@patch("topology_scanner.webapp.registrar_ejecucion")
 def test_finalizar_resultados_continua_si_falla_el_historial(mock_registrar):
     """Mismo criterio que cli.py: un fallo guardando el historial no debe
     tirar un escaneo que sí ha funcionado."""
@@ -611,43 +610,12 @@ def test_generar_cambios_html_con_varios_items_no_deja_lineas_en_blanco():
     assert not any(linea.strip() == "" for linea in html.split("\n"))
 
 
-def test_generar_historial_html_incluye_una_fila_por_escaneo():
-    escaneos = [
-        {"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 12, "alertas": 2},
-        {"rango": "10.0.0.0/24", "fecha": "2026-08-21T08:00:00", "total_hosts": 7, "alertas": 0},
-    ]
-    html = _generar_historial_html(escaneos)
-    assert html.count("history-row") >= 2
-    assert "192.168.1.0/24" in html
-    assert "10.0.0.0/24" in html
 
 
-def test_generar_historial_html_muestra_alertas_si_las_hay():
-    escaneos = [{"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 12, "alertas": 2}]
-    html = _generar_historial_html(escaneos)
-    assert "#ff5c5c" in html
-    assert "2⚠" in html
 
 
-def test_generar_historial_html_sin_alertas_usa_verde_y_no_fabrica_el_simbolo():
-    escaneos = [{"rango": "192.168.1.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 7, "alertas": 0}]
-    html = _generar_historial_html(escaneos)
-    assert "#2ecc71" in html
-    assert "⚠" not in html
 
 
-def test_generar_historial_html_con_varios_escaneos_no_deja_lineas_en_blanco():
-    """Bug real reproducido en el sidebar: con varios escaneos guardados,
-    las líneas en blanco entre <div class="history-row"> cortaban el
-    bloque de HTML a medias y se veía el código en vez del historial."""
-    escaneos = [
-        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T09:00:00", "total_hosts": 47, "alertas": 13},
-        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:59:00", "total_hosts": 47, "alertas": 13},
-        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:46:00", "total_hosts": 47, "alertas": 13},
-        {"rango": "10.1.0.0/24", "fecha": "2026-08-21T08:43:00", "total_hosts": 47, "alertas": 13},
-    ]
-    html = _generar_historial_html(escaneos)
-    assert not any(linea.strip() == "" for linea in html.split("\n"))
 
 
 def test_generar_topologia_html_un_nodo_por_host():
@@ -1147,10 +1115,6 @@ def test_kpis_escapa_el_rango():
     _assert_escapado(html, _HTML_MALICIOSO)
 
 
-def test_historial_escapa_el_rango_guardado():
-    escaneos = [{"rango": _HTML_MALICIOSO, "fecha": datetime.now().isoformat(), "total_hosts": 1, "alertas": 0}]
-
-    _assert_escapado(_generar_historial_html(escaneos), _HTML_MALICIOSO)
 
 
 def test_progreso_escapa_el_rango_y_las_lineas_del_log():
@@ -1163,21 +1127,20 @@ def test_progreso_escapa_el_rango_y_las_lineas_del_log():
 
 # === Varios rangos en la web ================================================
 
-@patch("topology_scanner.webapp.registrar_y_comparar")
+@patch("topology_scanner.webapp.registrar_ejecucion")
 def test_finalizar_resultados_con_varios_rangos_guarda_el_historial_por_rango(mock_registrar):
     lan_a = {"192.168.50.10": _resultado_fake()}
     lan_b = {"10.0.10.10": _resultado_fake(hostname="proxmox")}
-    mock_registrar.side_effect = [
-        {"primera_vez": False, "hosts_nuevos": ["192.168.50.10"], "hosts_caidos": [], "puertos_cambiados": {}},
-        {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}},
-    ]
+    mock_registrar.return_value = {
+        "192.168.50.0/24": {"primera_vez": False, "hosts_nuevos": ["192.168.50.10"], "hosts_caidos": [],
+                            "puertos_cambiados": {}},
+        "10.0.10.0/24": {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}},
+    }
 
     resultado = _finalizar_resultados({**lan_a, **lan_b}, ["192.168.50.0/24", "10.0.10.0/24"],
                                       guardar_historial=True)
 
-    assert [c.args[:2] for c in mock_registrar.call_args_list] == [
-        (lan_a, "192.168.50.0/24"), (lan_b, "10.0.10.0/24"),
-    ]
+    assert mock_registrar.call_args.args[0] == {"192.168.50.0/24": lan_a, "10.0.10.0/24": lan_b}
     assert resultado["diff"]["hosts_nuevos"] == ["192.168.50.10"]   # diffs combinados
     assert resultado["diff"]["primera_vez"] is False
     assert resultado["rangos"] == ["192.168.50.0/24", "10.0.10.0/24"]
@@ -1376,3 +1339,157 @@ def test_los_widgets_del_sidebar_estan_en_ingles():
     assert "Network range (CIDR)" in textos
     for texto in textos:
         _sin_español(texto)
+
+
+# === Rangos permitidos (TOPOLOGY_ALLOWED_RANGES) ============================
+#
+# En el clúster la web no tiene login: con la variable, solo escanea rangos
+# (y consulta por SNMP equipos) dentro de las redes permitidas.
+
+def _pulsar_escanear_con(rango, monkeypatch, permitidos=None, ip_snmp=None):
+    from streamlit.testing.v1 import AppTest
+
+    if permitidos is not None:
+        monkeypatch.setenv("TOPOLOGY_ALLOWED_RANGES", permitidos)
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    at.sidebar.text_input[0].set_value(rango).run()
+    if ip_snmp:
+        monkeypatch.setenv("TOPOLOGY_SNMP_COMMUNITY", "comunidad-de-prueba")
+        next(t for t in at.sidebar.toggle if "SNMP" in t.label).set_value(True).run()
+        next(t for t in at.sidebar.text_input if "Routers" in t.label).set_value(ip_snmp).run()
+    next(b for b in at.button if b.label == "▶ Scan").click().run()
+    assert not at.exception
+    return at
+
+
+def test_rango_fuera_de_permitidos_no_escanea(sin_escaneos_reales, monkeypatch):
+    at = _pulsar_escanear_con("203.0.113.0/24", monkeypatch, permitidos="192.0.2.0/24")
+    assert any("outside the allowed ranges" in w.value for w in at.warning)
+
+
+def test_ip_snmp_fuera_de_permitidos_no_escanea(sin_escaneos_reales, monkeypatch):
+    at = _pulsar_escanear_con("192.0.2.0/24", monkeypatch, permitidos="192.0.2.0/24", ip_snmp="203.0.113.1")
+    assert any("203.0.113.1" in w.value and "outside the allowed ranges" in w.value for w in at.warning)
+
+
+def test_variable_de_permitidos_invalida_bloquea_el_escaneo(sin_escaneos_reales, monkeypatch):
+    """Una errata en la variable no puede dejar la web escaneando sin límites."""
+    at = _pulsar_escanear_con("192.0.2.0/24", monkeypatch, permitidos="basura")
+    assert any("TOPOLOGY_ALLOWED_RANGES" in w.value for w in at.warning)
+
+
+def test_sin_variable_se_escanea_como_antes(monkeypatch):
+    monkeypatch.delenv("TOPOLOGY_ALLOWED_RANGES", raising=False)
+    assert _validar_rangos("203.0.113.0/24") == (["203.0.113.0/24"], None)
+
+
+# === Ejecuciones (v1.3.0) ===================================================
+
+@patch("topology_scanner.webapp.obtener_topologia")
+@patch("topology_scanner.webapp.registrar_ejecucion")
+def test_finalizar_registra_ejecucion_web(mock_registrar, mock_obtener, monkeypatch):
+    """La pasada de la web se guarda como una ejecución (origen "web") con su
+    topología, en el historial de TOPOLOGY_HISTORY_DB (en el clúster, el
+    volumen compartido con el CronJob)."""
+    monkeypatch.setenv("TOPOLOGY_HISTORY_DB", "/data/historial.db")
+    mock_obtener.return_value = (_topologia_fake(), [])
+    mock_registrar.return_value = {
+        "192.0.2.0/24": {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}},
+    }
+    resultados = {"192.0.2.10": _resultado_fake()}
+
+    resultado = _finalizar_resultados(resultados, "192.0.2.0/24", guardar_historial=True,
+                                      snmp={"ips": ["192.0.2.1"], "credenciales": "secreta"})
+
+    mock_registrar.assert_called_once_with(
+        {"192.0.2.0/24": resultados}, _topologia_fake(), origen="web", db_path="/data/historial.db"
+    )
+    assert resultado["diff"]["primera_vez"] is True
+
+
+# === Lista de escaneos guardados ============================================
+
+_EJECUCION = {"id": 7, "fecha": "2026-10-29T03:00:00", "origen": "cli",
+              "rangos": ["192.0.2.0/24", "198.51.100.0/24"], "total_hosts": 34, "alertas": 2}
+
+
+def test_etiqueta_ejecucion():
+    from topology_scanner.webapp import _etiqueta_ejecucion
+
+    assert _etiqueta_ejecucion(_EJECUCION) == "29 Oct 03:00 · cli · 2 ranges · 34 hosts · 2⚠ · #7"
+    antigua = {**_EJECUCION, "fecha": "2026-10-01T09:05:00", "origen": "antiguo",
+               "rangos": ["192.0.2.0/24"], "total_hosts": 1, "alertas": 0}
+    assert _etiqueta_ejecucion(antigua) == "01 Oct 09:05 · old · 1 range · 1 host · #7"
+
+
+def test_resultado_desde_ejecucion_tiene_formato_de_finalizar():
+    """_mostrar_resultado pinta igual un escaneo recién hecho que uno guardado."""
+    from topology_scanner.webapp import _resultado_desde_ejecucion
+
+    ejecucion = {**_EJECUCION, "resultados": {"192.0.2.10": _resultado_fake()}, "topologia": None,
+                 "diff": {"primera_vez": True, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}}
+
+    resultado = _resultado_desde_ejecucion(ejecucion)
+
+    claves_de_un_escaneo = set(_finalizar_resultados({}, "192.0.2.0/24", guardar_historial=False))
+    assert claves_de_un_escaneo <= set(resultado)
+    assert resultado["rangos"] == ["192.0.2.0/24", "198.51.100.0/24"]
+    assert resultado["guardado"] == {"fecha": "2026-10-29T03:00:00", "origen": "cli"}
+
+
+def test_elegir_ejecucion_la_muestra(sin_escaneos_reales, monkeypatch, tmp_path):
+    from streamlit.testing.v1 import AppTest
+
+    from topology_scanner.history import listar_ejecuciones, registrar_ejecucion
+
+    db = str(tmp_path / "compartido.db")
+    monkeypatch.setenv("TOPOLOGY_HISTORY_DB", db)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.10": _resultado_fake(hostname="equipo-viejo")}}, db_path=db)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.20": _resultado_fake(hostname="equipo-nuevo")}}, db_path=db)
+    antigua = listar_ejecuciones(db)[1]["id"]
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    lista = next(s for s in at.sidebar.selectbox if s.label == "Saved scans")
+    lista.set_value(antigua).run()
+
+    assert not at.exception
+    assert any("equipo-viejo" in md.value for md in at.markdown)
+    assert not any("equipo-nuevo" in md.value for md in at.markdown)
+    assert any("Saved scan" in i.value and "cli" in i.value for i in at.info)
+
+
+def test_lista_vacia():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+
+    assert any(c.value == "No saved scans yet." for c in at.sidebar.caption)
+    assert not any(s.label == "Saved scans" for s in at.sidebar.selectbox)
+
+
+def test_dos_ejecuciones_con_la_misma_etiqueta_abren_la_elegida(sin_escaneos_reales, monkeypatch, tmp_path):
+    """Streamlit guarda la elección del selectbox por su texto: con dos
+    etiquetas iguales (mismo minuto, mismo origen, mismos hosts) abría la
+    otra ejecución sin avisar. Cada etiqueta tiene que ser única."""
+    from streamlit.testing.v1 import AppTest
+
+    from topology_scanner.history import listar_ejecuciones, registrar_ejecucion
+
+    db = str(tmp_path / "compartido.db")
+    monkeypatch.setenv("TOPOLOGY_HISTORY_DB", db)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.10": _resultado_fake(hostname="equipo-primero")}},
+                        origen="web", db_path=db)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.10": _resultado_fake(hostname="equipo-segundo")}},
+                        origen="web", db_path=db)
+    reciente = listar_ejecuciones(db)[0]["id"]
+
+    at = AppTest.from_file("../src/topology_scanner/webapp.py")
+    at.run()
+    next(s for s in at.sidebar.selectbox if s.label == "Saved scans").set_value(reciente).run()
+
+    assert not at.exception
+    assert any("equipo-segundo" in md.value for md in at.markdown)
+    assert not any("equipo-primero" in md.value for md in at.markdown)

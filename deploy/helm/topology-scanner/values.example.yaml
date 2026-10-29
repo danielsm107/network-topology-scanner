@@ -1,0 +1,17 @@
+# Ejemplo (datos inventados). Copiar a deploy/helm/values.local.yaml, que
+# está ignorado por git, y poner las redes reales:
+#
+#   helm install topology-scanner deploy/helm/topology-scanner \
+#     -n topology-scanner -f deploy/helm/values.local.yaml
+#
+# Solo hace falta poner lo que cambia respecto a values.yaml.
+
+escaneo:
+  rangos:
+    - 192.0.2.0/24      # la red del nodo: MAC y fabricante directos
+    - 198.51.100.0/24   # otra red, detrás de un router: se completa con SNMP
+  snmp:
+    - 192.0.2.1         # router a consultar (credenciales en el Secret snmpSecret)
+
+# Vacío = los mismos rangos del escaneo
+rangosPermitidos: []

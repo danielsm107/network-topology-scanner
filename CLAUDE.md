@@ -138,6 +138,11 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - `snmp.obtener_topologia` / `credenciales_desde_entorno` / `VARIABLE_*` y
   `rangos.parsear_rangos` / `repartir_por_rango`: compartidos por CLI y web.
 - `history.combinar_diffs`: juntar los diffs de varios rangos para mostrarlos.
+- `history.registrar_ejecucion` / `listar_ejecuciones` / `cargar_ejecucion`: una
+  pasada (todos sus rangos + topología SNMP) es una ejecución; CLI y web guardan
+  con `registrar_ejecucion` (`registrar_y_comparar` queda como envoltorio de un rango).
+- `rangos.parsear_permitidos` / `validar_permitidos` (`TOPOLOGY_ALLOWED_RANGES`):
+  la web valida con ellos rangos **e IPs de SNMP**; si la variable está mal, no escanea.
 - Versión: `importlib.metadata` en `__init__.py`; `pyproject.toml` manda.
 - Grafo de imports entre módulos de lógica: `scanner → classifier`,
   `history → classifier`, `export → classifier, history`, `graph → rangos`.
@@ -148,9 +153,12 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - `history.py`: compara solo contra el último escaneo **del mismo rango**, purga
   más allá de `mantener_ultimos` (50), y un `HistoryError` se loguea pero no aborta.
   Con varios rangos, `cli.py` reparte los resultados (`rangos.repartir_por_rango`)
-  y registra uno por rango: nunca se guarda "a b" como si fuera un rango.
-  La web hace lo mismo y junta los diffs con `history.combinar_diffs` para
-  mostrarlos en un solo panel.
+  y guarda un escaneo por rango dentro de una ejecución: nunca se guarda "a b"
+  como si fuera un rango. La web hace lo mismo y junta los diffs con
+  `history.combinar_diffs` para mostrarlos en un solo panel. El esquema se migra
+  solo al abrir la base (`_migrar_a_ejecuciones`): un cambio de esquema nuevo
+  tiene que migrar también, porque hay `historial.db` de versiones anteriores.
+  Conexiones con `_conectar` (timeout 30 s): CronJob y web comparten el archivo.
 - Varios rangos van como **argumentos separados**, nunca partiendo por comas:
   `192.168.1.1,5` es sintaxis de nmap (.1 y .5). Con uno solo se admite cualquier
   sintaxis de nmap; con varios, cada uno tiene que ser IP o CIDR.
