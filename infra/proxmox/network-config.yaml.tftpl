@@ -1,0 +1,17 @@
+# network-config v2 de cloud-init (formato netplan), en lugar del ipconfig0 de
+# Proxmox: ese llama "eth0" a la interfaz y la renombra, y en Ubuntu 26.04 el
+# renombrado falla porque dracut ya la levantó por DHCP. Sin set-name no se
+# renombra nada, y el 10-netplan-*.network gana al zzzz-dracut-default.network.
+network:
+  version: 2
+  ethernets:
+    lan:
+      match:
+        name: "en*"
+      addresses:
+        - ${ip_cidr}
+      routes:
+        - to: default
+          via: ${gateway}
+      nameservers:
+        addresses: [${join(", ", dns)}]

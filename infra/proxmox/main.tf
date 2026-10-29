@@ -7,6 +7,12 @@ locals {
     k3s_version   = var.k3s_version
     ip            = local.ip
   })
+
+  network_config = templatefile("${path.module}/network-config.yaml.tftpl", {
+    ip_cidr = var.ip_cidr
+    gateway = var.gateway
+    dns     = local.dns
+  })
 }
 
 # Imagen cloud de Ubuntu 26.04 LTS. Release con fecha (no release/, que cambia)
@@ -30,6 +36,17 @@ resource "proxmox_virtual_environment_file" "cloud_init" {
   source_raw {
     data      = local.cloud_init
     file_name = "k3s-cloud-init.yaml"
+  }
+}
+
+resource "proxmox_virtual_environment_file" "network_config" {
+  node_name    = var.nodo
+  datastore_id = "local"
+  content_type = "snippets"
+
+  source_raw {
+    data      = local.network_config
+    file_name = "k3s-network-config.yaml"
   }
 }
 
@@ -78,17 +95,8 @@ resource "proxmox_virtual_environment_vm" "k3s" {
   initialization {
     datastore_id = "local-lvm"
 
-    ip_config {
-      ipv4 {
-        address = var.ip_cidr
-        gateway = var.gateway
-      }
-    }
-
-    dns {
-      servers = local.dns
-    }
-
-    user_data_file_id = proxmox_virtual_environment_file.cloud_init.id
+    # Red por network-config propio, no con ip_config/dns (ver la plantilla)
+    user_data_file_id    = proxmox_virtual_environment_file.cloud_init.id
+    network_data_file_id = proxmox_virtual_environment_file.network_config.id
   }
 }

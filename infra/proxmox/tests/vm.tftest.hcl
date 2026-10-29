@@ -33,6 +33,37 @@ run "cloud_init_contiene_k3s_fijado" {
   }
 }
 
+# Red propia en vez del ipconfig0 de Proxmox: ese llama "eth0" a la interfaz y
+# la renombra, y en Ubuntu 26.04 el renombrado falla (dracut ya la levantó por
+# DHCP), así que la VM se quedaba con una IP del pool en vez de la fija
+run "red_fija_sin_renombrar_la_interfaz" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local.network_config, "name: \"en*\"")
+    error_message = "El network-config no busca la interfaz por su nombre real (en*)."
+  }
+
+  assert {
+    condition     = !strcontains(local.network_config, "set-name:")
+    error_message = "El network-config renombra la interfaz: falla con dracut y la VM coge DHCP."
+  }
+
+  assert {
+    condition = alltrue([
+      strcontains(local.network_config, "- 192.0.2.50/24"),
+      strcontains(local.network_config, "via: 192.0.2.1"),
+      strcontains(local.network_config, "addresses: [192.0.2.1]"),
+    ])
+    error_message = "El network-config no tiene la IP, el gateway o el DNS de las variables."
+  }
+
+  assert {
+    condition     = length(proxmox_virtual_environment_vm.k3s.initialization[0].ip_config) == 0
+    error_message = "La VM sigue usando ip_config (ipconfig0 de Proxmox) además del network-config propio."
+  }
+}
+
 run "vm_con_los_recursos_del_diseno" {
   command = plan
 
