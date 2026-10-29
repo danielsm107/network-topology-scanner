@@ -49,7 +49,7 @@ homelab hacia fuera (subir a S3, publicar en SNS, consultar GitHub, Telegram).
 - Alta disponibilidad: es un nodo único en un MiniPC, y se acepta.
 - Multiusuario, autenticación propia en la web, multi-sitio.
 - Métricas de negocio del escaneo en Prometheus (nº de hosts, puertos…): fuera
-  del alcance inicial (ver "Ideas para después").
+  del alcance inicial. Se movieron a la fase 6 el 2026-10-29 (ver su fila).
 - Usar a la vez otra nube (Azure se descartó: curiosidad, no requisito).
 
 ## Anti-objetivos (fracaso aunque "funcione")
@@ -223,7 +223,7 @@ y documentada.
 | 3 | Despliegue en Kubernetes | Rangos permitidos en la web (con test); chart de Helm: CronJob de escaneo, web en la LAN, PVC del historial, Secrets SNMP y de `values`; un escaneo manual (`kubectl create job --from=cronjob/...`) deja historial y la web rechaza un rango no permitido |
 | 4 | AWS como código + hallazgos | Terraform: bucket de informes, SNS + suscripción email, usuario IAM del homelab, rol OIDC de GitHub; flag de diff JSON en el CLI; un cambio en la red llega por email, los informes aparecen en S3 y la copia del historial se restaura siguiendo el runbook |
 | 5 | Jenkins (CD) | Jenkins en el clúster (Helm, configuración como código); un tag nuevo acaba desplegado sin intervención |
-| 6 | Observabilidad | Prometheus, Alertmanager, Grafana, kube-state-metrics; un Job que falla a propósito llega a Telegram |
+| 6 | Observabilidad | Prometheus, Alertmanager, Grafana, kube-state-metrics; un Job que falla a propósito llega a Telegram; métricas del escaneo (hosts vivos, puertos sensibles, hosts nuevos) con su panel en Grafana (el CronJob vive minutos: Pushgateway o servidas por la web desde el historial, a decidir en la fase) |
 
 ## Documentación (entregable de cada fase)
 
@@ -248,8 +248,6 @@ y documentada.
 
 ## Ideas para después (fuera de esta fase)
 
-- Métricas del escaneo en Prometheus (hosts vivos, puertos sensibles) y panel
-  en Grafana.
 - Hallazgos también a Telegram (una Lambda suscrita a SNS).
 - GitOps con Argo CD como alternativa a Jenkins, para comparar.
 - Publicar el último mapa HTML en una URL privada (S3 + CloudFront con acceso
