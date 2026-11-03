@@ -568,3 +568,43 @@ contexto completo.
     "sin elegir" tras cada escaneo cambiando su `key` (no se puede asignar la
     de un widget ya creado). El origen se muestra tal cual (`cli`, `web`, `old`):
     deducir "nocturno" de la hora sería inventar.
+- Despliegue en el k3s (fase DevOps 3, runbook `docs/devops/runbooks/03-kubernetes.md`):
+  - **`hostNetwork`, sin Service ni Ingress.** Los pods necesitan la red del
+    nodo para ver las MACs de su segmento (como el `--network host` de la fase
+    1). NPM hace de proxy directamente a `<IP del nodo>:8501`: meter el Traefik
+    de k3s en medio serían dos proxies encadenados. Cambia lo que decía el
+    diseño general (Ingress de Traefik). El 8501 responde también sin pasar por
+    NPM; se acepta, todo es dentro de casa.
+  - **La web con estrategia `Recreate`**: con `hostNetwork`, en un
+    `RollingUpdate` la web nueva no arranca mientras la vieja tiene el puerto.
+  - **CronJob sin reintentos** (`backoffLimit: 0`, `concurrencyPolicy: Forbid`):
+    un escaneo fallido se ve en `kubectl get jobs`, no se repite a ciegas
+    contra la red. `activeDeadlineSeconds` de 4 h por si se cuelga.
+  - **SNMPv3, no v2c, desde el clúster**: el nodo llega al router principal a
+    través del NAT del UDM, que hace que el router vea a toda la red B con una
+    IP. Con v2c, el filtro por IP dejaría pasar a toda esa red y la community
+    viaja en claro.
+  - **El Secret SNMP se crea a mano, no desde el chart**: si el chart lo
+    creara, las claves pasarían por los `values` y quedarían en el historial de
+    releases de Helm. Se crea con `--from-env-file` desde un archivo fuera del
+    repo, para que no pasen por la shell. Las claves, de `openssl rand -hex`:
+    sin símbolos que escapar ni en RouterOS ni en el archivo.
+  - **Valores reales en `deploy/helm/values.local.yaml`** (ignorado); el chart
+    lleva datos inventados y su test usa `values.example.yaml`. Guardar los
+    values en el clúster (para Jenkins) se deja para la fase 5.
+  - **Imagen con tag fijo**, nunca `latest` (lo rechaza el chart): el clúster
+    tiene que correr una versión conocida y cambiarla con un `helm upgrade`.
+  - **`web.dominio`** (vacío por defecto): detrás de NPM, Streamlit se anuncia
+    con ese nombre en el 443 (`STREAMLIT_BROWSER_SERVER_ADDRESS`/`_PORT`). Sin
+    él, la imagen arranca en modo headless y Streamlit consulta
+    `checkip.amazonaws.com` para mostrar la IP pública en el log, y la usa otra
+    vez al validar el `Origin` del websocket. Salió en la instalación real.
+  - **`NET_BIND_SERVICE` sigue fuera**, aunque la fase 1 se equivocó al decir
+    que nmap no la usa: con `-sV`, `rpcinfo` intenta salir desde un puerto
+    <1024 y avisa `Bind ... failed: Permission denied`. Solo se pierde
+    información de RPC; añadirla exige tocar el `setcap` de la imagen y las
+    capacidades del pod a la vez (pendiente, sin decidir).
+  - **Test de historial con fecha fija**: uno insertaba un escaneo de
+    "mañana" (2026-10-30) y comprobaba el orden de la lista; pasada esa fecha
+    falló. Ahora busca por origen. Regla: en tests, no comparar el orden contra
+    `datetime.now()` con fechas escritas a mano.

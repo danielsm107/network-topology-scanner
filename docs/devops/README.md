@@ -12,7 +12,7 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 | 0 | Higiene de la cuenta AWS | Hecha | [00-cuenta-aws.md](runbooks/00-cuenta-aws.md) |
 | 1 | Contenedor | Hecha | [01-contenedor.md](runbooks/01-contenedor.md) |
 | 2 | VM de Proxmox como código | Hecha | [02-proxmox-vm.md](runbooks/02-proxmox-vm.md) |
-| 3 | Despliegue en Kubernetes | Pendiente | |
+| 3 | Despliegue en Kubernetes | Hecha | [03-kubernetes.md](runbooks/03-kubernetes.md) |
 | 4 | AWS como código + hallazgos | Pendiente | |
 | 5 | Jenkins (CD) | Pendiente | |
 | 6 | Observabilidad | Pendiente | |
@@ -26,3 +26,6 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 - `infra/aws/bootstrap/`: bucket S3 del estado de Terraform (versionado, cifrado, sin acceso público).
 - `infra/proxmox/`: la VM k3s (Ubuntu 26.04 + cloud-init + k3s fijado); estado en S3, `apply` desde el PC.
 - `.github/workflows/ci.yml`, job `terraform`: `fmt`, `validate` y `terraform test` (provider simulado).
+- `deploy/helm/topology-scanner/`: chart de Helm (escaneo nocturno como CronJob, web, PVC del historial);
+  `helm install`/`upgrade` desde el PC, valores reales en `deploy/helm/values.local.yaml` (ignorado).
+- `.github/workflows/ci.yml`, job `helm`: `helm lint` y `helm template`; `tests/test_helm.py` renderiza el chart.
