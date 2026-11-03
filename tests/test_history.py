@@ -431,9 +431,12 @@ def test_migracion_a_medias_o_version_antigua_se_completa(tmp_path):
 
     ejecuciones = listar_ejecuciones(db)
 
-    assert [e["rangos"] for e in ejecuciones] == [[RED_B], [RED_A]]
-    assert ejecuciones[0]["origen"] == "antiguo"
-    assert ejecuciones[0]["total_hosts"] == 1
+    # Se busca por origen, no por posición: la fecha fija de arriba queda en
+    # el pasado respecto al registrar_ejecucion de "ahora" y el orden cambia
+    (migrada,) = [e for e in ejecuciones if e["origen"] == "antiguo"]
+    assert len(ejecuciones) == 2
+    assert migrada["rangos"] == [RED_B]
+    assert migrada["total_hosts"] == 1
 
 
 def test_ejecuciones_vacias_de_una_purga_antigua_no_se_listan(tmp_path):
