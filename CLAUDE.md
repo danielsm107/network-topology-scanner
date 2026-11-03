@@ -55,6 +55,12 @@ docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN -v ts-datos
 terraform fmt -check -recursive infra/
 cd infra/proxmox && terraform init -backend=false && terraform validate && terraform test
 # apply real: runbook docs/devops/runbooks/02-proxmox-vm.md (token por entorno, perfil AWS `personal`)
+
+# Helm (deploy/helm/): lint/template sin clúster; install/upgrade solo desde el PC del mantenedor
+helm lint deploy/helm/topology-scanner -f deploy/helm/topology-scanner/values.example.yaml --strict
+# install/upgrade/Secret SNMP/NPM: runbook docs/devops/runbooks/03-kubernetes.md
+KUBECONFIG=~/.kube/config-homelab helm upgrade topology-scanner ./deploy/helm/topology-scanner \
+  -n topology-scanner -f deploy/helm/values.local.yaml --wait
 ```
 
 El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
@@ -66,7 +72,9 @@ en Python 3.10 y 3.12 en cada push/PR a `main` — ambos tienen que pasar. El jo
 sin capacidades) y la escanea con Trivy (falla con críticas que tengan arreglo).
 El job `terraform` pasa `fmt`, `validate` en cada raíz de `infra/` (un test
 obliga a añadir las nuevas) y `terraform test` con el provider simulado; nunca
-`apply` (la API de Proxmox solo es accesible desde la LAN). Toda action que no sea de GitHub (`actions/...`) va **fijada por SHA**, y Trivy
+`apply` (la API de Proxmox solo es accesible desde la LAN). El job `helm` pasa
+`helm lint` y `helm template`; el job de tests instala Helm para que
+`tests/test_helm.py` (que se salta sin `helm`) no pase en silencio. Toda action que no sea de GitHub (`actions/...`) va **fijada por SHA**, y Trivy
 por digest, no por tag (ataque a las tags de `trivy-action`, marzo de 2026); lo
 comprueba `tests/test_workflows.py`. Las de `actions/` van por tag.
 
@@ -99,6 +107,8 @@ compose.yaml           # uso con Docker Compose (en inglés: es para copiarlo); 
 docs/devops/           # fase DevOps: README (estado por fase) y runbooks/NN-<fase>.md
 infra/aws/bootstrap/   # Terraform: bucket S3 del estado (estado local, ignorado)
 infra/proxmox/         # Terraform: VM k3s en Proxmox (cloud-init + network-config propios); tfvars/backend.hcl ignorados
+deploy/helm/topology-scanner/  # chart: CronJob nocturno + web (hostNetwork, sin Service/Ingress) + PVC; Secret SNMP a mano
+deploy/helm/values.local.yaml  # valores reales del homelab (redes, router, dominio de NPM): ignorado por git
 ```
 
 **Principio de diseño**: cada módulo no sabe nada de los demás salvo lo

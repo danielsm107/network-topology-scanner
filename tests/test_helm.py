@@ -111,6 +111,25 @@ def test_web_recreate_y_variables():
     assert env["STREAMLIT_SERVER_PORT"]["value"] == "8501"
 
 
+def test_web_sin_dominio_no_fija_direccion():
+    """Sin proxy delante, Streamlit sigue anunciándose con su IP y puerto."""
+    env = _env(_contenedor(_renderizar(), "Deployment"))
+
+    assert "STREAMLIT_BROWSER_SERVER_ADDRESS" not in env
+    assert "STREAMLIT_BROWSER_SERVER_PORT" not in env
+
+
+def test_web_con_dominio_detras_del_proxy():
+    """Con web.dominio (el nombre del proxy inverso, HTTPS en el 443),
+    Streamlit se anuncia con ese nombre: así ni consulta checkip.amazonaws.com
+    para sacar la IP pública ni la usa al comprobar el Origin del websocket."""
+    manifiestos = _renderizar("--set", "web.dominio=topology.example.com")
+    env = _env(_contenedor(manifiestos, "Deployment"))
+
+    assert env["STREAMLIT_BROWSER_SERVER_ADDRESS"]["value"] == "topology.example.com"
+    assert env["STREAMLIT_BROWSER_SERVER_PORT"]["value"] == "443"
+
+
 def test_permitidos_por_defecto_son_los_rangos():
     """Sin rangosPermitidos, la web queda limitada a los rangos del nocturno:
     nunca sin límite dentro del clúster."""
