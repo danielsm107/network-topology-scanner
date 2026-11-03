@@ -33,6 +33,10 @@ rangosPermitidos: []
 web:
   # Puerto del nodo (hostNetwork): NPM hace de proxy a <IP del nodo>:<puerto>
   puerto: 8501
+  # Nombre con el que NPM la publica por HTTPS (p. ej. topology.example.com).
+  # Vacío = sin proxy. Puesto, Streamlit no consulta su IP pública
+  # (checkip.amazonaws.com) para anunciarse ni para validar el websocket
+  dominio: ""
 
 # Secret con TOPOLOGY_SNMP_USER / _AUTH_KEY / _PRIV_KEY. Se crea a mano, nunca
 # desde el chart (ver docs/devops/runbooks/03-kubernetes.md)

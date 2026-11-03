@@ -36,6 +36,13 @@ spec:
               value: /data/historial.db
             - name: STREAMLIT_SERVER_PORT
               value: {{ .Values.web.puerto | quote }}
+            {{- with .Values.web.dominio }}
+            # Detrás del proxy inverso: se anuncia con su nombre (HTTPS, 443)
+            - name: STREAMLIT_BROWSER_SERVER_ADDRESS
+              value: {{ . | quote }}
+            - name: STREAMLIT_BROWSER_SERVER_PORT
+              value: "443"
+            {{- end }}
             {{- include "topology-scanner.envComun" . | nindent 12 }}
           readinessProbe:
             httpGet:
