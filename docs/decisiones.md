@@ -599,11 +599,15 @@ contexto completo.
     él, la imagen arranca en modo headless y Streamlit consulta
     `checkip.amazonaws.com` para mostrar la IP pública en el log, y la usa otra
     vez al validar el `Origin` del websocket. Salió en la instalación real.
-  - **`NET_BIND_SERVICE` sigue fuera**, aunque la fase 1 se equivocó al decir
-    que nmap no la usa: con `-sV`, `rpcinfo` intenta salir desde un puerto
-    <1024 y avisa `Bind ... failed: Permission denied`. Solo se pierde
-    información de RPC; añadirla exige tocar el `setcap` de la imagen y las
-    capacidades del pod a la vez (pendiente, sin decidir).
+  - **`NET_BIND_SERVICE` vuelve** (después de la fase 3), porque la fase 1 se
+    equivocó al decir que nmap no la usa: con `-sV`, `rpcinfo` intenta salir
+    desde un puerto <1024 y avisaba `Bind ... failed: Permission denied` en
+    cada nocturno (se perdía información de RPC). Va en el `setcap` de la
+    imagen y en el `capabilities.add` del chart a la vez; un test
+    (`test_pods_dan_las_capacidades_que_pide_nmap_en_la_imagen`) lee el
+    Dockerfile y obliga a que coincidan, porque con `drop: [ALL]` una de menos
+    en el pod deja nmap sin arrancar. Con Docker no cambia nada (la da por
+    defecto): solo la necesita quien use `--cap-drop ALL`.
   - **Test de historial con fecha fija**: uno insertaba un escaneo de
     "mañana" (2026-10-30) y comprobaba el orden de la lista; pasada esa fecha
     falló. Ahora busca por origen. Regla: en tests, no comparar el orden contra

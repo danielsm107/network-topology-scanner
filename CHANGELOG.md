@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] - 2026-11-05
+
+### Fixed
+- Docker image: nmap can now bind to privileged source ports
+  (`NET_BIND_SERVICE`), which the RPC scripts run by `-sV` need. Before, the
+  scan logged `Bind to 0.0.0.0:<port> failed: Permission denied` and lost RPC
+  service details. With Docker's default capabilities nothing changes; if you
+  run with `--cap-drop ALL`, add `--cap-add NET_BIND_SERVICE` too. The Helm
+  chart grants it.
+
 ## [1.3.0] - 2026-10-29
 
 ### Added

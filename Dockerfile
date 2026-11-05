@@ -36,10 +36,12 @@ RUN apt-get update \
 # allowPrivilegeEscalation: false, que anula las capacidades de archivo.
 # NMAP_PRIVILEGED le dice a nmap que use esos privilegios aunque no sea root
 # (si no, al ver un usuario normal se limita a un escaneo TCP connect).
-# Solo esas dos: el kernel no ejecuta un binario que pida una capacidad que el
-# contenedor no tiene, así que una de más (p. ej. net_bind_service) lo rompía
-# con --cap-drop ALL o con el drop: [ALL] habitual en Kubernetes.
-RUN setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap
+# Más net_bind_service: con -sV, rpcinfo sale desde un puerto <1024 (Docker la
+# da por defecto; con --cap-drop ALL o el drop: [ALL] de Kubernetes hay que
+# añadirla). Ni una más: el kernel no ejecuta un binario que pida una
+# capacidad que el contenedor no tiene. tests/test_helm.py comprueba que el
+# chart da exactamente estas.
+RUN setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap
 ENV NMAP_PRIVILEGED=1
 
 COPY --from=build /wheels /wheels

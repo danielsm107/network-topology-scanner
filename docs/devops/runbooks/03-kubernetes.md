@@ -251,12 +251,6 @@ tampoco lo borra Helm (no lo creó él).
 - **Detección de SO a través del NAT**: en la red que no es la del nodo, `-O`
   acierta menos (el UDM está en medio). El nocturno lo hace igualmente, de
   noche no hay prisa.
-- **`rpcinfo` sin puerto privilegiado**: `-sV` lanza scripts que intentan salir
-  desde un puerto <1024 y nmap avisa `Bind to 0.0.0.0:<puerto> failed:
-  Permission denied`. Se pierde, como mucho, información de servicios RPC. Hace
-  falta `NET_BIND_SERVICE`, que se quitó en la fase 1 porque parecía no usarse
-  (ver `docs/decisiones.md`); añadirla obliga a tocar el `setcap` de la imagen
-  **y** las capacidades del pod a la vez.
 - **El puerto 8501 también responde directamente** en la LAN, sin pasar por
   NPM. Aceptado: todo es dentro de casa.
 - **Un solo nodo**: el PVC es `local-path` (disco de la VM). Si se recrea la VM

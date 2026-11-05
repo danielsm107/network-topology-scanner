@@ -1,12 +1,13 @@
 """
 Tests del chart de Helm (deploy/helm/topology-scanner): renderiza el chart
 con `helm template` y comprueba lo que no puede romperse al desplegar. Sobre
-todo la seguridad de los pods: el escáner necesita la red del nodo y dos
+todo la seguridad de los pods: el escáner necesita la red del nodo y tres
 capacidades, y nada más (ver docs/devops/runbooks/01-contenedor.md).
 
 Se saltan si `helm` no está instalado; en la CI el job `test` lo instala.
 """
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,6 +19,7 @@ yaml = pytest.importorskip("yaml")
 RAIZ = Path(__file__).resolve().parents[1]
 CHART = RAIZ / "deploy" / "helm" / "topology-scanner"
 VALUES_EJEMPLO = CHART / "values.example.yaml"
+DOCKERFILE = RAIZ / "Dockerfile"
 
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm no está instalado")
 
@@ -48,8 +50,9 @@ def _env(contenedor: dict) -> dict[str, dict]:
 
 @pytest.mark.parametrize("kind", ["CronJob", "Deployment"])
 def test_pods_con_hostnetwork_y_capacidades_minimas(kind):
-    """hostNetwork para ver las MACs del segmento; sin root y solo NET_RAW y
-    NET_ADMIN. allowPrivilegeEscalation: false anularía las capacidades de
+    """hostNetwork para ver las MACs del segmento; sin root y solo NET_RAW,
+    NET_ADMIN y NET_BIND_SERVICE (rpcinfo de -sV sale desde un puerto <1024).
+    allowPrivilegeEscalation: false anularía las capacidades de
     archivo de nmap (fase 1), así que no puede aparecer."""
     manifiestos = _renderizar()
     pod = _pod(manifiestos, kind)
@@ -60,9 +63,26 @@ def test_pods_con_hostnetwork_y_capacidades_minimas(kind):
     assert pod["securityContext"]["runAsNonRoot"] is True
     assert pod["securityContext"]["runAsUser"] == 10001
     assert pod["securityContext"]["fsGroup"] == 10001
-    assert contexto["capabilities"] == {"drop": ["ALL"], "add": ["NET_RAW", "NET_ADMIN"]}
+    assert contexto["capabilities"] == {"drop": ["ALL"], "add": ["NET_RAW", "NET_ADMIN", "NET_BIND_SERVICE"]}
     assert "privileged" not in contexto
     assert "allowPrivilegeEscalation" not in contexto
+
+
+def _capacidades_del_setcap() -> set[str]:
+    """Capacidades que el Dockerfile le pone a nmap: `setcap cap_a,cap_b+eip`
+    -> {"A", "B"}, con el nombre que usa Kubernetes."""
+    (lista,) = re.findall(r"setcap ([\w,]+)\+eip /usr/bin/nmap", DOCKERFILE.read_text(encoding="utf-8"))
+    return {capacidad.removeprefix("cap_").upper() for capacidad in lista.split(",")}
+
+
+@pytest.mark.parametrize("kind", ["CronJob", "Deployment"])
+def test_pods_dan_las_capacidades_que_pide_nmap_en_la_imagen(kind):
+    """Con drop: [ALL], el kernel no ejecuta nmap si el pod no tiene todas las
+    capacidades de archivo del binario (fase 1). Imagen y chart se cambian a la
+    vez o nmap no arranca en el clúster."""
+    contexto = _contenedor(_renderizar(), kind)["securityContext"]
+
+    assert set(contexto["capabilities"]["add"]) == _capacidades_del_setcap()
 
 
 def test_cronjob_nocturno():
