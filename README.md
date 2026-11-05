@@ -104,7 +104,8 @@ docker compose run --rm scan 192.168.1.0/24 --fast     # one-off CLI scan
 - `--network host` is required: on Docker's bridge network nmap can't see
   MACs or vendors on your LAN. It only works on **Linux**; Docker Desktop
   (Windows/macOS) can't reach your LAN at layer 2.
-- `NET_RAW` and `NET_ADMIN` are all nmap needs; no `--privileged`. Don't use
+- `NET_RAW` and `NET_ADMIN` are all nmap needs on top of Docker's defaults; no
+  `--privileged`. If you use `--cap-drop ALL`, also add `NET_BIND_SERVICE`. Don't use
   `no-new-privileges`, or nmap can't start.
 - Results (`historial.db`, HTML, CSV) are written to `/data`. A bind-mounted
   host folder must be writable by UID 10001.

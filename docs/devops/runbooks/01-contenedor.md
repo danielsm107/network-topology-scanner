@@ -37,7 +37,8 @@ de aislamiento, y en Kubernetes conviene poder exigir `runAsNonRoot`.
 
 nmap necesita sockets raw (ARP para descubrir hosts en la LAN, SYN para los
 puertos). En vez de ejecutarlo como root, el binario lleva **capacidades de
-archivo** (`setcap cap_net_raw,cap_net_admin+eip`, solo esas dos) y la
+archivo** (`setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip`, solo esas tres;
+la última, para que los scripts RPC de `-sV` salgan desde un puerto <1024) y la
 imagen corre como el usuario `scanner`, **UID 10001** (fijo, porque los
 volúmenes de Kubernetes se preparan por UID). `NMAP_PRIVILEGED=1` le dice a
 nmap que use esos privilegios aunque no sea root: sin ella, al ver un usuario
@@ -46,7 +47,8 @@ normal, se limita a un escaneo TCP connect.
 Las capacidades de archivo solo funcionan si el contenedor las tiene:
 
 - `--cap-add NET_RAW --cap-add NET_ADMIN` (o `securityContext.capabilities.add`
-  en Kubernetes). Sin ellas el kernel se niega a ejecutar nmap, y la app lo dice:
+  en Kubernetes). `NET_BIND_SERVICE` ya la da Docker por defecto; con
+  `--cap-drop ALL` (o `drop: [ALL]` en Kubernetes) hay que añadirla también. Sin ellas el kernel se niega a ejecutar nmap, y la app lo dice:
   *"nmap is installed (/usr/bin/nmap) but the system refused to run it..."*
   (`scanner.error_de_nmap`; python-nmap decía "not found", que despistaba).
 - Sin `no-new-privileges` (Docker) ni `allowPrivilegeEscalation: false`
@@ -113,7 +115,7 @@ Job `imagen` de `.github/workflows/ci.yml`, en cada PR y push a `main`:
 
 1. Construye la imagen (con caché de GitHub Actions).
 2. Pruebas por fuera, como la usaría alguien: corre como UID 10001; nmap arranca
-   con `NET_RAW`/`NET_ADMIN`; **sin ellas falla con el mensaje que dice qué
+   con `--cap-drop ALL` y solo `NET_RAW`/`NET_ADMIN`/`NET_BIND_SERVICE`; **sin ellas falla con el mensaje que dice qué
    hacer**; la web (extra `[web]`) está instalada.
 3. **Trivy**: falla con vulnerabilidades críticas que ya tengan arreglo
    (`--severity CRITICAL --ignore-unfixed`). Las que no lo tienen no se pueden

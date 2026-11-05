@@ -25,7 +25,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{/*
 Lo común a los dos pods: red del nodo (para ver las MACs del segmento), sin
-root y solo NET_RAW + NET_ADMIN. Sin privileged ni allowPrivilegeEscalation:
+root y solo NET_RAW + NET_ADMIN + NET_BIND_SERVICE (las del setcap de la imagen:
+rpcinfo de -sV sale desde un puerto <1024). Sin privileged ni allowPrivilegeEscalation:
 false, que anula las capacidades de archivo de nmap (runbook de la fase 1).
 */}}
 {{- define "topology-scanner.podComun" -}}
@@ -48,7 +49,7 @@ imagePullPolicy: {{ .Values.image.pullPolicy }}
 securityContext:
   capabilities:
     drop: [ALL]
-    add: [NET_RAW, NET_ADMIN]
+    add: [NET_RAW, NET_ADMIN, NET_BIND_SERVICE]
 volumeMounts:
   - name: datos
     mountPath: /data

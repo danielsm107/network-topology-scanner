@@ -114,10 +114,10 @@ jobs:
         run: test "$(docker run --rm --entrypoint id topology-scanner:ci -u)" = "10001"
 
       # Con --cap-drop ALL, como el drop: [ALL] de Kubernetes: comprueba que
-      # nmap no pide ninguna capacidad más que estas dos
-      - name: nmap arranca solo con NET_RAW y NET_ADMIN
+      # nmap no pide ninguna capacidad más que estas tres
+      - name: nmap arranca solo con NET_RAW, NET_ADMIN y NET_BIND_SERVICE
         run: >
-          docker run --rm --cap-drop ALL --cap-add NET_RAW --cap-add NET_ADMIN
+          docker run --rm --cap-drop ALL --cap-add NET_RAW --cap-add NET_ADMIN --cap-add NET_BIND_SERVICE
           --entrypoint nmap topology-scanner:ci --version
 
       # Lo que le pasa a quien copia el docker run sin --cap-add: tiene que
