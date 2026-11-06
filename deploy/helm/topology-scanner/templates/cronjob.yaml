@@ -65,6 +65,12 @@ spec:
                   value: {{ required "aws.topicArn es obligatorio con aws.enabled" .Values.aws.topicArn | quote }}
                 - name: DIAS_ENLACES
                   value: {{ .Values.aws.diasEnlaces | quote }}
+                # El Job no se reintenta y el diff ya está guardado: si un corte
+                # tumba la subida, el aviso se pierde. Que reintente aws-cli
+                - name: AWS_RETRY_MODE
+                  value: standard
+                - name: AWS_MAX_ATTEMPTS
+                  value: "6"
                 {{- range list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" }}
                 # Del Secret creado a mano con la clave del usuario IAM del homelab
                 - name: {{ . }}
