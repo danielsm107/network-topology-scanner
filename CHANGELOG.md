@@ -15,7 +15,10 @@ follows [Semantic Versioning](https://semver.org/).
 - CLI: `--history-backup FILE`. After saving the run, writes a consistent copy
   of the history database (SQLite backup API), safe even while the web UI is
   writing to it.
-- Helm chart 0.2.0 defaults to image 1.4.0.
+- Helm chart 0.2.0 (image 1.4.0): optional `aws` section. When enabled, the
+  nightly job uploads the map, the CSV and a copy of the history to S3, and
+  publishes an email alert through SNS (with temporary links to the reports)
+  only when something changed. Off by default.
 
 ## [1.3.1] - 2026-11-05
 

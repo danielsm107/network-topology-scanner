@@ -37,10 +37,13 @@ securityContext:
   runAsUser: 10001
   runAsGroup: 10001
   fsGroup: 10001
-volumes:
-  - name: datos
-    persistentVolumeClaim:
-      claimName: {{ include "topology-scanner.fullname" . }}-datos
+{{- end -}}
+
+{{/* El volumen del historial; cada pod añade los suyos detrás */}}
+{{- define "topology-scanner.volumenDatos" -}}
+- name: datos
+  persistentVolumeClaim:
+    claimName: {{ include "topology-scanner.fullname" . }}-datos
 {{- end -}}
 
 {{- define "topology-scanner.contenedorComun" -}}
@@ -50,9 +53,6 @@ securityContext:
   capabilities:
     drop: [ALL]
     add: [NET_RAW, NET_ADMIN, NET_BIND_SERVICE]
-volumeMounts:
-  - name: datos
-    mountPath: /data
 {{- end -}}
 
 {{/* Hora local (TZ) y credenciales SNMPv3 del Secret creado a mano; optional: sin SNMP no hace falta */}}
@@ -67,4 +67,49 @@ volumeMounts:
       key: {{ . }}
       optional: true
 {{- end }}
+{{- end -}}
+
+
+{{/*
+El contenedor del escaneo nocturno. Sin aws.enabled, el HTML y el CSV van al
+directorio de trabajo (/data); con aws.enabled va como initContainer y deja en
+/salida (emptyDir) lo que sube después el contenedor de subida.
+*/}}
+{{- define "topology-scanner.contenedorEscaneo" -}}
+- name: escaneo
+  {{- include "topology-scanner.contenedorComun" . | nindent 2 }}
+  args:
+    {{- range (required "escaneo.rangos no puede estar vacío" .Values.escaneo.rangos) }}
+    - {{ . | quote }}
+    {{- end }}
+    - --history-db
+    - /data/historial.db
+    {{- if .Values.escaneo.osDetection }}
+    - --os-detection
+    {{- end }}
+    {{- if .Values.escaneo.snmp }}
+    - --snmp
+    - {{ join "," .Values.escaneo.snmp | quote }}
+    {{- end }}
+    {{- if .Values.aws.enabled }}
+    - --output
+    - /salida/network_topology.html
+    - --csv
+    - /salida/inventory.csv
+    - --changes-dir
+    - /salida/cambios
+    - --history-backup
+    - /salida/historial.db
+    {{- end }}
+  env:
+    {{- include "topology-scanner.envComun" . | nindent 4 }}
+  volumeMounts:
+    - name: datos
+      mountPath: /data
+    {{- if .Values.aws.enabled }}
+    - name: salida
+      mountPath: /salida
+    {{- end }}
+  resources:
+    {{- toYaml .Values.resources.escaneo | nindent 4 }}
 {{- end -}}

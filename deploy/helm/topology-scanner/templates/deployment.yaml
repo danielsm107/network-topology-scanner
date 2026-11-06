@@ -23,9 +23,14 @@ spec:
         app.kubernetes.io/component: web
     spec:
       {{- include "topology-scanner.podComun" . | nindent 6 }}
+      volumes:
+        {{- include "topology-scanner.volumenDatos" . | nindent 8 }}
       containers:
         - name: web
           {{- include "topology-scanner.contenedorComun" . | nindent 10 }}
+          volumeMounts:
+            - name: datos
+              mountPath: /data
           command: [topology-scanner-web]
           env:
             # Sin login: solo escanea dentro de estas redes (y si faltara, en el
