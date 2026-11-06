@@ -1,0 +1,129 @@
+# Terraform de AWS (infra/aws/hallazgos): plan en cada PR que lo toque, publicado
+# como comentario, y apply al mergear en main, después de que el mantenedor lo
+# apruebe (environment "aws" con revisor obligatorio). Entra en AWS por OIDC:
+# no hay claves de AWS en GitHub. Runbook: docs/devops/runbooks/04-aws.md.
+#
+# Variables del repo: AWS_ROLE_PLAN_ARN, AWS_ROLE_APPLY_ARN, TF_STATE_BUCKET.
+# Secret: ALERT_EMAIL (sensitive en Terraform: no sale en el plan).
+
+name: Terraform AWS
+
+on:
+  pull_request:
+    paths:
+      - infra/aws/hallazgos/**
+      - .github/workflows/terraform-aws.yml
+  push:
+    branches: [main]
+    paths:
+      - infra/aws/hallazgos/**
+      - .github/workflows/terraform-aws.yml
+
+permissions:
+  contents: read
+
+# Nunca dos a la vez contra el mismo estado; tampoco se cancela uno a medias
+concurrency:
+  group: terraform-aws
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "1"
+  TF_INPUT: "0"
+  TF_VAR_bucket_estado: ${{ vars.TF_STATE_BUCKET }}
+  TF_VAR_email_avisos: ${{ secrets.ALERT_EMAIL }}
+  REGION: eu-south-2
+  RAIZ: infra/aws/hallazgos
+
+jobs:
+  plan:
+    # Un PR desde un fork no recibe token OIDC ni secrets
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          # Sin el wrapper, la salida de los comandos llega limpia a los archivos
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_PLAN_ARN }}
+          aws-region: ${{ env.REGION }}
+
+      - name: terraform init
+        run: >-
+          terraform -chdir="$RAIZ" init
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="key=hallazgos/terraform.tfstate"
+          -backend-config="region=$REGION"
+          -backend-config="use_lockfile=true"
+
+      # -lock=false: el rol de plan solo lee, no puede escribir el .tflock
+      - name: terraform plan
+        run: |
+          terraform -chdir="$RAIZ" plan -lock=false -no-color -out=tfplan
+          terraform -chdir="$RAIZ" show -no-color tfplan > plan.txt
+
+      - name: Comentario con el plan
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require("fs");
+            const marca = "<!-- terraform-aws-plan -->";
+            let plan = fs.readFileSync("plan.txt", "utf8");
+            // Un comentario de GitHub admite unos 65 000 caracteres
+            if (plan.length > 60000) plan = plan.slice(0, 60000) + "\n... (recortado, ver el log del job)";
+            const cuerpo = `${marca}\n### Terraform plan (infra/aws/hallazgos)\n\n\`\`\`\n${plan}\n\`\`\``;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comentarios = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const anterior = comentarios.find((c) => c.body.startsWith(marca));
+            if (anterior) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: anterior.id, body: cuerpo });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: cuerpo });
+            }
+
+  apply:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    # Revisor obligatorio y solo la rama main (configurado en GitHub): el job
+    # espera a la aprobación antes de arrancar
+    environment: aws
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_APPLY_ARN }}
+          aws-region: ${{ env.REGION }}
+
+      - name: terraform init
+        run: >-
+          terraform -chdir="$RAIZ" init
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="key=hallazgos/terraform.tfstate"
+          -backend-config="region=$REGION"
+          -backend-config="use_lockfile=true"
+
+      # Se aplica exactamente el plan que sale en el log, no uno recalculado
+      - name: terraform apply
+        run: |
+          terraform -chdir="$RAIZ" plan -no-color -out=tfplan
+          terraform -chdir="$RAIZ" apply -no-color tfplan
