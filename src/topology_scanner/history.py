@@ -11,6 +11,7 @@ formato de diccionario que produce scanner.py (resultados[ip] con
 """
 
 import json
+import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime
@@ -371,6 +372,30 @@ def _cargar_hosts(conn: sqlite3.Connection, escaneo_id: int) -> dict:
     return resultados
 
 
+
+
+def copiar_historial(db_path: str, destino: str) -> None:
+    """Copia consistente del historial en `destino` (la que se sube a S3).
+
+    Con la API de backup de SQLite y no con un cp: la web puede estar
+    escribiendo a la vez, y un cp a medias de una transacción deja una base
+    rota. Se escribe a un .tmp y se renombra al final, así un fallo no deja
+    una copia a medias en `destino`. El origen se abre en solo lectura: si
+    no existe, es un error, no una base vacía nueva."""
+    temporal = destino + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(destino)), exist_ok=True)
+        origen_uri = f"file:{os.path.abspath(db_path)}?mode=ro"
+        with (
+            closing(sqlite3.connect(origen_uri, uri=True, timeout=ESPERA_BLOQUEO_SEGUNDOS)) as origen,
+            closing(sqlite3.connect(temporal)) as copia,
+        ):
+            origen.backup(copia)
+        os.replace(temporal, destino)
+    except (sqlite3.Error, OSError) as e:
+        if os.path.exists(temporal):
+            os.remove(temporal)
+        raise HistoryError(f"Error copying the scan history ({db_path} -> {destino}): {e}") from e
 
 
 def hay_cambios(diff: dict) -> bool:
