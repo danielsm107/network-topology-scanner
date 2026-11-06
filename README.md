@@ -246,6 +246,15 @@ icon: router, firewall, VM, NAS, printer, camera, IoT, mobile, Apple, PC.
 **same L2 segment** as the target host (ARP doesn't cross routers/VLANs).
 Hosts on other subnets will show up as category "unknown".
 
+## Deployment (homelab + AWS)
+
+The author runs it as a small self-hosted system, all of it defined in this repo:
+a k3s VM on Proxmox (Terraform), a Helm chart with a nightly scan and the web UI,
+and a few AWS resources (Terraform, applied by GitHub Actions through OIDC) for
+reports, a history backup and email alerts when the network changes. Nothing in
+the homelab is exposed to the internet. The how and why, phase by phase, is in
+[`docs/devops/`](https://github.com/danielsm107/network-topology-scanner/blob/main/docs/devops/README.md) (in Spanish).
+
 ## Tests
 
 ```bash
@@ -273,6 +282,6 @@ run without a real network or the nmap binary installed.
 - [x] Docker image on GHCR (amd64/arm64, nmap without root, scanned with Trivy in CI)
 - [ ] Vendor lookup (nmap's OUI database) for hosts only seen over SNMP, which show up as "?" today
 - [ ] Tell access points, switches and routers apart using the capabilities LLDP advertises
-- [ ] Scheduled scans with alerts on changes (self-hosted on Kubernetes)
+- [x] Scheduled scans with email alerts on changes (self-hosted on Kubernetes, reports and history backup on S3)
 
 See [CHANGELOG.md](https://github.com/danielsm107/network-topology-scanner/blob/main/CHANGELOG.md) for release notes.

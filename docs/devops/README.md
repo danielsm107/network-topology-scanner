@@ -13,7 +13,7 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 | 1 | Contenedor | Hecha | [01-contenedor.md](runbooks/01-contenedor.md) |
 | 2 | VM de Proxmox como código | Hecha | [02-proxmox-vm.md](runbooks/02-proxmox-vm.md) |
 | 3 | Despliegue en Kubernetes | Hecha | [03-kubernetes.md](runbooks/03-kubernetes.md) |
-| 4 | AWS como código + hallazgos | Pendiente | |
+| 4 | AWS como código + hallazgos | Hecha | [04-aws.md](runbooks/04-aws.md) |
 | 5 | Jenkins (CD) | Pendiente | |
 | 6 | Observabilidad | Pendiente | |
 
@@ -29,3 +29,8 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 - `deploy/helm/topology-scanner/`: chart de Helm (escaneo nocturno como CronJob, web, PVC del historial);
   `helm install`/`upgrade` desde el PC, valores reales en `deploy/helm/values.local.yaml` (ignorado).
 - `.github/workflows/ci.yml`, job `helm`: `helm lint` y `helm template`; `tests/test_helm.py` renderiza el chart.
+- `infra/aws/hallazgos/`: bucket de informes (y copia del historial), SNS con suscripción email, usuario IAM
+  del homelab, OIDC de GitHub con rol de plan (PRs) y de apply (environment `aws`, con aprobación).
+- `.github/workflows/terraform-aws.yml`: plan de `infra/aws/hallazgos/` como comentario en los PRs, apply en main.
+- Chart con `aws.enabled`: el Job nocturno sube informes y copia del historial a S3 y avisa por SNS si hubo
+  cambios (`files/subir.sh`, contenedor `amazon/aws-cli`).

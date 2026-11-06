@@ -618,3 +618,54 @@ contexto completo.
     entorno de CI cambia cuando lo subimos a propósito. 26.04 porque es lo que
     ya corría (CI en verde, Python 3.10 incluido) y la VM k3s es la misma
     versión. `test_los_runners_van_fijados_por_version` impide volver a `-latest`.
+- AWS como código y avisos de cambios (fase DevOps 4, runbook `docs/devops/runbooks/04-aws.md`):
+  - **Email = resumen corto + enlaces**, uno por noche y solo si hay cambios
+    (un primer escaneo no cuenta). Lo sensible primero. Se descartó el email con
+    todo el detalle: se hace largo justo cuando más cambia la red.
+  - **El texto del email lo genera la app** (`export.resumen_cambios_email`,
+    flag `--changes-dir`), no el contenedor de subida: `aws-cli` no tiene con qué
+    formatear, y así se testea con pytest. La app sigue sin saber nada de AWS:
+    escribe archivos, y `subir.sh` los sube y publica.
+  - **Asunto ASCII y ≤ 100 caracteres** (límite de SNS): el aviso de sensibles
+    es `[!]`, no `⚠`. Los hostnames y fabricantes solo van en el cuerpo.
+  - **Copia del historial con la API de backup de SQLite**
+    (`history.copiar_historial`, flag `--history-backup`), no con un `cp`: la web
+    puede estar escribiendo a la vez.
+  - **Escaneo como `initContainer` y subida como contenedor** del mismo Pod, con
+    un `emptyDir` entre los dos: si el escaneo falla, no se sube nada. Si falla
+    solo la copia del historial, el aviso sale igual y el Job termina fallido
+    (lo encontró la revisión de la rama: antes se perdía el email). `aws-cli`
+    reintenta los errores pasajeros (`AWS_RETRY_MODE=standard`): el Job no se
+    reintenta, y el diff ya está guardado.
+  - **`amazon/aws-cli` por digest** y no la versión recién salida (mismo criterio
+    que Trivy en la fase 1).
+  - **`.gitattributes` con `*.sh eol=lf`**: `helm upgrade` se lanza desde
+    Windows, donde git (`autocrlf`) dejaría `subir.sh` con CRLF dentro del
+    ConfigMap. El test mira los bytes del archivo: el render no sirve, porque el
+    parser de YAML normaliza los saltos de línea.
+  - **Claves estáticas para el homelab** (usuario IAM), con mínimo privilegio y
+    rotación documentada. Pregunta probable en una entrevista: IAM Roles
+    Anywhere las evitaría, pero exige una PKI propia; se deja como mejora.
+    **La clave no la crea Terraform**: la secreta quedaría en el estado, y el rol
+    de plan de los PRs puede leerlo. El usuario puede leer `informes/` (sin eso
+    no puede firmar los enlaces del email), pero no `historial/`.
+  - **Dos roles de OIDC**: plan (solo lectura, `pull_request`, `-lock=false`
+    porque no puede escribir el `.tflock`) y apply (escritura limitada a
+    `topology-scanner*`, solo desde el environment `aws` con aprobación). El de
+    apply puede ampliarse a sí mismo (`iam:*` sobre sus propios recursos): lo
+    frena la aprobación. Su `Deny` de crear claves protege de errores, no es una
+    barrera (puede quitárselo); lo sería un *permissions boundary*.
+  - **`sub` de OIDC en el formato inmutable** (`repo:<usuario>@<id>/<repo>@<id>`):
+    GitHub lo tiene activado en el repo y el primer plan del PR falló con
+    `AssumeRoleWithWebIdentity`. Se adapta el rol en vez de desactivarlo, porque
+    es más seguro (un repo recreado con el mismo nombre no entra).
+  - **Primer apply desde el PC**: GitHub no puede crear el rol con el que entra.
+    El plan se guarda fuera del repo (lleva datos de la cuenta).
+  - **Email de los avisos `sensitive`**: el plan sale como comentario en un repo
+    público. El ID de la cuenta sí sale en los ARN; se acepta (AWS no lo trata
+    como secreto).
+  - **Retenciones**: informes 90 días; versiones antiguas de la copia, 30 días.
+    SSE-S3 y no KMS (~1 $/mes por clave). Coste estimado: céntimos al mes.
+  - **Ensayo de restauración de verdad** (borrando el PVC): lo pedía el diseño,
+    y "lo probé restaurando" pesa más que "tengo backups". Enseñó que los Pods de
+    Jobs `Completed` mantienen el PVC en `Terminating`.
