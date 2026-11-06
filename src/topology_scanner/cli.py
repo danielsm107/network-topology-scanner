@@ -6,6 +6,7 @@ llama a scanner (+ snmp) -> graph -> export. La lógica real vive en esos módul
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -17,9 +18,10 @@ try:
         exportar_diff_texto,
         exportar_html,
         exportar_texto,
+        resumen_cambios_email,
     )
     from .graph import construir_grafo
-    from .history import DB_POR_DEFECTO, HistoryError, registrar_ejecucion
+    from .history import DB_POR_DEFECTO, HistoryError, copiar_historial, registrar_ejecucion
     from .rangos import parsear_rangos, repartir_por_rango
     from .scanner import (
         DEFAULT_NMAP_ARGS,
@@ -117,6 +119,17 @@ def construir_parser() -> argparse.ArgumentParser:
         help="Don't save this scan to history or compare it with the previous one"
     )
     parser.add_argument(
+        "--changes-dir", default=None, metavar="DIR",
+        help="If this run found changes against the previous scan, write them to DIR: cambios.json (the diffs "
+             "per range) plus asunto.txt and cuerpo.txt (subject and body for an email alert). Nothing is "
+             "written when there are no changes"
+    )
+    parser.add_argument(
+        "--history-backup", default=None, metavar="FILE",
+        help="After saving the run, write a consistent copy of the history database to FILE "
+             "(safe even while another process is writing to it)"
+    )
+    parser.add_argument(
         "--snmp", type=_lista_de_ips, default=None, metavar="IP[,IP...]",
         help="Routers/switches to query over SNMP to draw the real topology (a tree) instead of "
              f"the star. Credentials via environment variables: {VARIABLE_COMMUNITY} (v2c), or "
@@ -149,6 +162,8 @@ def main():
     args = parser.parse_args()
 
     argumentos_nmap = _resolver_argumentos_nmap(args, parser)
+    if args.no_history and (args.changes_dir or args.history_backup):
+        parser.error("--changes-dir and --history-backup need the history: don't combine them with --no-history.")
 
     # Separados por espacios, no por comas: "192.168.1.1,5" es sintaxis de
     # nmap (las IPs .1 y .5) y partirlo la rompería.
@@ -201,6 +216,10 @@ def main():
             )
             for rango, diff in diffs.items():
                 exportar_diff_texto(diff, rango=rango if len(rangos) > 1 else None)
+            if args.changes_dir:
+                _escribir_cambios(args.changes_dir, diffs, resultados)
+            if args.history_backup:
+                copiar_historial(args.history_db, args.history_backup)
         except HistoryError as e:
             # Perder el historial no es motivo para tirar un escaneo que sí
             # ha funcionado: se avisa y se sigue con el grafo/export normal.
@@ -211,6 +230,27 @@ def main():
         exportar_html(grafo, args.output)
     except ExportError as e:
         sys.exit(str(e))
+
+
+def _escribir_cambios(carpeta: str, diffs: dict[str, dict], resultados: dict):
+    """Deja en `carpeta` los cambios de la ejecución, solo si los hay: que
+    no exista cambios.json es la señal para no avisar (el CronJob sube esto
+    a S3 y manda el email; la app no sabe nada de AWS)."""
+    resumen = resumen_cambios_email(diffs, resultados)
+    if resumen is None:
+        return
+    asunto, cuerpo = resumen
+    try:
+        os.makedirs(carpeta, exist_ok=True)
+        for nombre, contenido in (
+            ("cambios.json", json.dumps(diffs, indent=2, ensure_ascii=False)),
+            ("asunto.txt", asunto),
+            ("cuerpo.txt", cuerpo),
+        ):
+            with open(os.path.join(carpeta, nombre), "w", encoding="utf-8") as f:
+                f.write(contenido)
+    except OSError as e:
+        sys.exit(f"Could not write the changes to {carpeta}: {e}")
 
 
 def _obtener_topologia(ips: list, credenciales: Credenciales) -> dict | None:

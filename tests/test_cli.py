@@ -5,6 +5,7 @@ combinación de flags de construir_parser()/_resolver_argumentos_nmap() y
 la topología opcional por SNMP (--snmp + TOPOLOGY_SNMP_COMMUNITY).
 """
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -534,3 +535,94 @@ def test_cli_sin_snmp_registra_topologia_none(
     _run_main_con_argv(["192.168.1.0/24"])
 
     assert mock_registrar.call_args.args[1] is None
+
+
+# --- --changes-dir y --history-backup (lo que sube el CronJob a S3) ---
+
+_SIN_CAMBIOS = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
+_PRIMERA_VEZ = {**_SIN_CAMBIOS, "primera_vez": True}
+_HOST_NUEVO = {**_SIN_CAMBIOS, "hosts_nuevos": ["192.168.1.10"]}
+
+
+@pytest.fixture
+def cli_simulado():
+    """Escaneo, grafo y exportes simulados; registrar_ejecucion y
+    copiar_historial también, para decidir qué devuelven o si fallan."""
+    with (
+        patch("topology_scanner.cli.escanear_red", return_value=_resultado_dummy()),
+        patch("topology_scanner.cli.construir_grafo"),
+        patch("topology_scanner.cli.exportar_texto"),
+        patch("topology_scanner.cli.exportar_diff_texto"),
+        patch("topology_scanner.cli.exportar_html") as exportar_html,
+        patch("topology_scanner.cli.registrar_ejecucion") as registrar,
+        patch("topology_scanner.cli.copiar_historial") as copiar,
+    ):
+        yield {"registrar": registrar, "copiar": copiar, "exportar_html": exportar_html}
+
+
+def test_changes_dir_escribe_json_y_email_si_hay_cambios(cli_simulado, tmp_path):
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _HOST_NUEVO}
+    carpeta = tmp_path / "cambios"
+
+    _run_main_con_argv(["192.168.1.0/24", "--changes-dir", str(carpeta)])
+
+    assert json.loads((carpeta / "cambios.json").read_text(encoding="utf-8")) == {"192.168.1.0/24": _HOST_NUEVO}
+    assert (carpeta / "asunto.txt").read_text(encoding="utf-8").startswith("[topology-scanner] 1 change")
+    assert "192.168.1.10" in (carpeta / "cuerpo.txt").read_text(encoding="utf-8")
+
+
+def test_changes_dir_primera_vez_no_escribe_nada(cli_simulado, tmp_path):
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _PRIMERA_VEZ, "10.0.0.0/24": _SIN_CAMBIOS}
+    carpeta = tmp_path / "cambios"
+
+    _run_main_con_argv(["192.168.1.0/24", "10.0.0.0/24", "--changes-dir", str(carpeta)])
+
+    assert not (carpeta / "cambios.json").exists()
+    assert not (carpeta / "asunto.txt").exists()
+
+
+def test_history_backup_copia_tras_registrar(cli_simulado, tmp_path):
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _SIN_CAMBIOS}
+    copia = str(tmp_path / "copia.db")
+
+    _run_main_con_argv(["192.168.1.0/24", "--history-db", "h.db", "--history-backup", copia])
+
+    cli_simulado["copiar"].assert_called_once_with("h.db", copia)
+
+
+def test_changes_dir_y_backup_si_falla_el_historial(cli_simulado, tmp_path):
+    cli_simulado["registrar"].side_effect = HistoryError("no se pudo abrir historial.db")
+    carpeta = tmp_path / "cambios"
+
+    _run_main_con_argv(["192.168.1.0/24", "--changes-dir", str(carpeta), "--history-backup", str(tmp_path / "c.db")])
+
+    assert not carpeta.exists()
+    cli_simulado["copiar"].assert_not_called()
+    cli_simulado["exportar_html"].assert_called_once()
+
+
+def test_fallo_de_la_copia_no_tira_el_escaneo(cli_simulado, tmp_path):
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _SIN_CAMBIOS}
+    cli_simulado["copiar"].side_effect = HistoryError("disco lleno")
+
+    _run_main_con_argv(["192.168.1.0/24", "--history-backup", str(tmp_path / "c.db")])
+
+    cli_simulado["exportar_html"].assert_called_once()
+
+
+@pytest.mark.parametrize("flag", ["--changes-dir", "--history-backup"])
+def test_flags_de_historial_con_no_history_es_error(flag, cli_simulado, capsys):
+    with pytest.raises(SystemExit):
+        _run_main_con_argv(["192.168.1.0/24", "--no-history", flag, "x"])
+
+    assert "--no-history" in capsys.readouterr().err
+
+
+def test_sin_flags_nuevos_no_escribe_nada_extra(cli_simulado, tmp_path, monkeypatch):
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _HOST_NUEVO}
+    monkeypatch.chdir(tmp_path)
+
+    _run_main_con_argv(["192.168.1.0/24"])
+
+    assert list(tmp_path.iterdir()) == []
+    cli_simulado["copiar"].assert_not_called()
