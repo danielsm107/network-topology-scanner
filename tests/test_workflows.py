@@ -66,6 +66,26 @@ def test_la_ci_valida_cada_raiz_de_terraform():
     assert [raiz for raiz in raices if f"-chdir={raiz} validate" not in ci] == []
 
 
+def _tf_de_infra():
+    raiz_repo = CARPETA_WORKFLOWS.parents[1]
+    return [tf for tf in (raiz_repo / "infra").rglob("*.tf") if ".terraform" not in tf.parts]
+
+
+def test_ningun_tf_crea_claves_de_acceso():
+    """La clave secreta de un aws_iam_access_key queda en el estado, y el rol
+    de plan de los PRs lo lee: la del usuario del homelab se crea a mano."""
+    assert [tf.name for tf in _tf_de_infra() if "aws_iam_access_key" in tf.read_text(encoding="utf-8")] == []
+
+
+def test_email_de_avisos_es_sensible():
+    """El plan se publica como comentario en los PRs de un repo público:
+    sin sensitive, el email del mantenedor saldría ahí."""
+    variables = CARPETA_WORKFLOWS.parents[1] / "infra" / "aws" / "hallazgos" / "variables.tf"
+    (bloque,) = re.findall(r'variable "email_avisos" \{(.*?)\n\}', variables.read_text(encoding="utf-8"), re.DOTALL)
+
+    assert re.search(r"^\s*sensitive\s*=\s*true", bloque, re.MULTILINE)
+
+
 def test_la_ci_valida_el_chart_de_helm():
     """helm lint y helm template del chart con los values de ejemplo, y Helm
     también en el job de pytest: si no, tests/test_helm.py se saltaría en

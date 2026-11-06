@@ -1,0 +1,6 @@
+# Copiar a terraform.tfvars (ignorado por git). Solo para el primer apply desde
+# el PC; después aplica GitHub Actions con las variables del repo.
+
+aws_profile   = "personal"
+email_avisos  = "alerts@example.com"
+bucket_estado = "topology-scanner-tfstate-123456789012"
