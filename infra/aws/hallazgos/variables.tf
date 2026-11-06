@@ -29,9 +29,13 @@ variable "clave_estado" {
 }
 
 variable "repo_github" {
-  description = "Repositorio cuyos workflows pueden entrar en AWS por OIDC"
+  description = "Repositorio cuyos workflows pueden entrar en AWS por OIDC, como aparece en el sub del token"
   type        = string
-  default     = "danielsm107/network-topology-scanner"
+  # Formato inmutable (usuario@id/repo@id) que GitHub usa en este repo: el sub
+  # del token lleva los IDs, que no cambian. Si el repo se renombra o se borra y
+  # alguien crea otro con el mismo nombre, no puede entrar en esta cuenta.
+  # Comprobar con: gh api repos/{owner}/{repo}/actions/oidc/customization/sub
+  default = "danielsm107@159171084/network-topology-scanner@1338150966"
 }
 
 variable "environment_apply" {

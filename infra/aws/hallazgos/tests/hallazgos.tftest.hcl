@@ -99,12 +99,12 @@ run "roles_de_github_separados" {
   command = plan
 
   assert {
-    condition     = local.trust_plan.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:danielsm107/network-topology-scanner:pull_request"
+    condition     = local.trust_plan.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:danielsm107@159171084/network-topology-scanner@1338150966:pull_request"
     error_message = "El rol de plan no está limitado a los PRs del repo."
   }
 
   assert {
-    condition     = local.trust_apply.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:danielsm107/network-topology-scanner:environment:aws"
+    condition     = local.trust_apply.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:danielsm107@159171084/network-topology-scanner@1338150966:environment:aws"
     error_message = "El rol de apply no está limitado al environment aws (con aprobación)."
   }
 
