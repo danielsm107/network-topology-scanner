@@ -303,7 +303,9 @@ def test_script_de_subida_siempre_con_lf():
     ).stdout
 
     assert salida.strip().endswith("eol: lf")
-    assert "\r" not in _renderizar(*CON_AWS)["ConfigMap"]["data"]["subir.sh"]
+    # Los bytes del archivo, que es lo que Helm mete en el ConfigMap (leer el
+    # render no sirve: el parser de YAML normaliza los saltos de línea)
+    assert b"\r" not in (CHART / "files" / "subir.sh").read_bytes()
 
 
 def test_script_de_subida():
