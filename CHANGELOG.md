@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-11-06
+
+### Added
+- CLI: `--changes-dir DIR`. When a run finds changes against the previous scan,
+  it writes `cambios.json` (the diff per range) plus `asunto.txt` and
+  `cuerpo.txt`, a plain-text summary ready to send as an email alert
+  (sensitive ports first, ASCII subject under 100 characters). Nothing is
+  written when nothing changed, or on the first scan of a range.
+- CLI: `--history-backup FILE`. After saving the run, writes a consistent copy
+  of the history database (SQLite backup API), safe even while the web UI is
+  writing to it.
+- Helm chart 0.2.0 (image 1.4.0): optional `aws` section. When enabled, the
+  nightly job uploads the map, the CSV and a copy of the history to S3, and
+  publishes an email alert through SNS (with temporary links to the reports)
+  only when something changed. Off by default.
+
 ## [1.3.1] - 2026-11-05
 
 ### Fixed

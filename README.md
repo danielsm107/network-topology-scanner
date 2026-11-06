@@ -144,6 +144,8 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 | `--csv`           | Also exports a CSV inventory to the given path                     | disabled               |
 | `--history-db`    | SQLite file where scan history is stored                           | `historial.db`         |
 | `--no-history`    | Skips saving the scan to history / diffing against the previous one | disabled              |
+| `--changes-dir`   | Writes `cambios.json`, `asunto.txt` and `cuerpo.txt` (an email-ready summary) to the given folder, only when the run found changes | disabled |
+| `--history-backup` | Writes a consistent copy of the history database to the given path after the run | disabled |
 | `--snmp`          | Routers/switches to query over SNMP v2c/v3 (comma-separated IPs)   | disabled (star layout) |
 
 The Spanish flags from v1.0 (`--rapido`, `--con-so`, `--sin-2-fases`,

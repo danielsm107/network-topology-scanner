@@ -25,25 +25,72 @@ spec:
         spec:
           restartPolicy: Never
           {{- include "topology-scanner.podComun" . | nindent 10 }}
+          volumes:
+            {{- include "topology-scanner.volumenDatos" . | nindent 12 }}
+            {{- if .Values.aws.enabled }}
+            # Los archivos de esta noche, del escaneo a la subida
+            - name: salida
+              emptyDir: {}
+            - name: script
+              configMap:
+                name: {{ include "topology-scanner.fullname" . }}-subida
+            # HOME de aws-cli: el resto del sistema de archivos es de solo lectura
+            - name: tmp
+              emptyDir: {}
+            {{- end }}
+          {{- if .Values.aws.enabled }}
+          # Primero el escaneo; la subida solo arranca si ha terminado bien
+          initContainers:
+            {{- include "topology-scanner.contenedorEscaneo" . | nindent 12 }}
           containers:
-            - name: escaneo
-              {{- include "topology-scanner.contenedorComun" . | nindent 14 }}
-              # El ENTRYPOINT de la imagen es topology-scanner; el HTML y el CSV
-              # van al directorio de trabajo, /data
-              args:
-                {{- range (required "escaneo.rangos no puede estar vacío" .Values.escaneo.rangos) }}
-                - {{ . | quote }}
-                {{- end }}
-                - --history-db
-                - /data/historial.db
-                {{- if .Values.escaneo.osDetection }}
-                - --os-detection
-                {{- end }}
-                {{- if .Values.escaneo.snmp }}
-                - --snmp
-                - {{ join "," .Values.escaneo.snmp | quote }}
-                {{- end }}
+            - name: subida
+              image: {{ .Values.aws.imagen }}
+              imagePullPolicy: IfNotPresent
+              command: [sh, /script/subir.sh]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
               env:
-                {{- include "topology-scanner.envComun" . | nindent 16 }}
+                - name: TZ
+                  value: {{ .Values.zonaHoraria | quote }}
+                - name: HOME
+                  value: /tmp
+                - name: AWS_REGION
+                  value: {{ .Values.aws.region | quote }}
+                - name: BUCKET
+                  value: {{ required "aws.bucket es obligatorio con aws.enabled" .Values.aws.bucket | quote }}
+                - name: TOPIC_ARN
+                  value: {{ required "aws.topicArn es obligatorio con aws.enabled" .Values.aws.topicArn | quote }}
+                - name: DIAS_ENLACES
+                  value: {{ .Values.aws.diasEnlaces | quote }}
+                # El Job no se reintenta y el diff ya está guardado: si un corte
+                # tumba la subida, el aviso se pierde. Que reintente aws-cli
+                - name: AWS_RETRY_MODE
+                  value: standard
+                - name: AWS_MAX_ATTEMPTS
+                  value: "6"
+                {{- range list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" }}
+                # Del Secret creado a mano con la clave del usuario IAM del homelab
+                - name: {{ . }}
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $.Values.aws.secret }}
+                      key: {{ . }}
+                {{- end }}
+              volumeMounts:
+                - name: salida
+                  mountPath: /salida
+                  readOnly: true
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
               resources:
-                {{- toYaml .Values.resources.escaneo | nindent 16 }}
+                {{- toYaml .Values.resources.subida | nindent 16 }}
+          {{- else }}
+          containers:
+            {{- include "topology-scanner.contenedorEscaneo" . | nindent 12 }}
+          {{- end }}

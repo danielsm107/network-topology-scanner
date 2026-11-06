@@ -1,0 +1,3 @@
+# Scripts que se ejecutan en Linux (contenedores): siempre LF, también en una
+# copia de Windows con core.autocrlf=true
+*.sh text eol=lf

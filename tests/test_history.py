@@ -13,6 +13,7 @@ from topology_scanner.history import (
     HistoryError,
     cargar_ejecucion,
     combinar_diffs,
+    copiar_historial,
     hay_cambios,
     listar_ejecuciones,
     registrar_ejecucion,
@@ -504,3 +505,48 @@ def test_dos_procesos_migran_a_la_vez_sin_fallar(tmp_path, monkeypatch):
 
     assert errores == []
     assert sorted(e["origen"] for e in listar_ejecuciones(db)) == ["antiguo", "web", "web"]
+
+
+# --- copiar_historial: la copia que se sube a S3 tras cada escaneo ---
+
+
+def test_copiar_historial_copia_las_ejecuciones(tmp_path):
+    origen = str(tmp_path / "a.db")
+    destino = tmp_path / "sub" / "b.db"
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.10": _resultado_fake()}}, db_path=origen)
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.11": _resultado_fake()}}, db_path=origen)
+
+    copiar_historial(origen, str(destino))
+
+    copia = listar_ejecuciones(db_path=str(destino))
+    assert len(copia) == 2
+    assert [e["fecha"] for e in copia] == [e["fecha"] for e in listar_ejecuciones(db_path=origen)]
+
+
+def test_copiar_historial_con_escritura_abierta(tmp_path):
+    """La web puede estar escribiendo mientras el CronJob copia: la copia
+    tiene que ser una base válida con lo confirmado, no un archivo a medias."""
+    origen = str(tmp_path / "a.db")
+    destino = str(tmp_path / "b.db")
+    registrar_ejecucion({"192.0.2.0/24": {"192.0.2.10": _resultado_fake()}}, db_path=origen)
+    otra = sqlite3.connect(origen)
+    try:
+        otra.execute("BEGIN")
+        otra.execute("INSERT INTO ejecuciones (fecha, origen) VALUES ('2000-01-01T00:00:00', 'web')")
+
+        copiar_historial(origen, destino)
+    finally:
+        otra.rollback()
+        otra.close()
+
+    with sqlite3.connect(destino) as conn:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("SELECT COUNT(*) FROM ejecuciones").fetchone()[0] == 1
+
+
+def test_copiar_historial_sin_base_da_history_error(tmp_path):
+    origen = tmp_path / "no-existe.db"
+
+    with pytest.raises(HistoryError):
+        copiar_historial(str(origen), str(tmp_path / "b.db"))
+    assert not origen.exists()

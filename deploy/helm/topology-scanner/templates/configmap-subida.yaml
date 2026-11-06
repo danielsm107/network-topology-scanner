@@ -1,0 +1,13 @@
+{{- if .Values.aws.enabled }}
+# El script del contenedor de subida del Job nocturno (files/subir.sh)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "topology-scanner.fullname" . }}-subida
+  labels:
+    {{- include "topology-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: escaneo
+data:
+  subir.sh: |
+    {{- .Files.Get "files/subir.sh" | nindent 4 }}
+{{- end }}

@@ -14,6 +14,7 @@ import pytest
 from topology_scanner.classifier import icono_para_categoria
 from topology_scanner.export import (
     COLOR_ALERTA,
+    MAX_ASUNTO,
     ExportError,
     exportar_csv,
     exportar_diff_texto,
@@ -21,6 +22,7 @@ from topology_scanner.export import (
     exportar_texto,
     posiciones_circulares,
     posiciones_jerarquicas,
+    resumen_cambios_email,
 )
 from topology_scanner.graph import construir_grafo
 
@@ -647,3 +649,91 @@ def test_exportar_csv_si_no_puede_escribir_lanza_export_error(tmp_path):
 
     with pytest.raises(ExportError, match=r"Could not write .*inventario\.csv: "):
         exportar_csv({"192.168.1.10": _resultado_fake()}, str(destino))
+
+
+# --- resumen_cambios_email: asunto y cuerpo del aviso por SNS ---
+
+
+def _diff(nuevos=(), caidos=(), puertos=None, primera_vez=False):
+    return {
+        "primera_vez": primera_vez,
+        "hosts_nuevos": list(nuevos),
+        "hosts_caidos": list(caidos),
+        "puertos_cambiados": puertos or {},
+    }
+
+
+def _cambio_puertos(nuevos=(), cerrados=(), sensibles=()):
+    return {"nuevos": list(nuevos), "cerrados": list(cerrados), "nuevos_sensibles": list(sensibles)}
+
+
+def test_resumen_none_sin_cambios():
+    assert resumen_cambios_email({"192.0.2.0/24": _diff()}, {}) is None
+
+
+def test_resumen_none_primera_vez():
+    diffs = {"192.0.2.0/24": _diff(primera_vez=True), "198.51.100.0/24": _diff()}
+
+    assert resumen_cambios_email(diffs, {}) is None
+
+
+def test_resumen_sensibles_primero():
+    rdp = {"puerto": 3389, "motivo": "RDP (common brute-force target)"}
+    diffs = {
+        "192.0.2.0/24": _diff(
+            nuevos=["192.0.2.57"],
+            puertos={"192.0.2.20": _cambio_puertos(nuevos=[3389], sensibles=[rdp])},
+        )
+    }
+    resultados = {"192.0.2.57": _resultado_fake(), "192.0.2.20": _resultado_fake()}
+
+    asunto, cuerpo = resumen_cambios_email(diffs, resultados)
+
+    assert asunto.startswith("[topology-scanner] [!] 1 sensitive port")
+    assert "2 changes in 192.0.2.0/24" in asunto
+    assert cuerpo.index("SENSITIVE PORTS") < cuerpo.index("NEW HOSTS")
+    assert "[!] 192.0.2.20 - 3389 RDP (common brute-force target)" in cuerpo
+
+
+def test_resumen_solo_rangos_con_cambios_en_asunto():
+    diffs = {"192.0.2.0/24": _diff(), "198.51.100.0/24": _diff(caidos=["198.51.100.9"])}
+
+    asunto, _ = resumen_cambios_email(diffs, {})
+
+    assert asunto == "[topology-scanner] 1 change in 198.51.100.0/24"
+
+
+def test_asunto_ascii_y_max_100_con_muchos_rangos():
+    diffs = {f"10.{i}.0.0/16": _diff(caidos=[f"10.{i}.0.1"]) for i in range(10)}
+
+    asunto, _ = resumen_cambios_email(diffs, {})
+
+    assert len(asunto) <= MAX_ASUNTO == 100
+    assert asunto.isascii()
+    assert "\n" not in asunto
+    assert asunto.endswith("...")
+
+
+def test_cuerpo_host_sin_vendor():
+    sin_nada = {**_resultado_fake(hostname=""), "vendor": "", "categoria": "unknown"}
+    diffs = {"192.0.2.0/24": _diff(nuevos=["192.0.2.57"])}
+
+    _, cuerpo = resumen_cambios_email(diffs, {"192.0.2.57": sin_nada})
+
+    (linea,) = [linea for linea in cuerpo.splitlines() if "192.0.2.57" in linea]
+    assert "unknown vendor" in linea
+
+
+def test_cuerpo_lista_caidos_y_puertos_cambiados():
+    diffs = {
+        "192.0.2.0/24": _diff(
+            caidos=["192.0.2.30"],
+            puertos={"192.0.2.20": _cambio_puertos(nuevos=[443], cerrados=[80])},
+        )
+    }
+
+    _, cuerpo = resumen_cambios_email(diffs, {"192.0.2.20": _resultado_fake()})
+
+    assert "SENSITIVE PORTS" not in cuerpo
+    assert "DOWN HOSTS\n  192.0.2.30" in cuerpo
+    assert "192.0.2.20  new: 443  closed: 80" in cuerpo

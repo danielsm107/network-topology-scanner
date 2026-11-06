@@ -15,7 +15,7 @@ from datetime import datetime
 import networkx as nx
 
 from .classifier import ICONOS_POR_CATEGORIA, icono_para_categoria
-from .history import hay_cambios
+from .history import combinar_diffs, hay_cambios
 
 
 class ExportError(RuntimeError):
@@ -403,3 +403,80 @@ def exportar_diff_texto(diff: dict, rango: str | None = None):
         if cambios["cerrados"]:
             print(f"  [{ip}] closed ports: {', '.join(map(str, cambios['cerrados']))}")
     print("-" * 60 + "\n")
+
+
+# SNS rechaza asuntos de más de 100 caracteres, con saltos de línea o fuera de ASCII
+MAX_ASUNTO = 100
+
+
+def _plural(n: int, palabra: str) -> str:
+    return f"{n} {palabra}" if n == 1 else f"{n} {palabra}s"
+
+
+def _asunto_cambios(rangos: list[str], n_cambios: int, n_sensibles: int) -> str:
+    """Asunto ASCII de como mucho MAX_ASUNTO caracteres: si los rangos no
+    caben, se cortan y se termina en "..."."""
+    prefijo = "[topology-scanner] "
+    if n_sensibles:
+        prefijo += f"[!] {_plural(n_sensibles, 'sensitive port')} - "
+    prefijo += f"{_plural(n_cambios, 'change')} in "
+    asunto = prefijo + ", ".join(rangos)
+    if len(asunto) > MAX_ASUNTO:
+        asunto = asunto[: MAX_ASUNTO - 3].rstrip(", ") + "..."
+    return asunto.encode("ascii", "replace").decode("ascii")
+
+
+def _linea_host_nuevo(ip: str, host: dict) -> str:
+    campos = [ip, host.get("hostname", ""), host.get("vendor") or "unknown vendor"]
+    linea = "  " + "  ".join(campo for campo in campos if campo)
+    if host.get("categoria"):
+        linea += f"  ({host['categoria']})"
+    return linea
+
+
+def _linea_puertos(ip: str, cambios: dict) -> str:
+    linea = f"  {ip}"
+    if cambios["nuevos"]:
+        linea += f"  new: {', '.join(map(str, cambios['nuevos']))}"
+    if cambios["cerrados"]:
+        linea += f"  closed: {', '.join(map(str, cambios['cerrados']))}"
+    return linea
+
+
+def resumen_cambios_email(diffs: dict[str, dict], resultados: dict) -> tuple[str, str] | None:
+    """(asunto, cuerpo) del aviso por email de una ejecución, o None si
+    ningún rango tiene cambios (un primer escaneo no cuenta). `diffs` es
+    {rango: diff} como lo devuelve history.registrar_ejecucion; `resultados`,
+    los hosts del escaneo (formato de scanner.parsear_host), para poner
+    fabricante y categoría a los hosts nuevos. Los caídos ya no están en
+    `resultados`: van solo con la IP.
+
+    Texto plano (SNS por email no admite HTML) y lo sensible primero: es lo
+    que hay que mirar antes que nada."""
+    con_cambios = {
+        rango: diff for rango, diff in diffs.items() if not diff["primera_vez"] and hay_cambios(diff)
+    }
+    if not con_cambios:
+        return None
+
+    diff = combinar_diffs(list(con_cambios.values()))
+    sensibles = [
+        (ip, sensible)
+        for ip, cambios in diff["puertos_cambiados"].items()
+        for sensible in cambios.get("nuevos_sensibles", [])
+    ]
+    n_cambios = len(diff["hosts_nuevos"]) + len(diff["hosts_caidos"]) + len(diff["puertos_cambiados"])
+    asunto = _asunto_cambios(list(con_cambios), n_cambios, len(sensibles))
+
+    secciones = []
+    if sensibles:
+        secciones.append(["SENSITIVE PORTS"] + [f"  [!] {ip} - {s['puerto']} {s['motivo']}" for ip, s in sensibles])
+    if diff["hosts_nuevos"]:
+        secciones.append(["NEW HOSTS"] + [_linea_host_nuevo(ip, resultados.get(ip, {})) for ip in diff["hosts_nuevos"]])
+    if diff["hosts_caidos"]:
+        secciones.append(["DOWN HOSTS"] + [f"  {ip}" for ip in diff["hosts_caidos"]])
+    if diff["puertos_cambiados"]:
+        secciones.append(["PORT CHANGES"] + [_linea_puertos(ip, c) for ip, c in diff["puertos_cambiados"].items()])
+
+    cuerpo = "\n\n".join("\n".join(lineas) for lineas in secciones) + "\n"
+    return asunto, cuerpo

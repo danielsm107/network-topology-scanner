@@ -10,6 +10,8 @@ pipelines que las usaban. Las de actions/ (mantenidas por GitHub) van por tag.
 import re
 from pathlib import Path
 
+import yaml
+
 CARPETA_WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 _USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(\S+)", re.MULTILINE)
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -64,6 +66,75 @@ def test_la_ci_valida_cada_raiz_de_terraform():
 
     assert raices
     assert [raiz for raiz in raices if f"-chdir={raiz} validate" not in ci] == []
+
+
+def _tf_de_infra():
+    raiz_repo = CARPETA_WORKFLOWS.parents[1]
+    return [tf for tf in (raiz_repo / "infra").rglob("*.tf") if ".terraform" not in tf.parts]
+
+
+def test_ningun_tf_crea_claves_de_acceso():
+    """La clave secreta de un aws_iam_access_key queda en el estado, y el rol
+    de plan de los PRs lo lee: la del usuario del homelab se crea a mano."""
+    assert [tf.name for tf in _tf_de_infra() if "aws_iam_access_key" in tf.read_text(encoding="utf-8")] == []
+
+
+def test_email_de_avisos_es_sensible():
+    """El plan se publica como comentario en los PRs de un repo público:
+    sin sensitive, el email del mantenedor saldría ahí."""
+    variables = CARPETA_WORKFLOWS.parents[1] / "infra" / "aws" / "hallazgos" / "variables.tf"
+    (bloque,) = re.findall(r'variable "email_avisos" \{(.*?)\n\}', variables.read_text(encoding="utf-8"), re.DOTALL)
+
+    assert re.search(r"^\s*sensitive\s*=\s*true", bloque, re.MULTILINE)
+
+
+# "terraform apply" o "terraform -chdir=... apply": un apply en cualquier forma
+_APPLY = re.compile(r"^\s*terraform\b.*\sapply\b", re.MULTILINE)
+
+
+def _workflow_aws() -> dict:
+    return yaml.safe_load((CARPETA_WORKFLOWS / "terraform-aws.yml").read_text(encoding="utf-8"))
+
+
+def _comandos(trabajo: dict) -> str:
+    return "\n".join(paso.get("run", "") for paso in trabajo["steps"])
+
+
+def _trabajos_aws() -> tuple[dict, dict]:
+    """(plan de los PRs, apply de main) del workflow de Terraform de AWS."""
+    trabajos = _workflow_aws()["jobs"].values()
+    (apply,) = [t for t in trabajos if _APPLY.search(_comandos(t))]
+    (plan,) = [t for t in trabajos if t is not apply]
+    return plan, apply
+
+
+def test_apply_de_aws_solo_en_main_con_environment():
+    """El apply toca AWS de verdad: solo tras mergear en main y con la
+    aprobación del mantenedor (environment aws con revisor obligatorio)."""
+    flujo = _workflow_aws()
+    # PyYAML lee la clave "on" como el booleano True
+    disparadores = flujo.get("on", flujo.get(True))
+    _, apply = _trabajos_aws()
+
+    assert disparadores["push"]["branches"] == ["main"]
+    assert apply["environment"] == "aws"
+    assert "github.event_name == 'push'" in apply["if"]
+
+
+def test_plan_de_aws_no_corre_en_forks():
+    """Un PR desde un fork no recibe token OIDC: el job fallaría siempre."""
+    plan, _ = _trabajos_aws()
+
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in plan["if"]
+    assert "environment" not in plan
+
+
+def test_plan_de_aws_sin_lock():
+    """El rol de plan solo lee: no puede escribir el .tflock del estado."""
+    plan, _ = _trabajos_aws()
+
+    assert "-lock=false" in _comandos(plan)
+    assert not _APPLY.search(_comandos(plan))
 
 
 def test_la_ci_valida_el_chart_de_helm():

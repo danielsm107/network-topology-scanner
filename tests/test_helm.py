@@ -7,6 +7,7 @@ capacidades, y nada más (ver docs/devops/runbooks/01-contenedor.md).
 Se saltan si `helm` no está instalado; en la CI el job `test` lo instala.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -206,3 +207,182 @@ def test_hora_local_en_los_pods(kind):
     env = _env(_contenedor(_renderizar(), kind))
 
     assert env["TZ"]["value"] == "CET-1CEST,M3.5.0,M10.5.0/3"
+
+
+# --- aws.enabled: el nocturno sube informes y copia del historial, y avisa ---
+
+CON_AWS = (
+    "--set", "aws.enabled=true",
+    "--set", "aws.bucket=topology-scanner-informes-123456789012",
+    "--set", "aws.topicArn=arn:aws:sns:eu-south-2:123456789012:topology-scanner-hallazgos",
+)
+
+
+def _contenedores_del_job(manifiestos: dict) -> dict[str, dict]:
+    """{nombre: contenedor} de initContainers y containers del CronJob."""
+    pod = _pod(manifiestos, "CronJob")
+    return {c["name"]: c for c in pod.get("initContainers", []) + pod["containers"]}
+
+
+def test_sin_aws_el_cronjob_no_cambia():
+    manifiestos = _renderizar()
+    pod = _pod(manifiestos, "CronJob")
+    args = _contenedor(manifiestos, "CronJob")["args"]
+
+    assert "initContainers" not in pod
+    assert [c["name"] for c in pod["containers"]] == ["escaneo"]
+    assert "--changes-dir" not in args
+    assert "ConfigMap" not in manifiestos
+
+
+def test_con_aws_escaneo_es_init_y_subida_despues():
+    """El escaneo como initContainer: si falla, la subida no arranca y el Job
+    sale fallido. Los archivos de la noche pasan por un emptyDir."""
+    manifiestos = _renderizar(*CON_AWS)
+    pod = _pod(manifiestos, "CronJob")
+    escaneo = _contenedores_del_job(manifiestos)["escaneo"]
+    args = escaneo["args"]
+
+    assert [c["name"] for c in pod["initContainers"]] == ["escaneo"]
+    assert [c["name"] for c in pod["containers"]] == ["subida"]
+    assert args[args.index("--output") + 1] == "/salida/network_topology.html"
+    assert args[args.index("--csv") + 1] == "/salida/inventory.csv"
+    assert args[args.index("--changes-dir") + 1] == "/salida/cambios"
+    assert args[args.index("--history-backup") + 1] == "/salida/historial.db"
+    assert args[args.index("--history-db") + 1] == "/data/historial.db"
+    assert {"name": "salida", "emptyDir": {}} in pod["volumes"]
+
+
+def test_escaneo_en_init_conserva_las_capacidades_de_nmap():
+    escaneo = _contenedores_del_job(_renderizar(*CON_AWS))["escaneo"]
+
+    assert set(escaneo["securityContext"]["capabilities"]["add"]) == _capacidades_del_setcap()
+
+
+def test_subida_con_imagen_por_digest_y_sin_capacidades():
+    subida = _contenedores_del_job(_renderizar(*CON_AWS))["subida"]
+    contexto = subida["securityContext"]
+
+    assert subida["image"].startswith("amazon/aws-cli:")
+    assert "@sha256:" in subida["image"]
+    assert contexto["capabilities"] == {"drop": ["ALL"]}
+    assert contexto["allowPrivilegeEscalation"] is False
+    assert contexto["readOnlyRootFilesystem"] is True
+
+
+def test_subida_claves_desde_secret():
+    env = _env(_contenedores_del_job(_renderizar(*CON_AWS))["subida"])
+
+    for variable in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        referencia = env[variable]["valueFrom"]["secretKeyRef"]
+        assert referencia["name"] == "topology-scanner-aws"
+        assert referencia["key"] == variable
+        assert "optional" not in referencia
+    assert env["BUCKET"]["value"] == "topology-scanner-informes-123456789012"
+    assert env["TOPIC_ARN"]["value"].endswith(":topology-scanner-hallazgos")
+    assert env["AWS_REGION"]["value"] == "eu-south-2"
+
+
+@pytest.mark.parametrize("falta", ["aws.bucket", "aws.topicArn"])
+def test_aws_sin_bucket_o_topic_falla(falta):
+    parejas = zip(CON_AWS[::2], CON_AWS[1::2], strict=True)
+    extra = [arg for pareja in parejas if not pareja[1].startswith(falta + "=") for arg in pareja]
+    salida = subprocess.run(
+        ["helm", "template", "t", str(CHART), "-f", str(VALUES_EJEMPLO), *extra], capture_output=True, text=True,
+    )
+
+    assert salida.returncode != 0
+    assert falta in salida.stderr
+
+
+def test_script_de_subida_siempre_con_lf():
+    """helm upgrade se lanza desde Windows, donde git (autocrlf) dejaría el
+    script con CRLF: el sh del contenedor fallaría en la primera línea."""
+    salida = subprocess.run(
+        ["git", "check-attr", "eol", "--", "deploy/helm/topology-scanner/files/subir.sh"],
+        cwd=RAIZ, check=True, capture_output=True, text=True,
+    ).stdout
+
+    assert salida.strip().endswith("eol: lf")
+    # Los bytes del archivo, que es lo que Helm mete en el ConfigMap (leer el
+    # render no sirve: el parser de YAML normaliza los saltos de línea)
+    assert b"\r" not in (CHART / "files" / "subir.sh").read_bytes()
+
+
+def test_subida_reintenta_los_errores_pasajeros_de_aws():
+    """El Job no se reintenta (backoffLimit: 0) y el diff ya está guardado en
+    el historial: si un corte de red tumba la subida, el aviso de esa noche se
+    perdería para siempre. Que reintente aws-cli, no el escaneo entero."""
+    env = _env(_contenedores_del_job(_renderizar(*CON_AWS))["subida"])
+
+    assert env["AWS_RETRY_MODE"]["value"] == "standard"
+    assert int(env["AWS_MAX_ATTEMPTS"]["value"]) >= 5
+
+
+def _ejecutar_subida(tmp_path, fallar_en: str = "") -> tuple[subprocess.CompletedProcess, str]:
+    """Ejecuta files/subir.sh de verdad con un `aws` falso en el PATH que
+    apunta cada llamada en un log y falla si la llamada contiene `fallar_en`."""
+    salida = tmp_path / "salida"
+    (salida / "cambios").mkdir(parents=True)
+    for nombre in ("network_topology.html", "inventory.csv", "historial.db"):
+        (salida / nombre).write_text("x", encoding="utf-8")
+    (salida / "cambios" / "cambios.json").write_text("{}", encoding="utf-8")
+    (salida / "cambios" / "asunto.txt").write_text("[topology-scanner] 1 change in 192.0.2.0/24", encoding="utf-8")
+    (salida / "cambios" / "cuerpo.txt").write_text("NEW HOSTS\n  192.0.2.57\n", encoding="utf-8")
+
+    bin_falso = tmp_path / "bin"
+    bin_falso.mkdir()
+    log = tmp_path / "aws.log"
+    aws = bin_falso / "aws"
+    aws.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> "{log.as_posix()}"\n'
+        f'case "$*" in *"{fallar_en or "@@nunca@@"}"*) exit 1 ;; esac\n'
+        'case "$1 $2" in "s3 presign") echo "https://example.com/firmado" ;; esac\n',
+        encoding="utf-8", newline="\n",
+    )
+    aws.chmod(0o755)
+
+    entorno = {
+        **os.environ,
+        "PATH": f"{bin_falso.as_posix()}:{os.environ['PATH']}",
+        "SALIDA": salida.as_posix(), "TMPDIR": tmp_path.as_posix(),
+        "BUCKET": "b", "TOPIC_ARN": "arn:aws:sns:eu-south-2:123456789012:t", "DIAS_ENLACES": "7",
+    }
+    resultado = subprocess.run(
+        [SH, (CHART / "files" / "subir.sh").as_posix()], env=entorno, capture_output=True, text=True,
+    )
+    return resultado, log.read_text(encoding="utf-8") if log.exists() else ""
+
+
+SH = shutil.which("sh")
+
+
+@pytest.mark.skipif(SH is None, reason="sin sh")
+def test_subida_avisa_aunque_falle_la_copia_del_historial(tmp_path):
+    """Si falla subir la copia del historial, el email de los cambios sale
+    igual, y el Job termina fallido para que se vea."""
+    resultado, llamadas = _ejecutar_subida(tmp_path, fallar_en="historial/historial.db")
+
+    assert "sns publish" in llamadas
+    assert resultado.returncode != 0
+
+
+@pytest.mark.skipif(SH is None, reason="sin sh")
+def test_subida_sin_fallos_termina_bien(tmp_path):
+    resultado, llamadas = _ejecutar_subida(tmp_path)
+
+    assert resultado.returncode == 0, resultado.stderr
+    assert "s3://b/historial/historial.db" in llamadas
+    assert "sns publish" in llamadas
+
+
+def test_script_de_subida():
+    script = _renderizar(*CON_AWS)["ConfigMap"]["data"]["subir.sh"]
+
+    assert "set -eu" in script
+    assert "s3://$BUCKET/historial/historial.db" in script
+    assert "aws s3 presign" in script and "--expires-in" in script
+    assert "aws sns publish" in script
+    # Sin cambios no hay email: el aviso depende de que exista cambios.json
+    assert "cambios/cambios.json" in script

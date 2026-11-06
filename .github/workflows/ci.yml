@@ -60,6 +60,12 @@ jobs:
           terraform -chdir=infra/aws/bootstrap init -backend=false -input=false
           terraform -chdir=infra/aws/bootstrap validate
 
+      - name: AWS (informes, avisos y OIDC)
+        run: |
+          terraform -chdir=infra/aws/hallazgos init -backend=false -input=false
+          terraform -chdir=infra/aws/hallazgos validate
+          terraform -chdir=infra/aws/hallazgos test
+
       - name: VM de Proxmox
         run: |
           terraform -chdir=infra/proxmox init -backend=false -input=false
