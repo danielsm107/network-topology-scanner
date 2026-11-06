@@ -76,7 +76,8 @@ obliga a añadir las nuevas) y `terraform test` con el provider simulado; nunca
 `helm lint` y `helm template`; el job de tests instala Helm para que
 `tests/test_helm.py` (que se salta sin `helm`) no pase en silencio. Toda action que no sea de GitHub (`actions/...`) va **fijada por SHA**, y Trivy
 por digest, no por tag (ataque a las tags de `trivy-action`, marzo de 2026); lo
-comprueba `tests/test_workflows.py`. Las de `actions/` van por tag.
+comprueba `tests/test_workflows.py`. Las de `actions/` van por tag. Los runners, por
+versión (`ubuntu-26.04`), nunca `ubuntu-latest` (mismo test).
 
 Release (`.github/workflows/release.yml`): un tag `vX.Y.Z` reutiliza CI,
 comprueba que el tag coincide con la versión de `pyproject.toml` y que

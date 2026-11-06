@@ -20,7 +20,7 @@ jobs:
 
   build:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -73,7 +73,7 @@ jobs:
   testpypi:
     if: github.event_name == 'workflow_dispatch'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment:
       name: testpypi
       url: https://test.pypi.org/p/topology-scanner
@@ -94,7 +94,7 @@ jobs:
   pypi:
     if: github.event_name == 'push'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment:
       name: pypi
       url: https://pypi.org/p/topology-scanner
@@ -115,7 +115,7 @@ jobs:
   imagen:
     if: github.event_name == 'push'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -156,7 +156,7 @@ jobs:
   # Después de PyPI y de la imagen: la release solo aparece con las dos publicadas
   github-release:
     needs: [pypi, imagen]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

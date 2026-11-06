@@ -612,3 +612,9 @@ contexto completo.
     "mañana" (2026-10-30) y comprobaba el orden de la lista; pasada esa fecha
     falló. Ahora busca por origen. Regla: en tests, no comparar el orden contra
     `datetime.now()` con fechas escritas a mano.
+  - **Runners de CI por versión (`ubuntu-26.04`), no `ubuntu-latest`**: en
+    octubre de 2026 `latest` pasó de 24.04 a 26.04 sin cambiar nada del repo
+    (solo un aviso en cada run). Mismo criterio que las actions por SHA: el
+    entorno de CI cambia cuando lo subimos a propósito. 26.04 porque es lo que
+    ya corría (CI en verde, Python 3.10 incluido) y la VM k3s es la misma
+    versión. `test_los_runners_van_fijados_por_version` impide volver a `-latest`.
