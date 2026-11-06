@@ -10,7 +10,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         # 3.10 es el mínimo declarado en pyproject.toml (requires-python);
@@ -43,7 +43,7 @@ jobs:
   # simulado): el plan/apply de verdad se lanza a mano desde el PC.
   # tests/test_workflows.py comprueba que cada raíz de infra/ tiene su validate.
   terraform:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -70,7 +70,7 @@ jobs:
   # values de ejemplo. Lo que tiene que cumplir cada pod lo comprueba
   # tests/test_helm.py (job test). El helm install lo lanza el mantenedor.
   helm:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -95,7 +95,7 @@ jobs:
   # mover; un SHA no. Por eso Trivy va como imagen oficial por digest, sin
   # su action (que además lo instala a través de setup-trivy, otra capa).
   imagen:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 

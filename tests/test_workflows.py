@@ -35,6 +35,19 @@ def test_las_actions_de_terceros_van_fijadas_por_sha():
     assert sin_fijar == []
 
 
+def test_los_runners_van_fijados_por_version():
+    # ubuntu-latest cambió de 24.04 a 26.04 en octubre de 2026 sin tocar nada del
+    # repo: la versión del sistema del runner se sube a propósito, como las actions.
+    runners = [
+        (workflow.name, runner)
+        for workflow in sorted(CARPETA_WORKFLOWS.glob("*.yml"))
+        for runner in re.findall(r"^\s*runs-on:\s*(\S+)", workflow.read_text(encoding="utf-8"), re.MULTILINE)
+    ]
+
+    assert runners
+    assert [f"{workflow}: {runner}" for workflow, runner in runners if runner.endswith("-latest")] == []
+
+
 def test_la_ci_valida_cada_raiz_de_terraform():
     # Una raíz = carpeta de infra/ con .tf propios (los tests van en tests/, aparte;
     # .terraform/ es la caché de init, donde caen los módulos descargados).
