@@ -54,6 +54,8 @@ docker run --rm --network host --cap-add NET_RAW --cap-add NET_ADMIN -v ts-datos
 # Terraform (infra/): fmt/validate/test sin credenciales; plan/apply solo desde el PC del mantenedor
 terraform fmt -check -recursive infra/
 cd infra/proxmox && terraform init -backend=false && terraform validate && terraform test
+cd infra/aws/hallazgos && terraform init -backend=false && terraform validate && terraform test
+# AWS (infra/aws/hallazgos): por PR (plan en comentario, apply en main con aprobación); runbook 04-aws.md
 # apply real: runbook docs/devops/runbooks/02-proxmox-vm.md (token por entorno, perfil AWS `personal`)
 
 # Helm (deploy/helm/): lint/template sin clúster; install/upgrade solo desde el PC del mantenedor
@@ -78,6 +80,13 @@ obliga a añadir las nuevas) y `terraform test` con el provider simulado; nunca
 por digest, no por tag (ataque a las tags de `trivy-action`, marzo de 2026); lo
 comprueba `tests/test_workflows.py`. Las de `actions/` van por tag. Los runners, por
 versión (`ubuntu-26.04`), nunca `ubuntu-latest` (mismo test).
+
+`terraform-aws.yml` (solo si cambia `infra/aws/hallazgos/`): en un PR, plan con
+el rol de solo lectura publicado como comentario; en main, apply con el rol de
+escritura dentro del environment `aws` (revisor obligatorio). Entra por OIDC
+con el `sub` **inmutable** del repo (`repo:<usuario>@<id>/<repo>@<id>`). Ningún
+`.tf` crea `aws_iam_access_key` (la clave quedaría en el estado): lo comprueba
+`tests/test_workflows.py`.
 
 Release (`.github/workflows/release.yml`): un tag `vX.Y.Z` reutiliza CI,
 comprueba que el tag coincide con la versión de `pyproject.toml` y que
@@ -107,8 +116,9 @@ Dockerfile, .dockerignore  # imagen: nmap sin root (setcap, UID 10001), /data, w
 compose.yaml           # uso con Docker Compose (en inglés: es para copiarlo); web solo en 127.0.0.1
 docs/devops/           # fase DevOps: README (estado por fase) y runbooks/NN-<fase>.md
 infra/aws/bootstrap/   # Terraform: bucket S3 del estado (estado local, ignorado)
+infra/aws/hallazgos/   # Terraform: bucket de informes, SNS (email), IAM del homelab, OIDC de GitHub; apply por terraform-aws.yml
 infra/proxmox/         # Terraform: VM k3s en Proxmox (cloud-init + network-config propios); tfvars/backend.hcl ignorados
-deploy/helm/topology-scanner/  # chart: CronJob nocturno + web (hostNetwork, sin Service/Ingress) + PVC; Secret SNMP a mano
+deploy/helm/topology-scanner/  # chart: CronJob nocturno (+ subida a S3 y aviso con aws.enabled) + web (hostNetwork) + PVC; Secrets SNMP y AWS a mano
 deploy/helm/values.local.yaml  # valores reales del homelab (redes, router, dominio de NPM): ignorado por git
 ```
 
@@ -149,6 +159,9 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - `snmp.obtener_topologia` / `credenciales_desde_entorno` / `VARIABLE_*` y
   `rangos.parsear_rangos` / `repartir_por_rango`: compartidos por CLI y web.
 - `history.combinar_diffs`: juntar los diffs de varios rangos para mostrarlos.
+- `export.resumen_cambios_email` (asunto ASCII ≤ 100, sensibles primero) y
+  `history.copiar_historial` (API de backup de SQLite): los usan `--changes-dir` y
+  `--history-backup`, que el chart lee en `files/subir.sh`. La app no sabe de AWS.
 - `history.registrar_ejecucion` / `listar_ejecuciones` / `cargar_ejecucion`: una
   pasada (todos sus rangos + topología SNMP) es una ejecución; CLI y web guardan
   con `registrar_ejecucion` (`registrar_y_comparar` queda como envoltorio de un rango).
@@ -242,8 +255,9 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 11. ~~**SNMPv3**~~ — hecho (CLI y web; SHA + AES por defecto; `[snmp]` instala
     también `cryptography`, que pysnmp necesita para cifrar).
 12. ~~**v1.0 en PyPI**~~ — hecho (`release.yml`, `CHANGELOG.md`, captura del
-    árbol en el README con `scripts/demo_arbol.py`). Lo siguiente es la fase
-    DevOps (contenedor, AWS, Kubernetes, Jenkins...), sin diseñar todavía.
+    árbol en el README con `scripts/demo_arbol.py`). Después, la fase DevOps
+    (`docs/devops/README.md`): fases 0-4 hechas (contenedor, VM de Proxmox,
+    k3s + Helm, AWS + avisos por email); quedan Jenkins (5) y observabilidad (6).
 
 **Ideas pendientes** (sin orden decidido):
 - Fabricante (por OUI, con la base de datos de nmap) para los hosts que solo
