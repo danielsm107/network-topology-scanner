@@ -152,7 +152,8 @@ class Escenario:
         revision = (tmp_path / "revision").as_posix()
         (tmp_path / "revision").write_text("5\n", encoding="utf-8", newline="\n")
         pruebas = (tmp_path / "pruebas").as_posix()
-        registro = f'echo "$(basename "$0") $*" >> "{self.log.as_posix()}"'
+        # printf y no echo: el echo de dash (el sh de la CI) expandiría el \n del JSON del patch
+        registro = f"""printf '%s\\n' "$(basename "$0") $*" >> "{self.log.as_posix()}\""""
         _falso(self.bin, "git", f"""{registro}
 case "$1" in
   ls-remote) [ -z "${{F_GIT:-}}" ] || exit 1; printf '%s' "$F_TAGS" ;;
