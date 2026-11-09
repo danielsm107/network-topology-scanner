@@ -16,7 +16,8 @@ Actions entrando en AWS por OIDC, sin claves. Diseño:
       y email con enlaces que abren el mapa y el CSV (2026-11-06).
 - [x] Ensayo de restauración: PVC borrado de verdad, restaurado desde S3, la web lista las
       ejecuciones de antes y el siguiente escaneo no avisa de todos los hosts como nuevos (2026-11-06).
-- [ ] El nocturno de las 3:00 sube sus informes (y avisa, si hubo cambios) sin intervención.
+- [x] El nocturno de las 3:00 sube sus informes (y avisa, si hubo cambios) sin intervención
+      (2026-11-07, 08 y 09).
 
 ## Piezas
 
