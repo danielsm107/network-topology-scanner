@@ -12,6 +12,7 @@ import os
 import sys
 
 try:
+    from . import __version__
     from .export import (
         ExportError,
         exportar_csv,
@@ -73,6 +74,7 @@ def construir_parser() -> argparse.ArgumentParser:
         prog="topology-scanner",
         description="Scans a network and generates an interactive topology graph."
     )
+    parser.add_argument("--version", action="version", version=f"topology-scanner {__version__}")
     parser.add_argument(
         "rango", nargs="+", metavar="range",
         help="Network range(s), e.g. 192.168.1.0/24. Several, separated by spaces (each one an IP or CIDR), "

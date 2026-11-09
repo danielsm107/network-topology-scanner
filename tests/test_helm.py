@@ -386,3 +386,53 @@ def test_script_de_subida():
     assert "aws sns publish" in script
     # Sin cambios no hay email: el aviso depende de que exista cambios.json
     assert "cambios/cambios.json" in script
+
+
+def test_prueba_es_hook_de_helm_y_no_toca_datos():
+    """`helm test`, no un Job del CronJob: este escribiría en el historial,
+    subiría informes y podría mandar el email de cambios."""
+    pod = _renderizar()["Pod"]
+    (contenedor,) = pod["spec"]["containers"]
+    guion = contenedor["command"][-1]
+
+    assert pod["metadata"]["annotations"]["helm.sh/hook"] == "test"
+    assert pod["spec"]["restartPolicy"] == "Never"
+    assert pod["spec"]["hostNetwork"] is True
+    assert "volumes" not in pod["spec"]
+    assert "volumeMounts" not in contenedor
+    assert "envFrom" not in contenedor
+    assert contenedor["securityContext"]["capabilities"]["add"] == ["NET_RAW", "NET_ADMIN", "NET_BIND_SERVICE"]
+    assert "--no-history" in guion
+    assert "--history-db" not in guion
+    assert "--changes-dir" not in guion
+
+
+def test_prueba_solo_escanea_el_nodo():
+    """El aviso legal del proyecto: el pipeline no escanea nada más que el propio nodo."""
+    (contenedor,) = _renderizar()["Pod"]["spec"]["containers"]
+
+    assert _env(contenedor)["IP_NODO"]["valueFrom"]["fieldRef"]["fieldPath"] == "status.hostIP"
+    assert 'topology-scanner "$IP_NODO"' in contenedor["command"][-1]
+
+
+def test_version_esperada_por_defecto_es_la_imagen():
+    (contenedor,) = _renderizar("--set", "image.tag=9.9.9")["Pod"]["spec"]["containers"]
+
+    assert _env(contenedor)["VERSION_ESPERADA"]["value"] == "9.9.9"
+
+
+def test_version_esperada_se_puede_forzar_para_el_ensayo():
+    (contenedor,) = _renderizar("--set", "pruebas.versionEsperada=0.0.0-ensayo")["Pod"]["spec"]["containers"]
+
+    assert _env(contenedor)["VERSION_ESPERADA"]["value"] == "0.0.0-ensayo"
+
+
+def test_chart_e_imagen_coinciden_con_pyproject():
+    """Si no coinciden, un tag desplegaría otra versión de la que dice."""
+    tomllib = pytest.importorskip("tomllib")
+    version = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    chart = yaml.safe_load((CHART / "Chart.yaml").read_text(encoding="utf-8"))
+    valores = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))
+
+    assert chart["appVersion"] == version
+    assert valores["image"]["tag"] == version

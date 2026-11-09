@@ -42,6 +42,11 @@ web:
 # desde el chart (ver docs/devops/runbooks/03-kubernetes.md)
 snmpSecret: topology-scanner-snmp
 
+# Prueba del despliegue (`helm test`). Vacío = comprueba image.tag. Solo lo
+# cambia el ensayo de fallo del pipeline de Jenkins (runbook 05-jenkins.md)
+pruebas:
+  versionEsperada: ""
+
 # Fase 4: el nocturno sube a S3 los informes (HTML, CSV y cambios) y la copia
 # del historial, y si hubo cambios avisa por SNS (email) con enlaces temporales.
 # Bucket y topic salen de los outputs de infra/aws/hallazgos.
