@@ -20,7 +20,6 @@ spec:
       args: [infinity]
       env:
         - {name: HOME, value: /home/jenkins/agent}
-        - {name: AWS_REGION, value: eu-south-2}
         - {name: AWS_RETRY_MODE, value: standard}
         - {name: AWS_MAX_ATTEMPTS, value: "5"}
       envFrom:
@@ -28,9 +27,13 @@ spec:
             name: jenkins-avisos
       resources:
         requests: {cpu: 100m, memory: 128Mi}
-        limits: {cpu: "1", memory: 256Mi}
+        limits: {cpu: "1", memory: 512Mi}
 '''
         }
+    }
+    options {
+        // La hora de espera a la publicación, más el despliegue, la prueba y la vuelta atrás
+        timeout(time: 2, unit: 'HOURS')
     }
     stages {
         stage('Desplegar') {

@@ -1,9 +1,12 @@
 # Permisos de los agentes de Jenkins. Se aplica a mano antes de instalar Jenkins:
 #   kubectl apply -f deploy/jenkins/rbac.yaml
-# Solo Roles, por namespace: nunca cluster-admin. El de topology-scanner incluye
-# Secrets porque Helm guarda ahí sus revisiones, y eso permite leer también los
-# de SNMP y AWS. Es inevitable con Helm: por eso Jenkins va con contraseña y solo
-# en la LAN (docs/decisiones.md).
+# Solo Roles, por namespace: nunca cluster-admin. Aun así, este alcance es grande y
+# conviene no engañarse (docs/decisiones.md):
+# - Secrets: Helm guarda ahí sus revisiones, así que también puede leer los de SNMP y AWS.
+# - Crear Pods sin Pod Security que lo limite permite uno privilegiado, es decir, root en
+#   el nodo y, con un solo nodo, control del clúster. El chart necesita hostNetwork y
+#   capacidades, que el perfil `baseline` prohíbe: no hay un parche sencillo.
+# Por eso Jenkins va con contraseña y solo en la LAN.
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -27,6 +27,10 @@ spec:
 '''
         }
     }
+    options {
+        // Con disableConcurrentBuilds, una consulta colgada bloquearía las siguientes
+        timeout(time: 10, unit: 'MINUTES')
+    }
     stages {
         stage('Consultar') {
             steps {

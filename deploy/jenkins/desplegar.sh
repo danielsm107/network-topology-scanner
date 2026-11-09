@@ -87,10 +87,28 @@ marcar_fallida() {
     || log "ERROR: no se pudo marcar $OBJETIVO como fallida: el siguiente sondeo lo volverá a intentar"
 }
 
-quitar_marca() {
-  printf '%s\n' "$FALLIDAS" | grep -qxF "$OBJETIVO" || return 0
-  guardar_fallidas "$(printf '%s\n' "$FALLIDAS" | grep -vxF "$OBJETIVO")" \
-    || log "AVISO: no se pudo quitar la marca de $OBJETIVO"
+# Las superiores a $OBJETIVO que ya existen: una bajada a mano es una decisión, y
+# sin marcarlas el siguiente sondeo la desharía. Se retoma con un tag nuevo o a mano.
+superiores_a_objetivo() {
+  git ls-remote --tags --refs "$REPO" | sed 's#.*refs/tags/##' \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | while read -r tag; do
+        mayor=$(printf '%s\n%s\n' "$tag" "$OBJETIVO" | sort -V | tail -n 1)
+        if [ "$mayor" = "$tag" ] && [ "$tag" != "$OBJETIVO" ]; then echo "$tag"; fi
+      done
+}
+
+# Tras un despliegue manual correcto: esa versión ya no está marcada, y si era una
+# bajada, lo están las superiores
+actualizar_marcas_manual() {
+  nuevas=$(printf '%s\n' "$FALLIDAS" | grep -vxF "$OBJETIVO")
+  mayor=$(printf '%s\n%s\n' "$DESPLEGADA" "$OBJETIVO" | sort -V | tail -n 1)
+  if [ "$mayor" = "$DESPLEGADA" ] && [ "$OBJETIVO" != "$DESPLEGADA" ]; then
+    git ls-remote --tags --refs "$REPO" > /dev/null \
+      || log "AVISO: no se pudieron leer los tags: el siguiente sondeo puede deshacer esta bajada"
+    nuevas=$(printf '%s\n%s\n' "$nuevas" "$(superiores_a_objetivo)" | sort -u)
+  fi
+  [ "$(printf '%s\n' "$nuevas" | sort -u)" = "$(printf '%s\n' "$FALLIDAS" | sort -u)" ] && return 0
+  guardar_fallidas "$nuevas" || log "AVISO: no se pudieron actualizar las versiones marcadas"
 }
 
 # --- Aviso -------------------------------------------------------------------
@@ -121,19 +139,30 @@ fallo_sin_cambios() {
 ADVERTENCIA="The rollback does not revert data. If this version changed the history schema, \
 check the next nightly scan and, if it fails, restore the history from S3: $RESTAURAR"
 
+revision_actual() {
+  helm status "$RELEASE" -n "$NS" 2> /dev/null | awk '/^REVISION:/ { print $2 }'
+}
+
 fallo_con_rollback() {
   paso="$1"
+  # Un values inválido falla antes de crear revisión: no hay nada que deshacer, y
+  # volver atrás bajaría una versión de más
+  if [ "$(revision_actual)" = "$REV_ANTES" ]; then
+    fallo_sin_cambios "$paso"
+  fi
   # La marca lo primero: si este pod muere a medias, no hay otro intento
   marcar_fallida
-  log "Volviendo a la versión anterior: falló $paso"
-  if ! helm rollback "$RELEASE" 0 -n "$NS" --wait --timeout 5m >&2; then
+  log "Volviendo a la revisión $REV_ANTES: falló $paso"
+  if ! helm rollback "$RELEASE" "$REV_ANTES" -n "$NS" --wait --timeout 5m >&2; then
     avisar "URGENT topology-scanner rollback FAILED: $OBJETIVO" \
       "$(cuerpo_fallo "$paso, then helm rollback" "the cluster may be broken, needs manual action")"
     exit 3
   fi
   if ! probar; then
     avisar "URGENT topology-scanner rollback FAILED: $OBJETIVO" \
-      "$(cuerpo_fallo "$paso, then helm test after the rollback" "rolled back, but the test does not pass")"
+      "$(cuerpo_fallo "$paso, then helm test after the rollback" "rolled back, but the test does not pass")
+
+$ADVERTENCIA"
     exit 3
   fi
   avisar "topology-scanner deploy FAILED: $OBJETIVO" \
@@ -218,8 +247,14 @@ git clone --quiet --depth 1 --branch "v$OBJETIVO" "$REPO" "$TEMPORAL/repo" >&2 \
 
 VALUES=$(kubectl -n "$NS" get secret topology-scanner-values -o jsonpath='{.data.values\.yaml}') \
   || fallo_sin_cambios "reading Secret topology-scanner-values"
+# Una clave que no existe da vacío con código 0, y Helm desplegaría los valores por
+# defecto del chart: el rango inventado, sin SNMP y sin AWS, en verde y sin avisos
+[ -n "$VALUES" ] || fallo_sin_cambios "Secret topology-scanner-values has no values.yaml key"
 printf '%s' "$VALUES" | base64 -d > "$TEMPORAL/values.yaml" \
   || fallo_sin_cambios "decoding Secret topology-scanner-values"
+
+REV_ANTES=$(revision_actual)
+[ -n "$REV_ANTES" ] || sin_estado "la revisión actual de Helm"
 
 # --- Desplegar y probar ------------------------------------------------------
 
@@ -239,5 +274,7 @@ helm upgrade "$RELEASE" "$TEMPORAL/repo/deploy/helm/topology-scanner" -n "$NS" \
 probar || fallo_con_rollback "helm test"
 corre_la_imagen "$TAG_IMAGEN" || fallo_con_rollback "image check"
 
-[ "$MODO" != "manual" ] || quitar_marca
+if [ "$MODO" = "manual" ] && [ "$ENSAYO" = "ninguno" ]; then
+  actualizar_marcas_manual
+fi
 log "Desplegada $OBJETIVO: prueba correcta"

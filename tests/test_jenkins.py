@@ -149,6 +149,8 @@ class Escenario:
         self.log = tmp_path / "llamadas.log"
         self.tmp = tmp_path
         imagen = (tmp_path / "imagen").as_posix()
+        revision = (tmp_path / "revision").as_posix()
+        (tmp_path / "revision").write_text("5\n", encoding="utf-8", newline="\n")
         pruebas = (tmp_path / "pruebas").as_posix()
         registro = f'echo "$(basename "$0") $*" >> "{self.log.as_posix()}"'
         _falso(self.bin, "git", f"""{registro}
@@ -159,7 +161,12 @@ esac""")
         # F_TEST: "primero" falla la prueba tras el upgrade; "siempre", también tras el rollback
         _falso(self.bin, "helm", f"""{registro}
 case "$1" in
+  status)
+    [ -z "${{F_STATUS:-}}" ] || exit 1
+    echo "NAME: topology-scanner"; echo "REVISION: $(cat "{revision}")" ;;
   upgrade)
+    [ "${{F_UPGRADE:-}}" != "sin-revision" ] || exit 1
+    echo $(($(cat "{revision}") + 1)) > "{revision}"
     [ -z "${{F_UPGRADE:-}}" ] || exit 1
     for a; do case "$a" in image.tag=*) echo "${{a#image.tag=}}" > "{imagen}" ;; esac; done ;;
   test)
@@ -178,7 +185,7 @@ case "$*" in
     if [ -n "${{F_IMAGEN:-}}" ]; then printf 'r/i:%s' "$F_IMAGEN"
     elif [ -f "{imagen}" ]; then printf 'r/i:%s' "$(cat "{imagen}")"; fi ;;
   *"get configmap"*) [ -z "${{F_FALLIDAS_ERROR:-}}" ] || exit 1; printf '%s' "${{F_FALLIDAS:-}}" ;;
-  *"get secret"*) [ -z "${{F_SECRET:-}}" ] || exit 1; printf 'dmFsb3Jlcw==' ;;
+  *"get secret"*) [ -z "${{F_SECRET:-}}" ] || exit 1; [ -n "${{F_SECRET_SIN_CLAVE:-}}" ] || printf 'dmFsb3Jlcw==' ;;
 esac""")
         _falso(self.bin, "aws", f"""{registro}
 [ -z "${{F_SNS:-}}" ] || exit 1""")
@@ -256,6 +263,77 @@ def test_falla_helm_test_vuelve_atras_marca_y_avisa(escenario):
     assert "1.5.0" in escenario.marcas()[0]
     assert len(escenario.correos()) == 1
     assert "URGENT" not in escenario.correos()[0]
+
+
+def test_rollback_a_la_revision_anterior_explicita(escenario):
+    """`rollback 0` es "la última menos una", haya creado revisión el upgrade o no."""
+    escenario.correr(F_UPGRADE="1")
+
+    assert "helm rollback topology-scanner 5 " in escenario.llamadas
+
+
+def test_upgrade_sin_revision_nueva_no_hace_rollback(escenario):
+    """Un values con un error de YAML falla antes de crear revisión: volver atrás
+    bajaría una versión de más."""
+    resultado = escenario.correr(F_UPGRADE="sin-revision")
+    (correo,) = escenario.correos()
+
+    assert resultado.returncode == 1
+    assert "helm rollback" not in escenario.llamadas
+    assert "1.5.0" in escenario.marcas()[0]
+    assert "nothing changed" in correo
+
+
+def test_sin_poder_leer_la_revision_no_despliega(escenario):
+    resultado = escenario.correr(F_STATUS="1")
+
+    assert resultado.returncode == 4
+    assert "helm upgrade" not in escenario.llamadas
+    assert escenario.marcas() == []
+
+
+def test_secret_sin_la_clave_no_despliega_con_valores_por_defecto(escenario):
+    """Un jsonpath a una clave que no existe da vacío con código 0: Helm desplegaría
+    el rango inventado de values.yaml, en verde y sin avisos."""
+    resultado = escenario.correr(F_SECRET_SIN_CLAVE="1")
+
+    assert resultado.returncode == 1
+    assert "helm upgrade" not in escenario.llamadas
+    assert len(escenario.correos()) == 1
+
+
+def test_el_aviso_indica_la_region(escenario):
+    """aws-cli v1, el de alpine/k8s, no lee AWS_REGION: sin esto no sale ningún email."""
+    escenario.correr(F_UPGRADE="1")
+
+    assert "--region eu-south-2" in escenario.correos()[0]
+
+
+def test_urgente_tras_volver_atras_lleva_la_advertencia(escenario):
+    escenario.correr(F_TEST="siempre")
+
+    assert "04-aws.md" in escenario.correos()[0]
+
+
+def test_bajada_manual_marca_las_superiores(escenario):
+    """Si no, el siguiente sondeo deshace la bajada en menos de 5 minutos."""
+    resultado = escenario.correr(modo="manual", VERSION="1.3.0", tags=("1.3.0", "1.4.0", "1.5.0", "1.2.0"))
+
+    assert resultado.returncode == 0, resultado.stderr
+    (marca,) = escenario.marcas()
+    assert "1.4.0\\n" in marca
+    assert "1.5.0\\n" in marca
+    assert "1.3.0" not in marca
+    assert "1.2.0" not in marca
+
+
+def test_bajada_manual_sin_tags_avisa_y_termina_bien(escenario):
+    """La bajada ya está hecha y probada: no se deshace por no poder leer los tags."""
+    resultado = escenario.correr(modo="manual", VERSION="1.3.0", F_GIT="1")
+
+    assert resultado.returncode == 0
+    assert "helm rollback" not in escenario.llamadas
+    assert "AVISO" in resultado.stderr
 
 
 def test_helm_test_sin_pruebas_es_fallo(escenario):
@@ -543,6 +621,17 @@ def test_jobs_definidos_como_codigo():
     assert "numToKeep(20)" in casc
     assert casc.count("disableConcurrentBuilds") == 2
     assert casc.count("branch('*/main')") == 2
+
+
+@pytest.mark.parametrize("archivo", [RAIZ / "Jenkinsfile", JENKINS / "sondear.Jenkinsfile"])
+def test_pipelines_con_tiempo_limite(archivo):
+    """Con disableConcurrentBuilds, una ejecución colgada bloquearía todas las siguientes."""
+    assert "timeout(time:" in archivo.read_text(encoding="utf-8")
+
+
+def test_memoria_del_agente_que_despliega():
+    """helm upgrade valida contra OpenAPI y aws-cli es Python: un OOM parecería un fallo del despliegue."""
+    assert "memory: 512Mi" in (RAIZ / "Jenkinsfile").read_text(encoding="utf-8")
 
 
 def test_agentes_sin_root():
