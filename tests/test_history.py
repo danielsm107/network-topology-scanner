@@ -16,6 +16,7 @@ from topology_scanner.history import (
     copiar_historial,
     hay_cambios,
     listar_ejecuciones,
+    merece_aviso,
     registrar_ejecucion,
     registrar_y_comparar,
 )
@@ -550,3 +551,101 @@ def test_copiar_historial_sin_base_da_history_error(tmp_path):
     with pytest.raises(HistoryError):
         copiar_historial(str(origen), str(tmp_path / "b.db"))
     assert not origen.exists()
+
+
+# --- ¿Merece un aviso? (hosts nunca vistos) ---
+
+_RANGO = "192.0.2.0/24"
+_A = "192.0.2.10"
+_B = "192.0.2.20"
+
+
+def _escaneo(db, *ips, rango=_RANGO, mantener_ultimos=50):
+    return registrar_y_comparar(
+        {ip: _resultado_fake() for ip in ips}, rango, db_path=db, mantener_ultimos=mantener_ultimos
+    )
+
+
+def test_nunca_visto_al_aparecer_por_primera_vez(tmp_path):
+    db = str(tmp_path / "h.db")
+    _escaneo(db, _A)
+
+    diff = _escaneo(db, _A, _B)
+
+    assert diff["hosts_nunca_vistos"] == [_B]
+
+
+def test_host_que_vuelve_no_es_nunca_visto(tmp_path):
+    """El ruido real: una impresora que se apagó una noche y vuelve."""
+    db = str(tmp_path / "h.db")
+    _escaneo(db, _A, _B)
+    _escaneo(db, _A)
+
+    diff = _escaneo(db, _A, _B)
+
+    assert diff["hosts_nuevos"] == [_B]
+    assert diff["hosts_nunca_vistos"] == []
+
+
+def test_nunca_visto_es_por_rango(tmp_path):
+    db = str(tmp_path / "h.db")
+    _escaneo(db, _A, rango="198.51.100.0/24")
+    _escaneo(db, _B)
+
+    diff = _escaneo(db, _A, _B)
+
+    assert diff["hosts_nunca_vistos"] == [_A]
+
+
+def test_nunca_visto_antes_de_purgar(tmp_path):
+    """Se consulta antes de que la purga de esta misma pasada borre lo antiguo."""
+    db = str(tmp_path / "h.db")
+    _escaneo(db, _A, mantener_ultimos=2)
+    _escaneo(db, _B, mantener_ultimos=2)
+
+    diff = _escaneo(db, _A, mantener_ultimos=2)
+
+    assert diff["hosts_nuevos"] == [_A]
+    assert diff["hosts_nunca_vistos"] == []
+
+
+def test_host_purgado_vuelve_a_ser_nunca_visto(tmp_path):
+    """Límite aceptado: la memoria es la de los escaneos que se conservan."""
+    db = str(tmp_path / "h.db")
+    _escaneo(db, _A, mantener_ultimos=1)
+    _escaneo(db, _B, mantener_ultimos=1)
+
+    diff = _escaneo(db, _A, mantener_ultimos=1)
+
+    assert diff["hosts_nunca_vistos"] == [_A]
+
+
+def test_primera_vez_sin_nunca_vistos(tmp_path):
+    """Si no, el primer escaneo de un rango avisaría de toda la red."""
+    diff = _escaneo(str(tmp_path / "h.db"), _A, _B)
+
+    assert diff["hosts_nunca_vistos"] == []
+
+
+_CON_PUERTOS = {_A: {"puertos": [{"puerto": 80, "servicio": "http"}]}}
+_SIN_PUERTOS = {_A: {"puertos": []}}
+_DIFF_VACIO = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
+
+
+@pytest.mark.parametrize(("cambios", "resultados", "esperado"), [
+    ({"hosts_nuevos": [_A], "hosts_nunca_vistos": [_A]}, _CON_PUERTOS, True),
+    ({"hosts_nuevos": [_A], "hosts_nunca_vistos": [_A]}, _SIN_PUERTOS, False),
+    ({"hosts_nuevos": [_A], "hosts_nunca_vistos": []}, _CON_PUERTOS, False),
+    ({"hosts_caidos": [_A], "hosts_nunca_vistos": []}, {}, False),
+    ({"puertos_cambiados": {_A: {"nuevos": [80], "cerrados": [], "nuevos_sensibles": []}}}, _CON_PUERTOS, True),
+    ({"puertos_cambiados": {_A: {"nuevos": [], "cerrados": [80], "nuevos_sensibles": []}}}, _SIN_PUERTOS, True),
+    ({"hosts_nuevos": [_A]}, _CON_PUERTOS, False),  # diff sin la clave: de una ejecución vieja reabierta
+    ({}, {}, False),
+])
+def test_merece_aviso(cambios, resultados, esperado):
+    assert merece_aviso({**_DIFF_VACIO, **cambios}, resultados) is esperado
+
+
+def test_hay_cambios_no_cambia():
+    """La web y el historial lo siguen mostrando todo: el filtro es solo para el aviso."""
+    assert hay_cambios({**_DIFF_VACIO, "hosts_caidos": [_A], "hosts_nunca_vistos": []}) is True

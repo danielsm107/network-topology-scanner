@@ -22,7 +22,7 @@ try:
         resumen_cambios_email,
     )
     from .graph import construir_grafo
-    from .history import DB_POR_DEFECTO, HistoryError, copiar_historial, registrar_ejecucion
+    from .history import DB_POR_DEFECTO, HistoryError, copiar_historial, merece_aviso, registrar_ejecucion
     from .rangos import parsear_rangos, repartir_por_rango
     from .scanner import (
         DEFAULT_NMAP_ARGS,
@@ -122,9 +122,9 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--changes-dir", default=None, metavar="DIR",
-        help="If this run found changes against the previous scan, write them to DIR: cambios.json (the diffs "
-             "per range) plus asunto.txt and cuerpo.txt (subject and body for an email alert). Nothing is "
-             "written when there are no changes"
+        help="If this run found a never-seen host with open ports, or a port change, write all its changes to "
+             "DIR: cambios.json (the diffs per range) plus asunto.txt and cuerpo.txt (subject and body for an "
+             "email alert). Nothing is written otherwise"
     )
     parser.add_argument(
         "--history-backup", default=None, metavar="FILE",
@@ -235,9 +235,12 @@ def main():
 
 
 def _escribir_cambios(carpeta: str, diffs: dict[str, dict], resultados: dict):
-    """Deja en `carpeta` los cambios de la ejecución, solo si los hay: que
-    no exista cambios.json es la señal para no avisar (el CronJob sube esto
-    a S3 y manda el email; la app no sabe nada de AWS)."""
+    """Deja en `carpeta` los cambios de la ejecución, solo si merecen un aviso
+    (history.merece_aviso): que no exista cambios.json es la señal para no
+    avisar (el CronJob sube esto a S3 y manda el email; la app no sabe nada de
+    AWS). Si lo merecen, van todos los cambios: son el contexto del aviso."""
+    if not any(merece_aviso(diff, resultados) for diff in diffs.values()):
+        return
     resumen = resumen_cambios_email(diffs, resultados)
     if resumen is None:
         return

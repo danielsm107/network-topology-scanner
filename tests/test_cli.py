@@ -542,7 +542,8 @@ def test_cli_sin_snmp_registra_topologia_none(
 
 _SIN_CAMBIOS = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "puertos_cambiados": {}}
 _PRIMERA_VEZ = {**_SIN_CAMBIOS, "primera_vez": True}
-_HOST_NUEVO = {**_SIN_CAMBIOS, "hosts_nuevos": ["192.168.1.10"]}
+_HOST_NUEVO = {**_SIN_CAMBIOS, "hosts_nuevos": ["192.168.1.10"], "hosts_nunca_vistos": ["192.168.1.10"]}
+_CON_PUERTOS = {"192.168.1.10": {**_resultado_dummy()["192.168.1.10"], "puertos": [{"puerto": 80, "servicio": "http"}]}}
 
 
 @pytest.fixture
@@ -550,7 +551,7 @@ def cli_simulado():
     """Escaneo, grafo y exportes simulados; registrar_ejecucion y
     copiar_historial también, para decidir qué devuelven o si fallan."""
     with (
-        patch("topology_scanner.cli.escanear_red", return_value=_resultado_dummy()),
+        patch("topology_scanner.cli.escanear_red", return_value=_resultado_dummy()) as escanear,
         patch("topology_scanner.cli.construir_grafo"),
         patch("topology_scanner.cli.exportar_texto"),
         patch("topology_scanner.cli.exportar_diff_texto"),
@@ -558,10 +559,34 @@ def cli_simulado():
         patch("topology_scanner.cli.registrar_ejecucion") as registrar,
         patch("topology_scanner.cli.copiar_historial") as copiar,
     ):
-        yield {"registrar": registrar, "copiar": copiar, "exportar_html": exportar_html}
+        yield {"registrar": registrar, "copiar": copiar, "exportar_html": exportar_html, "escanear": escanear}
+
+
+def test_changes_dir_no_escribe_sin_motivo(cli_simulado, tmp_path):
+    """Un host nunca visto pero sin puertos (móvil, tele...): sin cambios.json no hay email."""
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _HOST_NUEVO}
+    carpeta = tmp_path / "cambios"
+
+    _run_main_con_argv(["192.168.1.0/24", "--changes-dir", str(carpeta)])
+
+    assert not (carpeta / "cambios.json").exists()
+
+
+def test_changes_dir_incluye_todos_los_cambios_si_avisa(cli_simulado, tmp_path):
+    """Si el email sale, lleva también los caídos: es el contexto para entenderlo."""
+    cli_simulado["escanear"].return_value = _CON_PUERTOS
+    diff = {**_HOST_NUEVO, "hosts_caidos": ["192.168.1.99"]}
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": diff}
+    carpeta = tmp_path / "cambios"
+
+    _run_main_con_argv(["192.168.1.0/24", "--changes-dir", str(carpeta)])
+
+    assert "192.168.1.99" in (carpeta / "cuerpo.txt").read_text(encoding="utf-8")
+    assert json.loads((carpeta / "cambios.json").read_text(encoding="utf-8"))["192.168.1.0/24"] == diff
 
 
 def test_changes_dir_escribe_json_y_email_si_hay_cambios(cli_simulado, tmp_path):
+    cli_simulado["escanear"].return_value = _CON_PUERTOS
     cli_simulado["registrar"].return_value = {"192.168.1.0/24": _HOST_NUEVO}
     carpeta = tmp_path / "cambios"
 

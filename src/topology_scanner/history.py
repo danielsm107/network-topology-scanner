@@ -200,6 +200,19 @@ def _comparar(resultados: dict, anterior: dict | None) -> dict:
     }
 
 
+def _nunca_vistos(conn: sqlite3.Connection, rango: str, ips: list[str]) -> list[str]:
+    """De `ips`, las que no aparecen en ningún escaneo guardado de `rango`.
+    La memoria es la de los escaneos que se conservan (MANTENER_ULTIMOS_POR_DEFECTO)."""
+    vistas = {
+        fila[0]
+        for fila in conn.execute(
+            "SELECT DISTINCT h.ip FROM hosts h JOIN escaneos e ON h.escaneo_id = e.id WHERE e.rango = ?",
+            (rango,),
+        )
+    }
+    return [ip for ip in ips if ip not in vistas]
+
+
 MANTENER_ULTIMOS_POR_DEFECTO = 50
 
 
@@ -239,6 +252,7 @@ def registrar_y_comparar(
             "primera_vez": bool,
             "hosts_nuevos": [ip, ...],
             "hosts_caidos": [ip, ...],
+            "hosts_nunca_vistos": [ip, ...],  # subconjunto de "hosts_nuevos", sin ningún escaneo guardado
             "puertos_cambiados": {
                 ip: {
                     "nuevos": [puerto, ...],
@@ -275,7 +289,10 @@ def registrar_ejecucion(
             ejecucion_id = cur.lastrowid
             diffs = {}
             for rango, resultados in resultados_por_rango.items():
-                diffs[rango] = _comparar(resultados, _ultimo_escaneo(conn, rango))
+                diff = _comparar(resultados, _ultimo_escaneo(conn, rango))
+                # Antes de guardar y de purgar: es lo que sabíamos antes de esta pasada
+                diff["hosts_nunca_vistos"] = _nunca_vistos(conn, rango, diff["hosts_nuevos"])
+                diffs[rango] = diff
                 _guardar_escaneo(conn, resultados, rango, ejecucion_id, fecha)
                 _purgar_antiguos(conn, rango, mantener_ultimos)
             conn.commit()
@@ -405,6 +422,16 @@ def hay_cambios(diff: dict) -> bool:
     cada uno su propio `a or b or c`, que no da un bool de verdad si el
     único operando no vacío es un dict (puertos_cambiados)."""
     return bool(diff["hosts_nuevos"] or diff["hosts_caidos"] or diff["puertos_cambiados"])
+
+
+def merece_aviso(diff: dict, resultados: dict) -> bool:
+    """True si este diff justifica un email: un host nunca visto con algún
+    puerto abierto, o un cambio de puertos. Los equipos de casa que entran y
+    salen de la red no: un aviso diario se acaba ignorando. hay_cambios sigue
+    siendo la pregunta general; la web y el historial lo muestran todo."""
+    if diff["puertos_cambiados"]:
+        return True
+    return any(resultados.get(ip, {}).get("puertos") for ip in diff.get("hosts_nunca_vistos", []))
 
 
 def combinar_diffs(diffs: list[dict]) -> dict:
