@@ -12,7 +12,7 @@ metadata:
     {{- include "topology-scanner.labels" . | nindent 4 }}
   annotations:
     helm.sh/hook: test
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   {{- include "topology-scanner.podComun" . | nindent 2 }}
   restartPolicy: Never
