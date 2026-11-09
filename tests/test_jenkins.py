@@ -8,6 +8,7 @@ Se saltan si no hay `sh`.
 """
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -424,3 +425,127 @@ def test_modo_desconocido_es_error(escenario):
 
     assert resultado.returncode == 2
     assert "helm upgrade" not in escenario.llamadas
+
+
+# --- Jenkins como código -----------------------------------------------------
+
+
+def _controlador() -> dict:
+    yaml = pytest.importorskip("yaml")
+    return yaml.safe_load((JENKINS / "values.yaml").read_text(encoding="utf-8"))["controller"]
+
+
+def _rbac() -> list[dict]:
+    yaml = pytest.importorskip("yaml")
+    return [doc for doc in yaml.safe_load_all((JENKINS / "rbac.yaml").read_text(encoding="utf-8")) if doc]
+
+
+def _texto_casc() -> str:
+    return "\n".join(_controlador()["JCasC"]["configScripts"].values())
+
+
+def test_jenkins_sin_acceso_anonimo():
+    casc = _controlador()["JCasC"]
+
+    assert "allowAnonymousRead: false" in casc["authorizationStrategy"]
+    assert "allowsSignup: false" in casc["securityRealm"]
+    assert "unsecured" not in casc["authorizationStrategy"]
+
+
+def test_controlador_sin_ejecutores():
+    assert _controlador()["numExecutors"] == 0
+
+
+def test_limite_de_memoria_del_controlador():
+    assert _controlador()["resources"]["limits"]["memory"] == "2Gi"
+
+
+def test_admin_desde_secret_creado_a_mano():
+    admin = _controlador()["admin"]
+
+    assert admin["createSecret"] is False
+    assert admin["existingSecret"] == "jenkins-admin"
+    assert "password" not in admin
+
+
+def test_imagenes_de_jenkins_por_digest():
+    yaml = pytest.importorskip("yaml")
+    valores = yaml.safe_load((JENKINS / "values.yaml").read_text(encoding="utf-8"))
+    pipelines = (RAIZ / "Jenkinsfile").read_text(encoding="utf-8") + (JENKINS / "sondear.Jenkinsfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert re.search(r"@sha256:[0-9a-f]{64}$", valores["controller"]["image"]["tag"])
+    assert re.search(r"@sha256:[0-9a-f]{64}$", valores["agent"]["image"]["tag"])
+    imagenes = re.findall(r"image:\s*(\S+)", pipelines)
+    assert imagenes
+    assert all(re.search(r"@sha256:[0-9a-f]{64}$", imagen) for imagen in imagenes)
+
+
+def test_plugins_con_version_fija():
+    controlador = _controlador()
+
+    assert controlador["installLatestPlugins"] is False
+    for plugin in controlador["installPlugins"]:
+        assert re.fullmatch(r"[a-z-]+:\S+", plugin), plugin
+        assert not plugin.endswith(":latest")
+
+
+def test_rbac_sin_cluster_admin():
+    kinds = {doc["kind"] for doc in _rbac()}
+
+    assert "ClusterRole" not in kinds
+    assert "ClusterRoleBinding" not in kinds
+    assert {doc["metadata"]["namespace"] for doc in _rbac() if doc["kind"] == "Role"} == {"topology-scanner", "jenkins"}
+
+
+def test_en_su_namespace_jenkins_solo_toca_el_estado():
+    (rol,) = [d for d in _rbac() if d["kind"] == "Role" and d["metadata"]["namespace"] == "jenkins"]
+    (regla,) = rol["rules"]
+
+    assert regla["resources"] == ["configmaps"]
+    assert regla["resourceNames"] == ["estado-despliegue"]
+    assert set(regla["verbs"]) == {"get", "patch"}
+
+
+def test_el_configmap_de_estado_no_lleva_datos():
+    """Si los llevara, un `kubectl apply` del archivo borraría las versiones marcadas."""
+    (estado,) = [d for d in _rbac() if d["kind"] == "ConfigMap"]
+
+    assert estado["metadata"]["name"] == "estado-despliegue"
+    assert "data" not in estado
+
+
+def test_jenkinsfile_llama_al_script():
+    """La lógica vive en el script, que es lo que tiene tests."""
+    jenkinsfile = (RAIZ / "Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "deploy/jenkins/desplegar.sh" in jenkinsfile
+    assert "helm upgrade" not in jenkinsfile
+
+
+def test_sondear_solo_lanza_en_automatico():
+    sondear = (JENKINS / "sondear.Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "MODO=consultar" in sondear
+    assert "value: 'automatico'" in sondear
+    assert "wait: false" in sondear
+    assert "'manual'" not in sondear
+
+
+def test_jobs_definidos_como_codigo():
+    casc = _texto_casc()
+
+    assert "pipelineJob('desplegar')" in casc
+    assert "pipelineJob('sondear')" in casc
+    assert "H/5 * * * *" in casc
+    assert "numToKeep(100)" in casc
+    assert "numToKeep(20)" in casc
+    assert casc.count("disableConcurrentBuilds") == 2
+    assert casc.count("branch('*/main')") == 2
+
+
+def test_agentes_sin_root():
+    """alpine/k8s corre como root por defecto."""
+    for archivo in (RAIZ / "Jenkinsfile", JENKINS / "sondear.Jenkinsfile"):
+        assert "runAsUser: 1000" in archivo.read_text(encoding="utf-8")

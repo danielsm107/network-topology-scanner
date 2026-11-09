@@ -1,0 +1,4 @@
+# Ejemplo (datos inventados). Copiar a deploy/jenkins/values.local.yaml, que está
+# ignorado por git, y poner el dominio real. Runbook 05-jenkins.md.
+controller:
+  jenkinsUrl: https://jenkins.example.com/

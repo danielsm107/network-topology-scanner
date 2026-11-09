@@ -1,0 +1,90 @@
+# Permisos de los agentes de Jenkins. Se aplica a mano antes de instalar Jenkins:
+#   kubectl apply -f deploy/jenkins/rbac.yaml
+# Solo Roles, por namespace: nunca cluster-admin. El de topology-scanner incluye
+# Secrets porque Helm guarda ahí sus revisiones, y eso permite leer también los
+# de SNMP y AWS. Es inevitable con Helm: por eso Jenkins va con contraseña y solo
+# en la LAN (docs/decisiones.md).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jenkins
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-agente
+  namespace: jenkins
+---
+# Versiones marcadas como fallidas (desplegar.sh). Sin `data`: un apply de este
+# archivo no borra las marcas, y la clave `fallidas` la escribe el pipeline
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: estado-despliegue
+  namespace: jenkins
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-estado
+  namespace: jenkins
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [estado-despliegue]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-estado
+  namespace: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-estado
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-agente
+    namespace: jenkins
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-despliegue
+  namespace: topology-scanner
+rules:
+  # Lo que crea el chart, sus revisiones de Helm y el Pod de helm test
+  - apiGroups: [""]
+    resources: [configmaps, persistentvolumeclaims, secrets, pods]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [batch]
+    resources: [cronjobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Solo para leer: helm --wait y el diagnóstico
+  - apiGroups: [""]
+    resources: [pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-despliegue
+  namespace: topology-scanner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-despliegue
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-agente
+    namespace: jenkins

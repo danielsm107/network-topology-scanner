@@ -137,6 +137,13 @@ def test_plan_de_aws_sin_lock():
     assert not _APPLY.search(_comandos(plan))
 
 
+def test_la_ci_valida_los_valores_de_jenkins():
+    """El chart oficial, en versión fija, renderizado con nuestros valores."""
+    ci = (CARPETA_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+
+    assert re.search(r"helm template ci jenkins/jenkins --version \d+\.\d+\.\d+ .*deploy/jenkins/values\.yaml", ci)
+
+
 def test_la_ci_valida_el_chart_de_helm():
     """helm lint y helm template del chart con los values de ejemplo, y Helm
     también en el job de pytest: si no, tests/test_helm.py se saltaría en
