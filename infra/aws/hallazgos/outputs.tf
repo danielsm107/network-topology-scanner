@@ -16,6 +16,11 @@ output "usuario_homelab" {
   value       = aws_iam_user.homelab.name
 }
 
+output "usuario_jenkins" {
+  description = "Usuario IAM de los avisos de Jenkins: su clave se crea a mano (runbook 05)"
+  value       = aws_iam_user.jenkins.name
+}
+
 output "rol_plan_arn" {
   description = "Variable AWS_ROLE_PLAN_ARN del repo en GitHub"
   value       = aws_iam_role.github_plan.arn
