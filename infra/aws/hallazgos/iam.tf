@@ -45,6 +45,19 @@ locals {
     ]
   }
 
+  # --- Jenkins: solo avisar de un despliegue fallido. No reutiliza el usuario del homelab, que escribe en S3 ---
+  politica_jenkins = {
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "Avisar"
+        Effect   = "Allow"
+        Action   = ["sns:Publish"]
+        Resource = [local.topic_arn]
+      },
+    ]
+  }
+
   # --- GitHub Actions ---
   trust_github = {
     for nombre, sub in {
@@ -169,6 +182,17 @@ resource "aws_iam_user_policy" "homelab" {
   name   = "subir-informes-y-avisar"
   user   = aws_iam_user.homelab.name
   policy = jsonencode(local.politica_homelab)
+}
+
+# Su clave se crea a mano (runbook 05), como la del homelab: en Terraform quedaría en el estado
+resource "aws_iam_user" "jenkins" {
+  name = "topology-scanner-jenkins"
+}
+
+resource "aws_iam_user_policy" "jenkins" {
+  name   = "avisar"
+  user   = aws_iam_user.jenkins.name
+  policy = jsonencode(local.politica_jenkins)
 }
 
 # Sin thumbprint: AWS ya no lo comprueba para el OIDC de GitHub

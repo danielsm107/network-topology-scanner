@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] - 2026-11-09
+
+### Added
+- CLI: `--version`.
+- Helm chart 0.3.0 (image 1.4.1): `helm test` checks a deployment for real: the
+  running version, the web UI health endpoint, and a scan of the node itself,
+  without touching the history, uploading anything or sending alerts.
+
 ## [1.4.0] - 2026-11-06
 
 ### Added

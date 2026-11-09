@@ -1,0 +1,55 @@
+{{/*
+Prueba del despliegue (`helm test`): la versión es la esperada, la web responde
+y nmap escanea con las mismas capacidades que el CronJob, solo contra el propio
+nodo. Sin PVC ni Secrets: no toca el historial, no sube nada y no manda el email
+de cambios. Por eso no se usa un Job creado desde el CronJob.
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "topology-scanner.fullname" . }}-prueba
+  labels:
+    {{- include "topology-scanner.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  {{- include "topology-scanner.podComun" . | nindent 2 }}
+  restartPolicy: Never
+  containers:
+    - name: prueba
+      {{- include "topology-scanner.contenedorComun" . | nindent 6 }}
+      workingDir: /tmp
+      env:
+        - name: TZ
+          value: {{ .Values.zonaHoraria | quote }}
+        - name: IP_NODO
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: VERSION_ESPERADA
+          value: {{ default .Values.image.tag .Values.pruebas.versionEsperada | toString | quote }}
+        - name: PUERTO_WEB
+          value: {{ .Values.web.puerto | quote }}
+      command:
+        - sh
+        - -ec
+        - |
+          test "$(topology-scanner --version)" = "topology-scanner $VERSION_ESPERADA"
+          python -c "
+          import os, time, urllib.request
+          url = f'http://{os.environ[\"IP_NODO\"]}:{os.environ[\"PUERTO_WEB\"]}/_stcore/health'
+          for intento in range(3):
+              try:
+                  urllib.request.urlopen(url, timeout=10)
+                  break
+              except OSError:
+                  if intento == 2:
+                      raise
+                  time.sleep(5)
+          "
+          topology-scanner "$IP_NODO" --fast --no-history --output /tmp/p.html --csv /tmp/p.csv
+          test "$(wc -l < /tmp/p.csv)" -ge 2
+          echo "Prueba correcta: versión, web y escaneo del nodo"
+      resources:
+        {{- toYaml .Values.resources.escaneo | nindent 8 }}

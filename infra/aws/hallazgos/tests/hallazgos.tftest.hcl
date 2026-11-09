@@ -95,6 +95,28 @@ run "usuario_del_homelab_con_minimo_privilegio" {
   }
 }
 
+run "usuario_de_jenkins_solo_avisa" {
+  command = plan
+
+  assert {
+    condition     = aws_iam_user.jenkins.name == "topology-scanner-jenkins"
+    error_message = "El usuario de Jenkins no se llama como se espera (el rol de apply solo gestiona topology-scanner-*)."
+  }
+
+  assert {
+    condition     = length(local.politica_jenkins.Statement) == 1
+    error_message = "Jenkins solo necesita publicar: el usuario del homelab ya tiene S3 y por eso no se reutiliza."
+  }
+
+  assert {
+    condition = (
+      local.politica_jenkins.Statement[0].Action == ["sns:Publish"] &&
+      local.politica_jenkins.Statement[0].Resource == ["arn:aws:sns:eu-south-2:123456789012:topology-scanner-hallazgos"]
+    )
+    error_message = "Jenkins solo puede publicar en el topic de avisos."
+  }
+}
+
 run "roles_de_github_separados" {
   command = plan
 

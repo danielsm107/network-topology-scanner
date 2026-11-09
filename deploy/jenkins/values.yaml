@@ -1,0 +1,109 @@
+# Valores del chart oficial de Jenkins (jenkins/jenkins, versión en el runbook
+# 05-jenkins.md y en ci.yml). Los datos reales (dominio) van en values.local.yaml,
+# ignorado por git; ver values.example.yaml.
+
+controller:
+  image:
+    tag: "2.580.2-jdk25@sha256:415ab90d4e3b25148f7191bc04f455a20817d6c4c3b0a98f6c6b0da4877f7081"
+    pullPolicy: IfNotPresent
+  # Sin ejecutores: el controlador no corre pipelines, los corren pods efímeros
+  numExecutors: 0
+  # Secret creado a mano (runbook 05): la contraseña no pasa por los values
+  admin:
+    createSecret: false
+    existingSecret: jenkins-admin
+  resources:
+    requests: {cpu: 200m, memory: 1Gi}
+    limits: {cpu: "2", memory: 2Gi}
+  javaOpts: "-XX:MaxRAMPercentage=60"
+  # NPM hace de proxy a <IP del nodo>:30880, con HTTPS y solo desde la LAN
+  serviceType: NodePort
+  nodePort: 30880
+  testEnabled: false
+  installPlugins:
+    - kubernetes:4560.vc25b_83890c34
+    - workflow-aggregator:608.v67378e9d3db_1
+    - git:5.11.0
+    - configuration-as-code:2147.v8a_8d38668c72
+    - job-dsl:3732.v9a_c49a_61a_313
+  # Dependencias en la versión mínima que piden: instalar dos veces da lo mismo
+  installLatestPlugins: false
+  # Sin el sidecar de recarga: una imagen menos. Un cambio de JCasC se aplica al reiniciar
+  sidecars:
+    configAutoReload:
+      enabled: false
+  JCasC:
+    securityRealm: |-
+      local:
+        allowsSignup: false
+        enableCaptcha: false
+        users:
+          - id: "${chart-admin-username}"
+            name: "Jenkins Admin"
+            password: "${chart-admin-password}"
+    authorizationStrategy: |-
+      loggedInUsersCanDoAnything:
+        allowAnonymousRead: false
+    configScripts:
+      jobs: |
+        jobs:
+          - script: |
+              pipelineJob('desplegar') {
+                description('Despliega el escáner: prueba, marcha atrás y aviso. Runbook 05-jenkins.md')
+                logRotator { numToKeep(100) }
+                parameters {
+                  choiceParam('MODO', ['manual', 'automatico'], 'automatico solo lo usa el job sondear')
+                  stringParam('VERSION', '', 'X.Y.Z. Vacío: vuelve a desplegar la actual con los values del Secret')
+                  choiceParam('ENSAYO', ['ninguno', 'no-arranca', 'falla-prueba'], 'Ensayo de fallo; solo en manual')
+                }
+                properties { disableConcurrentBuilds() }
+                definition {
+                  cpsScm {
+                    scm {
+                      git {
+                        remote { url('https://github.com/danielsm107/network-topology-scanner.git') }
+                        branch('*/main')
+                      }
+                    }
+                    scriptPath('Jenkinsfile')
+                    lightweight(true)
+                  }
+                }
+              }
+              pipelineJob('sondear') {
+                description('Cada 5 minutos: si hay una versión nueva, lanza desplegar')
+                logRotator { numToKeep(20) }
+                properties {
+                  disableConcurrentBuilds()
+                  pipelineTriggers { triggers { cron { spec('H/5 * * * *') } } }
+                }
+                definition {
+                  cpsScm {
+                    scm {
+                      git {
+                        remote { url('https://github.com/danielsm107/network-topology-scanner.git') }
+                        branch('*/main')
+                      }
+                    }
+                    scriptPath('deploy/jenkins/sondear.Jenkinsfile')
+                    lightweight(true)
+                  }
+                }
+              }
+
+agent:
+  # Por digest; los pipelines lo heredan con inheritFrom 'default'
+  image:
+    tag: "3395.v6e5377b_0fb_3c-4-jdk25@sha256:b800dc3ef1e95eb74918f61d7323b31bff7fd2c8d7e692f8f56578e7541d84ea"
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+# La crea deploy/jenkins/rbac.yaml
+serviceAccountAgent:
+  create: false
+  name: jenkins-agente
+
+persistence:
+  storageClass: local-path
+  size: 8Gi

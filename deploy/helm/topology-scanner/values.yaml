@@ -4,7 +4,7 @@
 image:
   repository: ghcr.io/danielsm107/topology-scanner
   # Tag fijo, nunca latest: el clúster tiene que correr una versión conocida
-  tag: "1.4.0"
+  tag: "1.4.1"
   pullPolicy: IfNotPresent
 
 escaneo:
@@ -41,6 +41,11 @@ web:
 # Secret con TOPOLOGY_SNMP_USER / _AUTH_KEY / _PRIV_KEY. Se crea a mano, nunca
 # desde el chart (ver docs/devops/runbooks/03-kubernetes.md)
 snmpSecret: topology-scanner-snmp
+
+# Prueba del despliegue (`helm test`). Vacío = comprueba image.tag. Solo lo
+# cambia el ensayo de fallo del pipeline de Jenkins (runbook 05-jenkins.md)
+pruebas:
+  versionEsperada: ""
 
 # Fase 4: el nocturno sube a S3 los informes (HTML, CSV y cambios) y la copia
 # del historial, y si hubo cambios avisa por SNS (email) con enlaces temporales.

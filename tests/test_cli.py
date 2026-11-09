@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from topology_scanner import __version__
 from topology_scanner.cli import VARIABLE_COMMUNITY, _resolver_argumentos_nmap, construir_parser, main
 from topology_scanner.export import ExportError
 from topology_scanner.history import HistoryError
@@ -626,3 +627,13 @@ def test_sin_flags_nuevos_no_escribe_nada_extra(cli_simulado, tmp_path, monkeypa
 
     assert list(tmp_path.iterdir()) == []
     cli_simulado["copiar"].assert_not_called()
+
+
+def test_version_imprime_la_del_paquete(capsys):
+    """La usa la prueba del despliegue (`helm test`) para comprobar que la
+    imagen que corre es la que se quería desplegar."""
+    with pytest.raises(SystemExit) as salida:
+        construir_parser().parse_args(["--version"])
+
+    assert salida.value.code == 0
+    assert capsys.readouterr().out.strip() == f"topology-scanner {__version__}"

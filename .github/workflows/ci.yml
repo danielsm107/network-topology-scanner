@@ -91,6 +91,11 @@ jobs:
       - name: helm template
         run: helm template ci deploy/helm/topology-scanner -f deploy/helm/topology-scanner/values.example.yaml
 
+      - name: helm template de Jenkins (chart oficial con nuestros valores)
+        run: |
+          helm repo add jenkins https://charts.jenkins.io
+          helm template ci jenkins/jenkins --version 5.10.13 -f deploy/jenkins/values.yaml -f deploy/jenkins/values.example.yaml
+
   # La imagen Docker: se construye, se prueba por fuera (como la usaría
   # alguien) y se escanea. Publicarla es cosa de release.yml.
   #
