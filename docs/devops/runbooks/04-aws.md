@@ -207,10 +207,15 @@ kubectl -n topology-scanner delete job prueba
 --for=condition=failed` espera a que se cumplan las dos, y se queda colgado.
 
 La subida termina en `Aviso publicado en SNS.` si mereció aviso, o en `Sin
-cambios ...: no se avisa.`. Para forzar un aviso desde la 1.5.0, apagar o
-encender un equipo ya no basta: hace falta abrir o cerrar un puerto en un host
-conocido (por ejemplo, arrancar un `python -m http.server` en un PC de la red). El asunto es ASCII (límite de SNS) y lo
-sensible va primero.
+cambios ...: no se avisa.` si no (el texto es anterior a la 1.5.0: también sale
+cuando hubo cambios que no merecen aviso). Para forzar un aviso desde la 1.5.0,
+apagar o encender un equipo ya no basta: hace falta abrir o cerrar un puerto
+**de los que mira el escaneo** (`PUERTOS_POR_DEFECTO`, el chart no pasa
+`--ports`) en un host que ya esté en el historial. Por ejemplo,
+`python -m http.server 8080` en un PC de la red que no tenga el 8080 abierto (el
+8000 por defecto no se escanea). Pararlo después: si no, la noche siguiente
+vuelve a avisar, al cerrarse. El asunto es ASCII (límite de SNS) y lo sensible
+va primero.
 
 Ver lo subido: `aws s3 ls s3://<bucket> --recursive --profile personal`.
 

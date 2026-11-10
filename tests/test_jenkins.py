@@ -573,7 +573,11 @@ def test_plugins_con_version_fija():
 def test_plugins_con_todas_sus_dependencias_bloqueadas():
     """Con installLatestPlugins: false, una dependencia que no esté en la lista se
     instala en su versión mínima. Así dejó de cargar Pipeline: Declarative, y
-    `pipeline { }` terminaba en verde sin ejecutar nada."""
+    `pipeline { }` terminaba en verde sin ejecutar nada.
+
+    Sin red no se puede saber si falta una dependencia: esto solo comprueba que
+    están las imprescindibles, sin repetidas. La prueba de verdad es "0 Failed
+    Loading" al instalar (runbook 05-jenkins.md)."""
     controlador = _controlador()
     versiones = dict(plugin.split(":", 1) for plugin in controlador["installPlugins"])
 

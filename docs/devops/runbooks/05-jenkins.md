@@ -181,9 +181,10 @@ MSYS_NO_PATHCONV=1 kubectl -n jenkins exec jenkins-0 -c jenkins -- ls /var/jenki
 # 3. Sin login no se entra: 403
 curl -s -o /dev/null -w '%{http_code}\n' http://<IP del nodo>:30880/api/json
 
-# 4. El log del primer sondeo (a los 5 min) dice qué ha decidido
-MSYS_NO_PATHCONV=1 kubectl -n jenkins exec jenkins-0 -c jenkins -- \
-  grep -E 'Nada que desplegar|Versión nueva' /var/jenkins_home/jobs/sondear/builds/1/log
+# 4. El log del último sondeo (el primero llega a los 5 min) dice qué ha decidido
+MSYS_NO_PATHCONV=1 kubectl -n jenkins exec jenkins-0 -c jenkins -- sh -c \
+  'd=/var/jenkins_home/jobs/sondear/builds; n=$(ls $d | grep -E "^[0-9]+$" | sort -n | tail -1);
+   grep -E "Nada que desplegar|Versión nueva" $d/$n/log'
 ```
 
 Mirar el **log**, no solo el color: con plugins incompletos, `pipeline { }`
