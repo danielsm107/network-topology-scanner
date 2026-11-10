@@ -669,3 +669,75 @@ contexto completo.
   - **Ensayo de restauración de verdad** (borrando el PVC): lo pedía el diseño,
     y "lo probé restaurando" pesa más que "tengo backups". Enseñó que los Pods de
     Jobs `Completed` mantienen el PVC en `Terminating`.
+- Jenkins y despliegue continuo (fase DevOps 5, runbook `docs/devops/runbooks/05-jenkins.md`):
+  - **Jenkins dentro, sondeando hacia fuera**: GitHub Actions corre en la nube y
+    no llega a la LAN; abrir el clúster a un webhook sería exponer el homelab.
+    Jenkins mira GitHub cada 5 min y nada entra. Por eso hay dos herramientas: CI
+    y publicación en Actions, despliegue en Jenkins.
+  - **Despliegue automático, sin staging ni aprobación** (decisión del
+    mantenedor): con un nodo y `hostNetwork`, un staging demostraría poco y es lo
+    que más memoria gasta. La red de seguridad es la prueba (`helm test`) y la
+    marcha atrás automática.
+  - **"Publicada" = release de GitHub + tag en GHCR**, no el tag de git: el tag
+    aparece antes que la imagen, y si los tests fallan la imagen no llega nunca.
+    Se espera hasta 60 min.
+  - **Una versión fallida no se reintenta sola** (ConfigMap
+    `estado-despliegue`): si no, cada sondeo repetiría despliegue, rollback y
+    email. La marca se guarda antes del rollback y del aviso. Una bajada manual
+    marca las superiores, para que el sondeo no la deshaga.
+  - **La versión desplegada se lee del clúster**, no de Jenkins: perder
+    `JENKINS_HOME` (el ensayo 4 lo borró) no cambia ninguna decisión.
+  - **Toda la lógica en `sh` con tests** (`deploy/jenkins/*.sh`,
+    `tests/test_jenkins.py`, con helm/kubectl/curl/aws falsos), no en Groovy:
+    los caminos de fallo son los que peor se ensayan en vivo. Los `Jenkinsfile`
+    solo preparan el agente.
+  - **Chart del tag, `Jenkinsfile` de `main`**: se despliega exactamente lo que
+    se publicó, y el pipeline se puede arreglar sin sacar versión. `image.tag`
+    se fuerza después de los values: los values reales no pueden desplegar otra
+    imagen (y un test exige que el chart y `pyproject.toml` coincidan).
+  - **Values reales en el Secret `topology-scanner-values`** (fuente de verdad):
+    el PC y el clúster no pueden divergir. Si al Secret le falta la clave
+    `values.yaml`, el despliegue se para: si no, Helm aplicaría los valores por defecto (el rango
+    inventado, sin SNMP ni AWS) en verde y sin avisar.
+  - **Prueba con `helm test`, no con un Job del CronJob**: ese Job escribiría en
+    el historial, movería la base de comparación, subiría a S3 y podría mandar el
+    email de cambios. La prueba comprueba la versión, la web y un escaneo **solo
+    del propio nodo**, sin PVC. `helm test` sin `Phase: Succeeded` cuenta como
+    fallo (una revisión sin hooks da 0 sin probar nada).
+  - **Rollback a una revisión explícita**, la de antes del upgrade, y no
+    `rollback 0`: si el upgrade falla antes de crear revisión (values inválidos),
+    volver "a la anterior" bajaría una versión de más. Lo encontró la revisión.
+  - **Helm no devuelve los datos atrás**: el rollback sigue siendo automático y
+    cada email de rollback advierte de las migraciones de esquema y enlaza la
+    restauración desde S3. Sin copia previa ni detección de esquema: las
+    migraciones son raras y añadirían permisos y estados al pipeline.
+  - **El acceso de Jenkins, por escrito**: `Role` solo en `topology-scanner`,
+    nunca `cluster-admin`, pero con `secrets` (Helm guarda ahí sus revisiones,
+    así que también lee los de SNMP y AWS) y crear Pods, que sin Pod Security es
+    root en el nodo y, con un nodo, el clúster. `baseline` no vale porque el
+    chart necesita `hostNetwork` y capacidades. Se acepta con contraseña, sin
+    anónimo y solo en la LAN; comprometer Jenkins es comprometer el clúster.
+  - **Aviso por el mismo SNS con un usuario IAM propio** (`sns:Publish` sobre el
+    topic y nada más): el del homelab escribe en S3. Clave a mano, fuera del
+    estado de Terraform. Los despliegues correctos no avisan.
+  - **Plugins: lista completa fijada, dependencias incluidas.** Con
+    `installLatestPlugins: false`, una dependencia que falte se instala en su
+    versión mínima: en la instalación real *Pipeline: Declarative* no cargó y
+    `pipeline { }` terminaba **en verde sin ejecutar nada**. Lección: un build
+    verde no demuestra nada; mirar el log ("Failed Loading", qué decidió).
+  - **`aws-cli` v1 en `alpine/k8s`** no lee `AWS_REGION`: la región sale del
+    propio ARN del topic.
+  - **Ensayos de fallo con un parámetro manual** (`ENSAYO`) que cambia la imagen
+    o la versión esperada **con el chart del tag**: misma ruta que un despliegue
+    real, sin publicar nunca una versión rota (PyPI no deja volver a subirla y
+    pasaría a `latest`). El de "nunca publicada" usó un tag `v1.4.99` que
+    `release.yml` corta por no coincidir con `pyproject.toml`.
+  - **El PVC de Jenkins se va con `helm uninstall`** (el chart oficial no pone
+    `resource-policy: keep`). Se acepta: solo guarda el historial de builds.
+  - **Filtro de ruido de los avisos** (v1.5.0, `history.merece_aviso`): email
+    solo por un host **nunca visto** en ese rango con algún puerto abierto, o por
+    un cambio de puertos. El mantenedor eligió "nunca visto" frente a "no estaba
+    anoche": los equipos domésticos que entran y salen avisaban cada noche.
+    Filtrar por MAC no servía (detrás de un router nmap no la ve). `hay_cambios`
+    no cambia: la web y el historial lo siguen mostrando todo. Se pierde a
+    sabiendas que avise un equipo nuevo sin puertos o uno importante que cae.

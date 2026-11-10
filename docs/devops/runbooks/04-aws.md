@@ -39,12 +39,28 @@ Flujo de una noche con `aws.enabled`:
 
 1. `initContainer` **escaneo** (la imagen de siempre): escanea, guarda en el
    historial del PVC y deja en un `emptyDir` (`/salida`) el HTML, el CSV, una
-   copia consistente del historial y, **solo si hubo cambios**, `cambios/`
-   (`cambios.json`, `asunto.txt`, `cuerpo.txt`).
+   copia consistente del historial y, **solo si merece aviso**, `cambios/`
+   (`cambios.json`, `asunto.txt`, `cuerpo.txt`). Ver "Cuándo avisa".
 2. Contenedor **subida** (`amazon/aws-cli` por digest, sin capacidades, raíz de
    solo lectura): sube todo a S3 y, si existe `cambios.json`, firma enlaces de
    7 días y publica el aviso en SNS. Si falla la copia del historial, el aviso
    sale igual y el Job termina fallido.
+
+### Cuándo avisa (desde v1.5.0)
+
+Las primeras noches avisó a diario por equipos de casa que entran y salen de la
+red, y un aviso diario se acaba ignorando. Desde la 1.5.0 (`history.merece_aviso`),
+el email sale solo si en algún rango hay:
+
+- un host **nunca visto** en ese rango (en ningún escaneo guardado, los últimos 50)
+  con al menos un puerto abierto, o
+- un **cambio de puertos** en un host que ya estaba.
+
+Ya no avisan los hosts que caen, los que no tienen puertos ni los conocidos que
+vuelven. Cuando el email sale, lleva **todos** los cambios, como antes. La web y
+el historial lo siguen mostrando todo. Límites: se identifica por IP (un equipo
+conocido con una IP nueva sí avisa) y un equipo que vuelve con puertos distintos
+no avisa (no hay escaneo anterior con el que comparar).
 
 Retenciones del bucket: `informes/` 90 días; versiones antiguas de
 `historial/historial.db`, 30 días (la actual no caduca).
@@ -190,9 +206,10 @@ kubectl -n topology-scanner delete job prueba
 `kubectl wait` con **una** condición: con `--for=condition=complete
 --for=condition=failed` espera a que se cumplan las dos, y se queda colgado.
 
-La subida termina en `Aviso publicado en SNS.` si hubo cambios, o en `Sin
-cambios ...: no se avisa.`. Para forzar un aviso: encender o apagar algún
-dispositivo de la red antes del Job. El asunto es ASCII (límite de SNS) y lo
+La subida termina en `Aviso publicado en SNS.` si mereció aviso, o en `Sin
+cambios ...: no se avisa.`. Para forzar un aviso desde la 1.5.0, apagar o
+encender un equipo ya no basta: hace falta abrir o cerrar un puerto en un host
+conocido (por ejemplo, arrancar un `python -m http.server` en un PC de la red). El asunto es ASCII (límite de SNS) y lo
 sensible va primero.
 
 Ver lo subido: `aws s3 ls s3://<bucket> --recursive --profile personal`.
@@ -263,6 +280,14 @@ rm ~/historial-restaurado.db
 
 Comprobación: la web lista las ejecuciones de antes, y un Job de prueba (paso 5)
 compara contra la última restaurada (pocos cambios, no todos los hosts nuevos).
+
+## Usuario de Jenkins (fase 5)
+
+`infra/aws/hallazgos/` crea también `topology-scanner-jenkins`, con **solo
+`sns:Publish` sobre el topic**: Jenkins avisa de un despliegue fallido por el
+mismo email. No reutiliza el usuario del homelab porque ese escribe en S3, y
+Jenkins no lo necesita. Su clave, también a mano y fuera del estado: ver
+`05-jenkins.md`, paso 2.
 
 ## Cambiar la infraestructura de AWS
 

@@ -13,7 +13,7 @@ otros, solo contra esas redes. Diseño:
 - [x] `helm install` en el k3s: web `Running`, PVC `Bound`, CronJob programado (2026-11-03).
 - [x] Escaneo a mano desde el CronJob: termina, con MAC en la red del nodo y árbol SNMP (98 s, 2026-11-03).
 - [x] La web, detrás de NPM por HTTPS y websockets, lista la ejecución y la abre entera.
-- [ ] A la mañana siguiente, la lista tiene una ejecución de las 3:00 con origen `cli`.
+- [x] A la mañana siguiente, la lista tiene una ejecución de las 3:00 con origen `cli` (2026-11-04).
 
 ## Piezas
 
@@ -163,14 +163,28 @@ La primera vez, la web tarda unos segundos en estar `1/1` (descarga la imagen
 de GHCR). Un `Readiness probe failed ... connection refused` en los eventos al
 arrancar es normal: la sonda llega antes que Streamlit.
 
-Cualquier cambio de los values o del chart (rangos, horario, versión de la
-imagen) se aplica igual, y cada `upgrade` es una revisión nueva:
+**Desde la fase 5 los despliegues los hace Jenkins** (`05-jenkins.md`): una
+versión nueva llega sola al sacar el tag, y los values reales viven en el Secret
+`topology-scanner-values`, que pasa a ser la fuente de verdad. Cambiar un rango,
+el horario o SNMP es actualizar el Secret y lanzar `desplegar` a mano con
+`VERSION` vacía (con prueba y rollback si falla):
 
 ```bash
+kubectl -n topology-scanner create secret generic topology-scanner-values \
+  --from-file=values.yaml=deploy/helm/values.local.yaml --dry-run=client -o yaml | kubectl apply -f -
+```
+
+`helm upgrade` desde el PC queda **solo para emergencias** (Jenkins caído, por
+ejemplo), y con el chart del tag desplegado, no el de `main`. Después, actualizar
+el Secret si cambiaron los values: si no, el siguiente despliegue los deshace.
+
+```bash
+git switch --detach vX.Y.Z      # el tag que está desplegado
 helm upgrade topology-scanner ./deploy/helm/topology-scanner \
   -n topology-scanner -f deploy/helm/values.local.yaml --wait
 helm -n topology-scanner history topology-scanner
 helm -n topology-scanner rollback topology-scanner <revisión>   # si algo va mal
+git switch main
 ```
 
 La web usa la estrategia `Recreate`: en cada upgrade se corta unos segundos.

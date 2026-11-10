@@ -58,11 +58,12 @@ cd infra/aws/hallazgos && terraform init -backend=false && terraform validate &&
 # AWS (infra/aws/hallazgos): por PR (plan en comentario, apply en main con aprobación); runbook 04-aws.md
 # apply real: runbook docs/devops/runbooks/02-proxmox-vm.md (token por entorno, perfil AWS `personal`)
 
-# Helm (deploy/helm/): lint/template sin clúster; install/upgrade solo desde el PC del mantenedor
+# Helm (deploy/helm/): lint/template sin clúster
 helm lint deploy/helm/topology-scanner -f deploy/helm/topology-scanner/values.example.yaml --strict
-# install/upgrade/Secret SNMP/NPM: runbook docs/devops/runbooks/03-kubernetes.md
-KUBECONFIG=~/.kube/config-homelab helm upgrade topology-scanner ./deploy/helm/topology-scanner \
-  -n topology-scanner -f deploy/helm/values.local.yaml --wait
+# Despliegue: lo hace Jenkins al publicarse un tag (runbook 05-jenkins.md). Cambiar values =
+# actualizar el Secret topology-scanner-values y lanzar `desplegar` a mano con VERSION vacía.
+# helm upgrade desde el PC solo como emergencia, con el chart del tag desplegado (runbook 03-kubernetes.md)
+# Jenkins (deploy/jenkins/): install/upgrade desde el PC, chart jenkins/jenkins 5.10.13 (runbook 05-jenkins.md)
 ```
 
 El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
@@ -119,7 +120,9 @@ infra/aws/bootstrap/   # Terraform: bucket S3 del estado (estado local, ignorado
 infra/aws/hallazgos/   # Terraform: bucket de informes, SNS (email), IAM del homelab, OIDC de GitHub; apply por terraform-aws.yml
 infra/proxmox/         # Terraform: VM k3s en Proxmox (cloud-init + network-config propios); tfvars/backend.hcl ignorados
 deploy/helm/topology-scanner/  # chart: CronJob nocturno (+ subida a S3 y aviso con aws.enabled) + web (hostNetwork) + PVC; Secrets SNMP y AWS a mano
-deploy/helm/values.local.yaml  # valores reales del homelab (redes, router, dominio de NPM): ignorado por git
+deploy/helm/values.local.yaml  # valores reales del homelab (redes, router, dominio de NPM): ignorado por git; en el clúster, Secret topology-scanner-values
+deploy/jenkins/        # Jenkins (JCasC, plugins fijados) + scripts sh del despliegue (elegir, esperar, upgrade, test, rollback, avisar); values.local.yaml ignorado
+Jenkinsfile            # job desplegar: solo prepara el agente y llama a deploy/jenkins/desplegar.sh
 ```
 
 **Principio de diseño**: cada módulo no sabe nada de los demás salvo lo
@@ -162,6 +165,9 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - `export.resumen_cambios_email` (asunto ASCII ≤ 100, sensibles primero) y
   `history.copiar_historial` (API de backup de SQLite): los usan `--changes-dir` y
   `--history-backup`, que el chart lee en `files/subir.sh`. La app no sabe de AWS.
+- `history.merece_aviso(diff, resultados)`: decide el email nocturno (host **nunca
+  visto** en el rango con puertos, o cambio de puertos; clave `hosts_nunca_vistos`
+  del diff). `hay_cambios` sigue diciendo si hay *algo*: la web lo muestra todo.
 - `history.registrar_ejecucion` / `listar_ejecuciones` / `cargar_ejecucion`: una
   pasada (todos sus rangos + topología SNMP) es una ejecución; CLI y web guardan
   con `registrar_ejecucion` (`registrar_y_comparar` queda como envoltorio de un rango).
@@ -256,8 +262,9 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
     también `cryptography`, que pysnmp necesita para cifrar).
 12. ~~**v1.0 en PyPI**~~ — hecho (`release.yml`, `CHANGELOG.md`, captura del
     árbol en el README con `scripts/demo_arbol.py`). Después, la fase DevOps
-    (`docs/devops/README.md`): fases 0-4 hechas (contenedor, VM de Proxmox,
-    k3s + Helm, AWS + avisos por email); quedan Jenkins (5) y observabilidad (6).
+    (`docs/devops/README.md`): fases 0-5 hechas (contenedor, VM de Proxmox,
+    k3s + Helm, AWS + avisos por email, Jenkins con prueba y rollback);
+    queda observabilidad (6).
 
 **Ideas pendientes** (sin orden decidido):
 - Fabricante (por OUI, con la base de datos de nmap) para los hosts que solo
