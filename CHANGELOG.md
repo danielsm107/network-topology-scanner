@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-11-09
+
+### Changed
+- `--changes-dir` (and so the nightly email alert) now only fires for a host
+  never seen before in that range with at least one open port, or for a port
+  change. Hosts going down, hosts without open ports and known hosts coming back
+  no longer alert: a daily alert ends up ignored. When it fires, it still lists
+  every change. The terminal output, the web UI and the history show everything,
+  as before. "Never seen" looks at the scans kept in the history (the last 50 per
+  range) and identifies hosts by IP.
+
 ## [1.4.1] - 2026-11-09
 
 ### Added

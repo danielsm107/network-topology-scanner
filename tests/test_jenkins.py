@@ -566,8 +566,22 @@ def test_plugins_con_version_fija():
 
     assert controlador["installLatestPlugins"] is False
     for plugin in controlador["installPlugins"]:
-        assert re.fullmatch(r"[a-z-]+:\S+", plugin), plugin
+        assert re.fullmatch(r"[a-z0-9_-]+:\S+", plugin), plugin
         assert not plugin.endswith(":latest")
+
+
+def test_plugins_con_todas_sus_dependencias_bloqueadas():
+    """Con installLatestPlugins: false, una dependencia que no esté en la lista se
+    instala en su versión mínima. Así dejó de cargar Pipeline: Declarative, y
+    `pipeline { }` terminaba en verde sin ejecutar nada."""
+    controlador = _controlador()
+    versiones = dict(plugin.split(":", 1) for plugin in controlador["installPlugins"])
+
+    assert controlador["overwritePlugins"] is True, "el volumen no puede conservar otras versiones"
+    assert len(versiones) == len(controlador["installPlugins"]), "plugin repetido"
+    for imprescindible in ("pipeline-model-definition", "pipeline-model-extensions", "pipeline-model-api",
+                           "workflow-job", "pipeline-stage-step", "workflow-cps"):
+        assert imprescindible in versiones
 
 
 def test_rbac_sin_cluster_admin():
