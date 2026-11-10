@@ -14,7 +14,7 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 | 2 | VM de Proxmox como código | Hecha | [02-proxmox-vm.md](runbooks/02-proxmox-vm.md) |
 | 3 | Despliegue en Kubernetes | Hecha | [03-kubernetes.md](runbooks/03-kubernetes.md) |
 | 4 | AWS como código + hallazgos | Hecha | [04-aws.md](runbooks/04-aws.md) |
-| 5 | Jenkins (CD) | Pendiente | |
+| 5 | Jenkins (CD) | Hecha | [05-jenkins.md](runbooks/05-jenkins.md) |
 | 6 | Observabilidad | Pendiente | |
 
 ## Piezas que ya existen
@@ -27,10 +27,13 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 - `infra/proxmox/`: la VM k3s (Ubuntu 26.04 + cloud-init + k3s fijado); estado en S3, `apply` desde el PC.
 - `.github/workflows/ci.yml`, job `terraform`: `fmt`, `validate` y `terraform test` (provider simulado).
 - `deploy/helm/topology-scanner/`: chart de Helm (escaneo nocturno como CronJob, web, PVC del historial);
-  `helm install`/`upgrade` desde el PC, valores reales en `deploy/helm/values.local.yaml` (ignorado).
+  instalado desde el PC; desde la fase 5 lo despliega Jenkins (valores reales en `deploy/helm/values.local.yaml`, ignorado, y en un Secret).
 - `.github/workflows/ci.yml`, job `helm`: `helm lint` y `helm template`; `tests/test_helm.py` renderiza el chart.
 - `infra/aws/hallazgos/`: bucket de informes (y copia del historial), SNS con suscripción email, usuario IAM
   del homelab, OIDC de GitHub con rol de plan (PRs) y de apply (environment `aws`, con aprobación).
 - `.github/workflows/terraform-aws.yml`: plan de `infra/aws/hallazgos/` como comentario en los PRs, apply en main.
 - Chart con `aws.enabled`: el Job nocturno sube informes y copia del historial a S3 y avisa por SNS si hubo
   cambios (`files/subir.sh`, contenedor `amazon/aws-cli`).
+- `deploy/jenkins/` + `Jenkinsfile`: Jenkins en k3s (JCasC, plugins fijados, sin anónimo) que sondea GitHub
+  cada 5 min y despliega cada tag publicado: `helm upgrade`, `helm test`, rollback y email si falla. Values
+  reales en el Secret `topology-scanner-values`; `helm upgrade` desde el PC solo como emergencia.

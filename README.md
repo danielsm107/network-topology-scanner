@@ -251,7 +251,9 @@ Hosts on other subnets will show up as category "unknown".
 The author runs it as a small self-hosted system, all of it defined in this repo:
 a k3s VM on Proxmox (Terraform), a Helm chart with a nightly scan and the web UI,
 and a few AWS resources (Terraform, applied by GitHub Actions through OIDC) for
-reports, a history backup and email alerts when the network changes. Nothing in
+reports, a history backup and email alerts when the network changes. Releases
+are deployed by Jenkins inside the cluster: it polls GitHub for new tags, runs
+`helm upgrade` and `helm test`, and rolls back and emails on failure. Nothing in
 the homelab is exposed to the internet. The how and why, phase by phase, is in
 [`docs/devops/`](https://github.com/danielsm107/network-topology-scanner/blob/main/docs/devops/README.md) (in Spanish).
 
