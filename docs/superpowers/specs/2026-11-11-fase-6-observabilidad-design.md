@@ -7,22 +7,21 @@ kube-state-metrics) y dejaba abierto cómo sacar las métricas del escaneo.
 ## Intención
 
 Hoy, si algo del homelab se rompe, el mantenedor se entera tarde o por
-casualidad. El fallo real que ha tenido es **un corte de luz**: se apaga el
-MiniPC entero (Proxmox, la VM k3s y todo lo que corre dentro). Ningún sistema
-de alertas que viva dentro de esa máquina puede avisar de que esa máquina está
-apagada. Por eso el diseño tiene dos mitades:
+casualidad. El diseño tiene dos mitades:
 
-1. **Desde dentro**: Prometheus vigila lo que pasa con el clúster encendido
-   (Jobs que fallan, el nocturno que no corre, disco lleno, pods que no
-   arrancan) y avisa por Telegram.
-2. **Desde fuera**: un "interruptor de hombre muerto". El clúster da señales
-   de vida a un servicio externo cada pocos minutos; si dejan de llegar, es el
-   servicio externo quien avisa. Así un corte de luz también llega a Telegram,
-   y cuando vuelve la luz, otro aviso dice que ha vuelto y cuánto estuvo caído.
+1. **Desde dentro**: Prometheus vigila lo que pasa con el clúster (Jobs que
+   fallan, el nocturno que no corre, disco lleno, pods que no arrancan) y
+   avisa por Telegram.
+2. **Un vigilante de la monitorización, desde fuera**: un "interruptor de
+   hombre muerto". La cadena de alertas da señales de vida a un servicio
+   externo cada pocos minutos; si dejan de llegar (Prometheus o Alertmanager
+   caídos, la VM colgada o apagada), es el servicio externo quien avisa. Sin
+   esto, una monitorización rota se parece a "todo va bien": simplemente no
+   llegan avisos.
 
 Para el portfolio, esto responde a "¿cómo sabes que tu sistema funciona?" y a
-"¿y si se cae la máquina que te tiene que avisar?", que es la pregunta que
-separa una instalación de Grafana de un sistema de alertas pensado.
+"¿quién vigila al vigilante?", que es la pregunta que separa una instalación de
+Grafana de un sistema de alertas pensado.
 
 ## Objetivos
 
@@ -30,8 +29,8 @@ separa una instalación de Grafana de un sistema de alertas pensado.
    k3s, en el namespace `monitoring`, instalados con Helm y configurados como
    código (reglas, paneles y rutas de alerta en el repo).
 2. Avisos por **Telegram** de lo que pasa con el clúster encendido.
-3. **Corte de luz o caída de la máquina** avisado por Telegram desde fuera, y
-   aviso de recuperación al volver.
+3. **Monitorización caída** (Prometheus, Alertmanager o la VM entera) avisada
+   por Telegram desde fuera, y aviso de recuperación al volver.
 4. Métricas del escaneo nocturno (hosts vivos, puertos sensibles, hosts nunca
    vistos, duración) con su panel en Grafana, con histórico.
 5. Todo **ensayado de verdad**: un Job que falla a propósito, la VM apagada a
@@ -41,8 +40,9 @@ separa una instalación de Grafana de un sistema de alertas pensado.
 
 ## No-objetivos
 
-- **Evitar el apagón.** Eso es hardware (un SAI y NUT para apagar ordenado);
-  queda como idea. Esta fase solo hace que el apagón **se sepa**.
+- **Cortes de luz**: el mantenedor no quiere diseñar en torno a ellos. Si
+  ocurren, el vigilante externo avisará como de cualquier caída, pero no hay
+  nada específico (ni SAI, ni comprobaciones de la BIOS).
 - Logs centralizados (Loki) y trazas.
 - Grafana fuera de la LAN: mismo patrón que la web y Jenkins (NPM con Access
   List solo LAN).
@@ -56,8 +56,8 @@ separa una instalación de Grafana de un sistema de alertas pensado.
   arreglar; nada que salte a diario por estado normal. Las reglas por defecto
   del chart que en k3s dan falsos positivos (componentes del plano de control
   que k3s no expone por separado) se desactivan.
-- **Dar por cubierto el corte de luz con alertas internas.** Si el ensayo de
-  apagar la VM no produce un Telegram, la fase no está hecha.
+- **Dar por vigilada la monitorización con alertas internas.** Si el ensayo de
+  tirar Alertmanager no produce un Telegram desde fuera, la fase no está hecha.
 - **Que la monitorización tumbe lo monitorizado**: límites de memoria y
   retención corta; el nocturno y Jenkins tienen que seguir funcionando igual.
 - Secretos (token del bot, URL del servicio externo) en el repo o en el estado.
@@ -93,8 +93,6 @@ separa una instalación de Grafana de un sistema de alertas pensado.
   - Un pod de `topology-scanner`, `jenkins` o `monitoring` no arranca o se
     reinicia en bucle.
   - Un PVC por encima del 85 %.
-  - **El nodo se ha reiniciado** (arrancó hace menos de N minutos): aviso
-    informativo, que tras un corte de luz confirma que todo ha vuelto solo.
 - De las reglas por defecto del chart se conservan las de nodo y Kubernetes que
   tengan sentido en un nodo único; las que no, se desactivan explicando por qué.
 - Agrupación y repetición pensadas para no saturar: un mensaje por problema,
@@ -111,7 +109,7 @@ separa una instalación de Grafana de un sistema de alertas pensado.
   Alertmanager envía), no solo que la VM tenga red. Si Prometheus o
   Alertmanager se caen, también se avisa.
 - Plazo antes de avisar: unos 10-15 minutos, para que un reinicio normal
-  (actualizar la VM) no avise.
+  (actualizar la VM o el chart de monitorización) no avise.
 - La URL de ping es un secreto (quien la tenga puede "dar vida"): va en el
   mismo Secret que Telegram.
 
@@ -140,9 +138,8 @@ separa una instalación de Grafana de un sistema de alertas pensado.
       salvo `Watchdog`.
 - [ ] Ensayo 1: un Job que falla a propósito en `topology-scanner` llega a
       Telegram, y luego el "resuelto".
-- [ ] Ensayo 2: apagar la VM k3s a mano (`qm shutdown`) → aviso de
-      healthchecks.io en Telegram; al encenderla, aviso de recuperación y aviso
-      de "nodo reiniciado".
+- [ ] Ensayo 2: escalar Alertmanager a 0 réplicas → aviso de healthchecks.io
+      en Telegram pasado el plazo; al volver a 1, aviso de recuperación.
 - [ ] Ensayo 3: borrar el chart de monitorización y reinstalar desde el repo deja
       reglas, paneles y avisos igual.
 - [ ] v1.6.0 desplegada por Jenkins y el nocturno siguiente aparece en el panel.
@@ -151,15 +148,8 @@ separa una instalación de Grafana de un sistema de alertas pensado.
 
 Crear el bot con BotFather y sacar el chat ID; crear la cuenta de
 healthchecks.io, el check y su integración de Telegram; crear el archivo con
-los secretos y el Secret; la entrada de NPM para Grafana; y apagar la VM en el
-ensayo 2. Claude no ve los valores de los secretos.
-
-## Supuestos a confirmar
-
-- **Que el MiniPC se enciende solo al volver la luz** (opción de BIOS tipo
-  "Restore on AC power loss"). La VM k3s tiene `onboot: 1`, así que si Proxmox
-  arranca, todo lo demás arranca. Si la BIOS no lo tiene activo, hay que
-  activarlo: sin eso, el aviso de recuperación no llegaría nunca.
+los secretos y el Secret; y la entrada de NPM para Grafana. Claude no ve los
+valores de los secretos.
 
 ## Lo que queda para quien construya
 
@@ -171,6 +161,5 @@ ensayo 2. Claude no ve los valores de los secretos.
 
 ## Ideas para después
 
-- SAI + NUT para apagado ordenado de Proxmox.
 - Métricas de Jenkins (despliegues, duración, rollbacks) en Grafana.
 - Loki para los logs del nocturno.
