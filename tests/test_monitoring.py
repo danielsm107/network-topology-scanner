@@ -215,3 +215,58 @@ def test_reglas_las_carga_el_operador():
     assert regla["metadata"]["labels"]["release"] == "monitoring"
     assert regla["metadata"]["namespace"] == "monitoring"
     assert regla["spec"]["groups"][0]["rules"] == _reglas()
+
+
+# --- Panel de Grafana ---
+
+PANEL = CHART_PROPIO / "files" / "panel-escaneo.json"
+
+
+def _metricas_que_existen() -> set[str]:
+    """Las que escribe de verdad metricas_prometheus, con todas las opciones
+    activadas (historial y SNMP): así el test no depende de una lista copiada."""
+    from topology_scanner.export import metricas_prometheus
+
+    diff = {"primera_vez": False, "hosts_nuevos": [], "hosts_caidos": [], "hosts_nunca_vistos": []}
+    texto = metricas_prometheus({"192.0.2.0/24": {}}, {"192.0.2.0/24": diff}, 1, True, 0)
+    return {linea.split()[2] for linea in texto.splitlines() if linea.startswith("# TYPE")}
+
+
+def _panel() -> dict:
+    import json
+
+    return json.loads(PANEL.read_text(encoding="utf-8"))
+
+
+def test_panel_con_uid_fijo():
+    """uid fijo: los enlaces al panel no cambian al reinstalar."""
+    assert _panel()["uid"] == "topology-scanner-escaneo"
+    assert _panel()["title"] == "Escaneo nocturno"
+
+
+def test_panel_solo_usa_metricas_que_existen():
+    consultas = [
+        objetivo["expr"] for panel in _panel()["panels"] for objetivo in panel.get("targets", [])
+    ]
+    usadas = {nombre for expr in consultas for nombre in re.findall(r"topology_scanner_\w+", expr)}
+
+    assert consultas
+    assert usadas
+    assert usadas <= _metricas_que_existen()
+
+
+def test_panel_usa_el_datasource_del_stack():
+    for panel in _panel()["panels"]:
+        if "targets" in panel:
+            assert panel["datasource"] == {"type": "prometheus", "uid": "prometheus"}, panel["title"]
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm no está instalado")
+def test_panel_lo_carga_el_sidecar():
+    salida = subprocess.run(
+        ["helm", "template", "t", str(CHART_PROPIO), "-n", "monitoring"], check=True, capture_output=True, text=True,
+    ).stdout
+    (mapa,) = [doc for doc in yaml.safe_load_all(salida) if doc and doc["kind"] == "ConfigMap"]
+
+    assert mapa["metadata"]["labels"]["grafana_dashboard"] == "1"
+    assert mapa["data"]["panel-escaneo.json"].strip() == PANEL.read_text(encoding="utf-8").strip()

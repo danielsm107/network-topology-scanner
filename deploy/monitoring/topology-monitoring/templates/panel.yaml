@@ -1,0 +1,15 @@
+# El panel "Escaneo nocturno" (files/panel-escaneo.json). El sidecar de Grafana
+# del stack carga los ConfigMaps con la etiqueta grafana_dashboard=1 de
+# cualquier namespace: el panel es código y sobrevive a reinstalar Grafana.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: topology-scanner-panel
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: topology-scanner
+data:
+  panel-escaneo.json: |
+    {{- .Files.Get "files/panel-escaneo.json" | nindent 4 }}
