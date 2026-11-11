@@ -69,6 +69,8 @@ def test_limites_de_memoria_dentro_del_presupuesto():
         valores["prometheus"]["prometheusSpec"]["resources"]["limits"]["memory"],
         valores["alertmanager"]["alertmanagerSpec"]["resources"]["limits"]["memory"],
         valores["grafana"]["resources"]["limits"]["memory"],
+        # Dos sidecars (paneles y datasources) con los mismos recursos
+        valores["grafana"]["sidecar"]["resources"]["limits"]["memory"],
         valores["grafana"]["sidecar"]["resources"]["limits"]["memory"],
         valores["prometheusOperator"]["resources"]["limits"]["memory"],
         valores["kube-state-metrics"]["resources"]["limits"]["memory"],
@@ -77,6 +79,12 @@ def test_limites_de_memoria_dentro_del_presupuesto():
     ]
 
     assert sum(_a_mib(limite) for limite in limites) <= 1536
+
+
+def test_sidecars_de_grafana_con_memoria_para_arrancar():
+    """Con 64Mi los mataba el OOM al cargar los paneles por defecto (instalación
+    real del 2026-11-11)."""
+    assert _a_mib(_valores()["grafana"]["sidecar"]["resources"]["limits"]["memory"]) >= 128
 
 
 def test_watchdog_va_a_healthchecks():
