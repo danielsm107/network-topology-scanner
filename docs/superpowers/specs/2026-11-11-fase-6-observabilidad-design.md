@@ -33,8 +33,8 @@ Grafana de un sistema de alertas pensado.
    por Telegram desde fuera, y aviso de recuperación al volver.
 4. Métricas del escaneo nocturno (hosts vivos, puertos sensibles, hosts nunca
    vistos, duración) con su panel en Grafana, con histórico.
-5. Todo **ensayado de verdad**: un Job que falla a propósito, la VM apagada a
-   mano, un reinicio.
+5. Todo **ensayado de verdad**: un Job que falla a propósito, Alertmanager caído a
+   mano, y una reinstalación desde el repo.
 6. Documentación: runbook `06-observabilidad.md`, `decisiones.md`, README de
    DevOps (fase 6 Hecha) y `CLAUDE.md`.
 
