@@ -193,9 +193,10 @@ grafana:
     resources:
       requests: {cpu: 10m, memory: 64Mi}
       limits: {cpu: 100m, memory: 128Mi}
+  # Con 256Mi lo mataba el OOM en el primer arranque (migraciones); en reposo ~230Mi
   resources:
-    requests: {cpu: 50m, memory: 128Mi}
-    limits: {cpu: 500m, memory: 256Mi}
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
 
 # --- Resto del stack ---------------------------------------------------------
 prometheusOperator:

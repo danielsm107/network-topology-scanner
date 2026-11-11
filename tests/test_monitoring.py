@@ -78,7 +78,14 @@ def test_limites_de_memoria_dentro_del_presupuesto():
         _valores("pushgateway.values.yaml")["resources"]["limits"]["memory"],
     ]
 
-    assert sum(_a_mib(limite) for limite in limites) <= 1536
+    # 1,5 GiB en el diseño; 1,75 tras ver los picos de arranque reales de Grafana
+    assert sum(_a_mib(limite) for limite in limites) <= 1792
+
+
+def test_grafana_con_memoria_para_arrancar():
+    """Con 256Mi lo mataba el OOM en el primer arranque (migraciones de
+    Grafana 13; instalación real del 2026-11-11). En reposo usa ~230Mi."""
+    assert _a_mib(_valores()["grafana"]["resources"]["limits"]["memory"]) >= 512
 
 
 def test_sidecars_de_grafana_con_memoria_para_arrancar():
