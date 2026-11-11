@@ -2,9 +2,9 @@
 # Contenedor "subida" del Job nocturno (imagen amazon/aws-cli). Corre después
 # del escaneo, que deja sus archivos en /salida:
 #   network_topology.html, inventory.csv, historial.db (copia consistente) y,
-#   solo si hubo cambios, cambios/{cambios.json,asunto.txt,cuerpo.txt}.
-# Sube los informes y la copia del historial a S3 y, si hubo cambios, publica
-# el aviso en SNS con enlaces temporales al mapa y al CSV.
+#   solo si algo merece aviso (history.merece_aviso), cambios/{cambios.json,asunto.txt,cuerpo.txt}.
+# Sube los informes y la copia del historial a S3 y publica
+# el aviso en SNS, si lo hay, con enlaces temporales al mapa y al CSV.
 #
 # Entorno: BUCKET, TOPIC_ARN, DIAS_ENLACES, AWS_REGION y las claves del Secret
 # (SALIDA y TMPDIR solo se cambian en los tests).
@@ -32,9 +32,10 @@ else
   FALLO=1
 fi
 
-# La app solo escribe cambios.json si hubo cambios: sin él no hay email
+# La app solo escribe cambios.json si algo merece aviso: sin él no hay email.
+# Puede haber habido cambios (hosts que entran y salen): la web los enseña
 if [ ! -f "$SALIDA/cambios/cambios.json" ]; then
-  echo "Sin cambios respecto al escaneo anterior: no se avisa."
+  echo "Nada que merezca aviso (ni hosts nunca vistos con puertos ni cambios de puertos): no se avisa."
   exit "$FALLO"
 fi
 

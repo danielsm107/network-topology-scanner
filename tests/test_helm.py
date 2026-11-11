@@ -319,14 +319,18 @@ def test_subida_reintenta_los_errores_pasajeros_de_aws():
     assert int(env["AWS_MAX_ATTEMPTS"]["value"]) >= 5
 
 
-def _ejecutar_subida(tmp_path, fallar_en: str = "") -> tuple[subprocess.CompletedProcess, str]:
+def _ejecutar_subida(
+    tmp_path, fallar_en: str = "", con_aviso: bool = True
+) -> tuple[subprocess.CompletedProcess, str]:
     """Ejecuta files/subir.sh de verdad con un `aws` falso en el PATH que
-    apunta cada llamada en un log y falla si la llamada contiene `fallar_en`."""
+    apunta cada llamada en un log y falla si la llamada contiene `fallar_en`.
+    Sin `con_aviso`, la app no ha dejado cambios.json (nada merece email)."""
     salida = tmp_path / "salida"
     (salida / "cambios").mkdir(parents=True)
     for nombre in ("network_topology.html", "inventory.csv", "historial.db"):
         (salida / nombre).write_text("x", encoding="utf-8")
-    (salida / "cambios" / "cambios.json").write_text("{}", encoding="utf-8")
+    if con_aviso:
+        (salida / "cambios" / "cambios.json").write_text("{}", encoding="utf-8")
     (salida / "cambios" / "asunto.txt").write_text("[topology-scanner] 1 change in 192.0.2.0/24", encoding="utf-8")
     (salida / "cambios" / "cuerpo.txt").write_text("NEW HOSTS\n  192.0.2.57\n", encoding="utf-8")
 
@@ -377,6 +381,18 @@ def test_subida_sin_fallos_termina_bien(tmp_path):
     assert "sns publish" in llamadas
 
 
+@pytest.mark.skipif(SH is None, reason="sin sh")
+def test_subida_sin_aviso_no_dice_que_no_hubo_cambios(tmp_path):
+    """Desde la 1.5.0, que no haya cambios.json no significa "sin cambios":
+    puede haber hosts que entran y salen, que no merecen email."""
+    resultado, llamadas = _ejecutar_subida(tmp_path, con_aviso=False)
+
+    assert resultado.returncode == 0, resultado.stderr
+    assert "sns publish" not in llamadas
+    assert "Sin cambios" not in resultado.stdout
+    assert "Nada que merezca aviso" in resultado.stdout
+
+
 def test_script_de_subida():
     script = _renderizar(*CON_AWS)["ConfigMap"]["data"]["subir.sh"]
 
@@ -384,7 +400,7 @@ def test_script_de_subida():
     assert "s3://$BUCKET/historial/historial.db" in script
     assert "aws s3 presign" in script and "--expires-in" in script
     assert "aws sns publish" in script
-    # Sin cambios no hay email: el aviso depende de que exista cambios.json
+    # Sin aviso no hay email: depende de que la app haya dejado cambios.json
     assert "cambios/cambios.json" in script
 
 
