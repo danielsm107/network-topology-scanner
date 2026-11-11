@@ -101,15 +101,28 @@ directorio de trabajo (/data); con aws.enabled va como initContainer y deja en
     - --history-backup
     - /salida/historial.db
     {{- end }}
+    {{- if .Values.metricas.enabled }}
+    - --metrics-file
+    - /salida/metricas.prom
+    {{- end }}
   env:
     {{- include "topology-scanner.envComun" . | nindent 4 }}
   volumeMounts:
     - name: datos
       mountPath: /data
-    {{- if .Values.aws.enabled }}
+    {{- if include "topology-scanner.conSalida" . }}
     - name: salida
       mountPath: /salida
     {{- end }}
   resources:
     {{- toYaml .Values.resources.escaneo | nindent 4 }}
+{{- end -}}
+
+
+{{/*
+"true" si el Job deja archivos para un contenedor posterior (subida a AWS o
+métricas al Pushgateway): entonces el escaneo es initContainer y hay emptyDir.
+*/}}
+{{- define "topology-scanner.conSalida" -}}
+{{- if or .Values.aws.enabled .Values.metricas.enabled }}true{{ end -}}
 {{- end -}}

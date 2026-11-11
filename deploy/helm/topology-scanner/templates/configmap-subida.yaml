@@ -1,5 +1,6 @@
-{{- if .Values.aws.enabled }}
-# El script del contenedor de subida del Job nocturno (files/subir.sh)
+{{- if include "topology-scanner.conSalida" . }}
+# Los scripts de los contenedores que corren después del escaneo nocturno:
+# subida a AWS (files/subir.sh) y métricas al Pushgateway (files/empujar_metricas.sh)
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,6 +9,12 @@ metadata:
     {{- include "topology-scanner.labels" . | nindent 4 }}
     app.kubernetes.io/component: escaneo
 data:
+  {{- if .Values.aws.enabled }}
   subir.sh: |
     {{- .Files.Get "files/subir.sh" | nindent 4 }}
+  {{- end }}
+  {{- if .Values.metricas.enabled }}
+  empujar_metricas.sh: |
+    {{- .Files.Get "files/empujar_metricas.sh" | nindent 4 }}
+  {{- end }}
 {{- end }}
