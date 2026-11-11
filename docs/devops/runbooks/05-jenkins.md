@@ -19,7 +19,8 @@ Diseño:
 - [x] Ensayo 4, reconstrucción: `helm uninstall` y reinstalar desde el repo deja el
       pipeline igual, sin tocar la interfaz (2026-11-10).
 - [x] Camino feliz: v1.5.0 (filtro de avisos) desplegada sola tras el tag (2026-11-10).
-- [ ] El nocturno siguiente corre con la 1.5.0.
+- [x] El nocturno siguiente corre con la 1.5.0: Job completo, informes en S3 y sin
+      email, porque no hubo hosts nunca vistos ni cambios de puertos (2026-11-11).
 
 ## Piezas
 
