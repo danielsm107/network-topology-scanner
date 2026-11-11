@@ -426,11 +426,13 @@ def _asunto_cambios(rangos: list[str], n_cambios: int, n_sensibles: int) -> str:
     return asunto.encode("ascii", "replace").decode("ascii")
 
 
-def _linea_host_nuevo(ip: str, host: dict) -> str:
+def _linea_host_nuevo(ip: str, host: dict, nunca_visto: bool) -> str:
     campos = [ip, host.get("hostname", ""), host.get("vendor") or "unknown vendor"]
     linea = "  " + "  ".join(campo for campo in campos if campo)
     if host.get("categoria"):
         linea += f"  ({host['categoria']})"
+    if nunca_visto:
+        linea += "  [never seen before]"
     return linea
 
 
@@ -472,7 +474,11 @@ def resumen_cambios_email(diffs: dict[str, dict], resultados: dict) -> tuple[str
     if sensibles:
         secciones.append(["SENSITIVE PORTS"] + [f"  [!] {ip} - {s['puerto']} {s['motivo']}" for ip, s in sensibles])
     if diff["hosts_nuevos"]:
-        secciones.append(["NEW HOSTS"] + [_linea_host_nuevo(ip, resultados.get(ip, {})) for ip in diff["hosts_nuevos"]])
+        nunca_vistos = set(diff["hosts_nunca_vistos"])
+        secciones.append(
+            ["NEW HOSTS"]
+            + [_linea_host_nuevo(ip, resultados.get(ip, {}), ip in nunca_vistos) for ip in diff["hosts_nuevos"]]
+        )
     if diff["hosts_caidos"]:
         secciones.append(["DOWN HOSTS"] + [f"  {ip}" for ip in diff["hosts_caidos"]])
     if diff["puertos_cambiados"]:

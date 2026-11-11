@@ -447,5 +447,6 @@ def combinar_diffs(diffs: list[dict]) -> dict:
         "primera_vez": all(diff["primera_vez"] for diff in diffs),
         "hosts_nuevos": sorted(ip for diff in diffs for ip in diff["hosts_nuevos"]),
         "hosts_caidos": sorted(ip for diff in diffs for ip in diff["hosts_caidos"]),
+        "hosts_nunca_vistos": sorted(ip for diff in diffs for ip in diff.get("hosts_nunca_vistos", [])),
         "puertos_cambiados": puertos_cambiados,
     }

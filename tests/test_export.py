@@ -654,11 +654,12 @@ def test_exportar_csv_si_no_puede_escribir_lanza_export_error(tmp_path):
 # --- resumen_cambios_email: asunto y cuerpo del aviso por SNS ---
 
 
-def _diff(nuevos=(), caidos=(), puertos=None, primera_vez=False):
+def _diff(nuevos=(), caidos=(), puertos=None, primera_vez=False, nunca_vistos=()):
     return {
         "primera_vez": primera_vez,
         "hosts_nuevos": list(nuevos),
         "hosts_caidos": list(caidos),
+        "hosts_nunca_vistos": list(nunca_vistos),
         "puertos_cambiados": puertos or {},
     }
 
@@ -722,6 +723,21 @@ def test_cuerpo_host_sin_vendor():
 
     (linea,) = [linea for linea in cuerpo.splitlines() if "192.0.2.57" in linea]
     assert "unknown vendor" in linea
+
+
+def test_cuerpo_marca_los_hosts_nunca_vistos():
+    """El aviso sale por un host nunca visto con puertos: hay que poder
+    distinguirlo de los que ya habían estado en la red y vuelven."""
+    diffs = {"192.0.2.0/24": _diff(nuevos=["192.0.2.57", "192.0.2.60"], nunca_vistos=["192.0.2.57"])}
+    resultados = {"192.0.2.57": _resultado_fake(), "192.0.2.60": _resultado_fake()}
+
+    _, cuerpo = resumen_cambios_email(diffs, resultados)
+
+    lineas = cuerpo.splitlines()
+    (nunca_visto,) = [linea for linea in lineas if "192.0.2.57" in linea]
+    (ya_visto,) = [linea for linea in lineas if "192.0.2.60" in linea]
+    assert nunca_visto.endswith("[never seen before]")
+    assert "never seen" not in ya_visto
 
 
 def test_cuerpo_lista_caidos_y_puertos_cambiados():
