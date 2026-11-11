@@ -33,7 +33,7 @@
 
 ---
 
-### Tarea 1: `export.metricas_prometheus`
+### Task 1: `export.metricas_prometheus`
 
 **Files:**
 - Modify: `src/topology_scanner/export.py` (al final)
@@ -86,7 +86,7 @@ def test_exportar_metricas_si_no_puede_escribir_lanza_export_error(tmp_path):  #
 - [ ] **Step 4:** La suite y ruff en verde.
 - [ ] **Step 5:** Commit `feat: métricas del escaneo en formato de texto de Prometheus`.
 
-### Tarea 2: flag `--metrics-file`
+### Task 2: flag `--metrics-file`
 
 **Files:**
 - Modify: `src/topology_scanner/cli.py` (parser y `main`)
@@ -109,7 +109,7 @@ def test_exportar_metricas_si_no_puede_escribir_lanza_export_error(tmp_path):  #
 - [ ] **Step 4:** Suite y ruff en verde. Probar a mano: `.venv/Scripts/topology-scanner --help` muestra el flag.
 - [ ] **Step 5:** CHANGELOG `[Unreleased]` → Added: `--metrics-file`. Commit `feat(cli): --metrics-file para el Pushgateway`.
 
-### Tarea 3: el Job sube las métricas (chart de la app)
+### Task 3: el Job sube las métricas (chart de la app)
 
 **Files:**
 - Create: `deploy/helm/topology-scanner/files/empujar_metricas.sh`
@@ -141,7 +141,7 @@ def test_exportar_metricas_si_no_puede_escribir_lanza_export_error(tmp_path):  #
 - [ ] **Step 4:** Suite, ruff y `helm lint … --strict` (con y sin `--set metricas.enabled=true`) en verde.
 - [ ] **Step 5:** Commit `feat(chart): el nocturno sube sus métricas al Pushgateway`.
 
-### Tarea 4: valores de la monitorización (kube-prometheus-stack + Pushgateway)
+### Task 4: valores de la monitorización (kube-prometheus-stack + Pushgateway)
 
 **Files:**
 - Create: `deploy/monitoring/values.yaml`, `deploy/monitoring/values.example.yaml`, `deploy/monitoring/pushgateway.values.yaml`
@@ -167,7 +167,7 @@ def test_exportar_metricas_si_no_puede_escribir_lanza_export_error(tmp_path):  #
 - [ ] **Step 5:** CI: en el job `helm`, añadir el repo y `helm template` de los dos charts con `values.yaml` + `values.example.yaml`. Ejecutar esos comandos en local.
 - [ ] **Step 6:** Suite y ruff en verde. Commit `feat(monitoring): valores de kube-prometheus-stack y Pushgateway`.
 
-### Tarea 5: reglas de alerta propias, con tests de promtool
+### Task 5: reglas de alerta propias, con tests de promtool
 
 **Files:**
 - Create: `deploy/monitoring/topology-monitoring/` (chart propio: `Chart.yaml` versión 0.1.0, `templates/reglas.yaml` como `PrometheusRule` que incluye `files/reglas.yaml`, `files/reglas.yaml`)
@@ -196,7 +196,7 @@ def test_exportar_metricas_si_no_puede_escribir_lanza_export_error(tmp_path):  #
 - [ ] **Step 4:** CI: en el job `helm`, `helm lint deploy/monitoring/topology-monitoring --strict` y `docker run --rm -v "$PWD/deploy/monitoring:/m" --entrypoint promtool prom/prometheus:<v>@sha256:<digest> test rules /m/pruebas/reglas.test.yaml`.
 - [ ] **Step 5:** Suite y ruff en verde. Commit `feat(monitoring): reglas de alerta del escáner con tests de promtool`.
 
-### Tarea 6: panel de Grafana del escaneo
+### Task 6: panel de Grafana del escaneo
 
 **Files:**
 - Create: `deploy/monitoring/topology-monitoring/files/panel-escaneo.json`, `templates/panel.yaml` (ConfigMap con etiqueta `grafana_dashboard: "1"`)
@@ -214,14 +214,14 @@ def test_exportar_metricas_si_no_puede_escribir_lanza_export_error(tmp_path):  #
 - [ ] **Step 3:** Escribir el JSON del panel (esquema de Grafana del chart fijado en la Tarea 4). Se retoca en vivo en la Tarea 8 si hace falta, exportándolo de vuelta al archivo. Sin datos reales en el JSON.
 - [ ] **Step 4:** Suite, ruff y `helm lint` en verde. Commit `feat(monitoring): panel de Grafana del escaneo nocturno`.
 
-### Tarea 7: release v1.6.0
+### Task 7: release v1.6.0
 
 **Files:** `pyproject.toml` (1.6.0), `CHANGELOG.md` (`[Unreleased]` → `[1.6.0] - <fecha>`, con el chart 0.5.0), `deploy/helm/topology-scanner/Chart.yaml` (0.5.0 / appVersion 1.6.0), `values.yaml` (`tag: "1.6.0"`).
 
 - [ ] **Step 1:** Cambiar las versiones; `pip install -e .`; suite, ruff y `helm lint` en verde.
 - [ ] **Step 2:** Commit `release: v1.6.0` (el tag, después del merge, Tarea 8).
 
-### Tarea 8: instalación y ensayos (con el mantenedor)
+### Task 8: instalación y ensayos (con el mantenedor)
 
 **Files:** `deploy/monitoring/values.local.yaml` (ignorado), Secret `topology-scanner-values` (valores reales de la app, en el clúster).
 
@@ -235,7 +235,7 @@ def test_exportar_metricas_si_no_puede_escribir_lanza_export_error(tmp_path):  #
 - [ ] **Step 8: Ensayo 3** — `helm uninstall` de los tres releases (anotar si se lleva el PVC de Prometheus) y reinstalar desde el repo: reglas, panel y avisos igual; 0 alertas salvo `Watchdog`.
 - [ ] **Step 9:** Al día siguiente, el nocturno con 1.6.0 aparece en el panel; `ScanMetricsStale` no dispara.
 
-### Tarea 9: documentación
+### Task 9: documentación
 
 **Files:** `docs/devops/runbooks/06-observabilidad.md` (nuevo: instalación, Secrets, versiones, ensayos con fechas, tropiezos, casillas de "Resultado verificable" del diseño), `docs/decisiones.md` (healthchecks.io y por qué Watchdog; Pushgateway y `--metrics-file`; chart propio para reglas/panel; reglas desactivadas en k3s), `docs/devops/README.md` (fase 6 Hecha; piezas nuevas), `CLAUDE.md` (estructura `deploy/monitoring/`, comandos de helm/promtool, CI, `--metrics-file`, roadmap), `README.md` (flag nuevo).
 
