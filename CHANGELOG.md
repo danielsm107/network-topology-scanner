@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.6.0] - 2026-11-11
 
 ### Added
 - `--metrics-file FILE`: writes the run's metrics in the Prometheus text format
@@ -12,6 +12,13 @@ follows [Semantic Versioning](https://semver.org/).
   ports, and new / never-seen / down hosts when there is history; plus duration,
   SNMP success and the time of the scan), to push to a Pushgateway. The app still
   doesn't depend on Prometheus: it only writes text.
+- Helm chart (0.5.0): with `metricas.enabled`, the nightly Job pushes those
+  metrics to a Pushgateway (`metricas.pushgateway`) from a small `curl`
+  container. If the Pushgateway is down, the Job still succeeds.
+- `deploy/monitoring/`: kube-prometheus-stack and Pushgateway values for k3s,
+  alert rules for the scanner (tested with promtool), a Grafana dashboard for the
+  nightly scan, Telegram alerts, and healthchecks.io as an external dead man's
+  switch for the alerting pipeline.
 
 ## [1.5.1] - 2026-11-11
 
