@@ -1,0 +1,160 @@
+"""
+Tests de la monitorización (deploy/monitoring/): los valores de los charts
+oficiales (kube-prometheus-stack y prometheus-pushgateway) leídos como YAML,
+sin Helm ni clúster. Comprueban lo que no puede romperse al instalar: que k3s
+no dispare alertas permanentes, que el Watchdog llegue a healthchecks.io, que el
+resto vaya a Telegram sin ruido y que ningún secreto acabe en el repo.
+"""
+
+import re
+from pathlib import Path
+
+import pytest
+
+yaml = pytest.importorskip("yaml")
+
+RAIZ = Path(__file__).resolve().parents[1]
+MONITORING = RAIZ / "deploy" / "monitoring"
+SECRETOS = "/etc/alertmanager/secrets/alertas"
+
+
+def _valores(nombre: str = "values.yaml") -> dict:
+    return yaml.safe_load((MONITORING / nombre).read_text(encoding="utf-8"))
+
+
+def _alertmanager() -> dict:
+    return _valores()["alertmanager"]["config"]
+
+
+def _receptor(nombre: str) -> dict:
+    (receptor,) = [r for r in _alertmanager()["receivers"] if r["name"] == nombre]
+    return receptor
+
+
+def _a_mib(cantidad: str) -> float:
+    """"640Mi" / "1Gi" -> MiB."""
+    numero, unidad = re.fullmatch(r"(\d+)(Mi|Gi)", cantidad).groups()
+    return int(numero) * (1024 if unidad == "Gi" else 1)
+
+
+def test_k3s_sin_componentes_que_no_expone():
+    """k3s no expone controller-manager, scheduler, etcd ni kube-proxy por
+    separado: sus ServiceMonitors y reglas darían alertas permanentes."""
+    valores = _valores()
+
+    for componente in ("kubeControllerManager", "kubeScheduler", "kubeEtcd", "kubeProxy"):
+        assert valores[componente]["enabled"] is False
+    reglas = valores["defaultRules"]["rules"]
+    for regla in ("etcd", "kubeControllerManager", "kubeProxy", "kubeSchedulerAlerting", "kubeSchedulerRecording",
+                  "windows"):
+        assert reglas[regla] is False
+
+
+def test_retencion_y_almacenamiento():
+    spec = _valores()["prometheus"]["prometheusSpec"]
+    plantilla = spec["storageSpec"]["volumeClaimTemplate"]["spec"]
+
+    assert spec["retention"] == "15d"
+    assert spec["retentionSize"]
+    assert plantilla["storageClassName"] == "local-path"
+
+
+def test_limites_de_memoria_dentro_del_presupuesto():
+    """~1,5 GiB entre todo: la monitorización no puede dejar sin memoria al
+    nocturno ni a Jenkins (el nodo tiene 8 GiB)."""
+    valores = _valores()
+    limites = [
+        valores["prometheus"]["prometheusSpec"]["resources"]["limits"]["memory"],
+        valores["alertmanager"]["alertmanagerSpec"]["resources"]["limits"]["memory"],
+        valores["grafana"]["resources"]["limits"]["memory"],
+        valores["grafana"]["sidecar"]["resources"]["limits"]["memory"],
+        valores["prometheusOperator"]["resources"]["limits"]["memory"],
+        valores["kube-state-metrics"]["resources"]["limits"]["memory"],
+        valores["prometheus-node-exporter"]["resources"]["limits"]["memory"],
+        _valores("pushgateway.values.yaml")["resources"]["limits"]["memory"],
+    ]
+
+    assert sum(_a_mib(limite) for limite in limites) <= 1536
+
+
+def test_watchdog_va_a_healthchecks():
+    """El Watchdog siempre está disparado: repetido cada minuto hacia la URL
+    de ping, demuestra que Prometheus evalúa y Alertmanager envía. Si deja de
+    llegar, avisa healthchecks.io desde fuera."""
+    (ruta,) = [r for r in _alertmanager()["route"]["routes"] if 'alertname = "Watchdog"' in r.get("matchers", [])]
+    (webhook,) = _receptor("healthchecks")["webhook_configs"]
+
+    assert ruta["receiver"] == "healthchecks"
+    assert ruta["repeat_interval"] == "1m"
+    assert ruta["group_interval"] == "1m"
+    assert webhook["url_file"] == f"{SECRETOS}/HEALTHCHECKS_URL"
+    assert webhook["send_resolved"] is False
+    assert "url" not in webhook
+
+
+def test_resto_va_a_telegram():
+    (telegram,) = _receptor("telegram")["telegram_configs"]
+
+    assert _alertmanager()["route"]["receiver"] == "telegram"
+    assert telegram["bot_token_file"] == f"{SECRETOS}/TELEGRAM_BOT_TOKEN"
+    assert telegram["chat_id_file"] == f"{SECRETOS}/TELEGRAM_CHAT_ID"
+    assert telegram["send_resolved"] is True
+    assert "chat_id" not in telegram and "bot_token" not in telegram
+    assert _valores()["alertmanager"]["alertmanagerSpec"]["secrets"] == ["alertas"]
+
+
+def test_avisos_sin_ruido():
+    """Un mensaje por problema y un recordatorio cada pocas horas, no cada 5 min.
+    Watchdog e InfoInhibitor existen para otra cosa: nunca llegan a Telegram."""
+    ruta = _alertmanager()["route"]
+    silenciadas = {
+        matcher for r in ruta["routes"] if r["receiver"] == "null" for matcher in r.get("matchers", [])
+    }
+
+    assert ruta["group_by"] == ["alertname", "namespace"]
+    horas = int(re.fullmatch(r"(\d+)h", ruta["repeat_interval"]).group(1))
+    assert horas >= 4
+    assert 'alertname = "InfoInhibitor"' in silenciadas
+    assert ruta["routes"][0]["receiver"] == "healthchecks"
+
+
+def test_mensaje_de_telegram_en_espanol():
+    plantillas = _valores()["alertmanager"]["templateFiles"]
+    (telegram,) = _receptor("telegram")["telegram_configs"]
+
+    assert "telegram.mensaje" in telegram["message"]
+    assert any('define "telegram.mensaje"' in texto for texto in plantillas.values())
+    assert any("Resuelto" in texto for texto in plantillas.values())
+
+
+def test_grafana_sin_anonimo_y_admin_por_secret():
+    grafana = _valores()["grafana"]
+
+    assert grafana["admin"]["existingSecret"] == "grafana-admin"
+    assert grafana["grafana.ini"]["auth.anonymous"]["enabled"] is False
+    assert grafana["service"]["type"] == "NodePort"
+    assert grafana["service"]["nodePort"] == 30300
+    assert grafana["sidecar"]["dashboards"]["enabled"] is True
+    assert grafana["sidecar"]["dashboards"]["label"] == "grafana_dashboard"
+
+
+def test_pushgateway_lo_lee_prometheus():
+    """Otro release: su ServiceMonitor necesita la etiqueta que selecciona el
+    Prometheus del stack (ruleSelectorNilUsesHelmValues). honorLabels para que
+    las etiquetas del push (range) no se pisen con las del scrape."""
+    valores = _valores("pushgateway.values.yaml")
+
+    assert valores["fullnameOverride"] == "prometheus-pushgateway"
+    assert valores["serviceMonitor"]["enabled"] is True
+    assert valores["serviceMonitor"]["additionalLabels"] == {"release": "monitoring"}
+    assert valores["serviceMonitor"]["honorLabels"] is True
+
+
+@pytest.mark.parametrize("archivo", ["values.yaml", "values.example.yaml", "pushgateway.values.yaml"])
+def test_secretos_fuera_del_repo(archivo):
+    texto = (MONITORING / archivo).read_text(encoding="utf-8")
+
+    assert "api.telegram.org/bot" not in texto
+    assert not re.search(r"hc-ping\.com/[0-9a-f-]{36}", texto)
+    assert not re.search(r"adminPassword:\s*\S", texto)
+    assert not re.search(r"\b\d{6,}:[A-Za-z0-9_-]{30,}", texto)  # forma de un token de bot

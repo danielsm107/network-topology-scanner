@@ -1,0 +1,190 @@
+# Valores del chart oficial kube-prometheus-stack (prometheus-community), versión
+# 92.14.1: la misma en ci.yml y en el runbook 06-observabilidad.md. Instalado y
+# actualizado desde el PC, nunca por Jenkins (Jenkins solo despliega la app):
+#
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     --version 92.14.1 -n monitoring -f deploy/monitoring/values.yaml \
+#     -f deploy/monitoring/values.local.yaml
+#
+# Secretos, creados a mano (runbook 06), nunca aquí:
+#   - alertas: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID y HEALTHCHECKS_URL, montado
+#     en Alertmanager en /etc/alertmanager/secrets/alertas/
+#   - grafana-admin: admin-user y admin-password
+# Lo real que no es secreto (dominio de Grafana) va en values.local.yaml,
+# ignorado por git; ver values.example.yaml.
+
+# --- k3s: lo que no expone por separado ---------------------------------------
+# controller-manager, scheduler y kube-proxy van dentro del binario de k3s, y
+# etcd no existe (usa SQLite). Sus ServiceMonitors no encontrarían nada y sus
+# reglas darían alertas "target down" permanentes.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    windows: false
+
+windowsMonitoring:
+  enabled: false
+
+# --- Prometheus --------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    # Retención corta: es un homelab, interesa el último par de semanas
+    retention: 15d
+    retentionSize: 4GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+    resources:
+      requests: {cpu: 100m, memory: 384Mi}
+      limits: {cpu: "1", memory: 640Mi}
+
+# --- Alertmanager ------------------------------------------------------------
+alertmanager:
+  alertmanagerSpec:
+    # Secret creado a mano: Alertmanager lee de él el token del bot, el chat y la
+    # URL de ping (los *_file de abajo). El chat ID tampoco va al repo: el repo es
+    # público y Helm no deja parchear un receptor de la lista desde otro archivo
+    secrets: [alertas]
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {cpu: 100m, memory: 64Mi}
+
+  # Mapa completo: Helm fusiona mapas pero sustituye listas, así que route,
+  # receivers e inhibit_rules quedan exactamente como aquí
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      # Un mensaje por problema, no uno por pod
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      # Recordatorio mientras siga: cada pocas horas, no cada 5 minutos
+      repeat_interval: 4h
+      receiver: telegram
+      routes:
+        # Interruptor de hombre muerto: el Watchdog está siempre disparado. Se
+        # reenvía cada minuto a healthchecks.io; si deja de llegar (Prometheus o
+        # Alertmanager caídos, la VM colgada), healthchecks.io avisa por Telegram
+        - receiver: healthchecks
+          matchers:
+            - alertname = "Watchdog"
+          group_by: [alertname]
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 1m
+        # Existe para silenciar avisos "info"; no es un problema en sí
+        - receiver: "null"
+          matchers:
+            - alertname = "InfoInhibitor"
+    inhibit_rules:
+      # Si hay una crítica, no avisar también de la warning/info del mismo problema
+      - source_matchers: ['severity = critical']
+        target_matchers: ['severity =~ warning|info']
+        equal: [namespace, alertname]
+      - source_matchers: ['severity = warning']
+        target_matchers: ['severity = info']
+        equal: [namespace, alertname]
+      - source_matchers: ['alertname = InfoInhibitor']
+        target_matchers: ['severity = info']
+        equal: [namespace]
+    receivers:
+      - name: "null"
+      - name: telegram
+        telegram_configs:
+          - bot_token_file: /etc/alertmanager/secrets/alertas/TELEGRAM_BOT_TOKEN
+            chat_id_file: /etc/alertmanager/secrets/alertas/TELEGRAM_CHAT_ID
+            parse_mode: HTML
+            send_resolved: true
+            message: '{{ template "telegram.mensaje" . }}'
+      - name: healthchecks
+        webhook_configs:
+          # La URL de ping es un secreto: quien la tenga puede "dar señales de vida"
+          - url_file: /etc/alertmanager/secrets/alertas/HEALTHCHECKS_URL
+            send_resolved: false
+    templates:
+      - /etc/alertmanager/config/*.tmpl
+
+  # Plantilla del mensaje de Telegram (HTML). El resumen y la descripción salen
+  # de las anotaciones de cada regla (las propias, en español, en
+  # topology-monitoring/files/reglas.yaml)
+  templateFiles:
+    telegram.tmpl: |-
+      {{ define "telegram.mensaje" -}}
+      {{ if eq .Status "firing" }}🔥 <b>{{ .CommonLabels.alertname }}</b>{{ else }}✅ <b>Resuelto: {{ .CommonLabels.alertname }}</b>{{ end }}
+      {{ range .Alerts -}}
+      {{ if .Annotations.summary }}• {{ .Annotations.summary }}{{ else }}• {{ .Labels.alertname }}{{ end }}
+      {{ if .Annotations.description }}{{ .Annotations.description }}
+      {{ end -}}
+      {{ if .Labels.namespace }}<i>{{ .Labels.namespace }}{{ if .Labels.pod }}/{{ .Labels.pod }}{{ end }}{{ if .Labels.job_name }}/{{ .Labels.job_name }}{{ end }}</i>
+      {{ end -}}
+      {{ end -}}
+      {{- end }}
+
+# --- Grafana -----------------------------------------------------------------
+grafana:
+  # Secret creado a mano (runbook 06): la contraseña no pasa por los values
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  grafana.ini:
+    auth.anonymous:
+      enabled: false
+    analytics:
+      check_for_updates: false
+      reporting_enabled: false
+  # NPM hace de proxy a <IP del nodo>:30300, con HTTPS y solo desde la LAN
+  service:
+    type: NodePort
+    nodePort: 30300
+  # Sin PVC: paneles y datasource son código (ConfigMaps que lee el sidecar)
+  persistence:
+    enabled: false
+  defaultDashboardsTimezone: browser
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {cpu: 100m, memory: 64Mi}
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+# --- Resto del stack ---------------------------------------------------------
+prometheusOperator:
+  resources:
+    requests: {cpu: 20m, memory: 48Mi}
+    limits: {cpu: 200m, memory: 96Mi}
+
+kube-state-metrics:
+  resources:
+    requests: {cpu: 10m, memory: 48Mi}
+    limits: {cpu: 100m, memory: 96Mi}
+
+prometheus-node-exporter:
+  resources:
+    requests: {cpu: 10m, memory: 24Mi}
+    limits: {cpu: 100m, memory: 48Mi}
