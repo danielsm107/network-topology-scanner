@@ -1,0 +1,56 @@
+# Reglas de alerta propias del escáner. Las prueba promtool
+# (deploy/monitoring/pruebas/reglas.test.yaml) y las carga el chart
+# topology-monitoring como PrometheusRule.
+#
+# Lo genérico (pods en bucle o que no arrancan, disco del nodo, Prometheus y
+# Alertmanager) lo cubren las reglas por defecto de kube-prometheus-stack: aquí
+# solo lo que el chart no sabe de este proyecto. Ver docs/decisiones.md.
+groups:
+  - name: topology-scanner
+    rules:
+      # Cubre "falló" y "no se ejecutó" (máquina apagada a las 3:00, CronJob
+      # suspendido...): el nocturno es diario, así que 26 h deja margen.
+      - alert: NightlyScanNotSucceeded
+        expr: time() - kube_cronjob_status_last_successful_time{namespace="topology-scanner"} > 26 * 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "El escaneo nocturno no ha terminado bien en más de 26 h"
+          description: "Último éxito de {{ $labels.cronjob }} hace {{ $value | humanizeDuration }}. Puede haber fallado o no haberse ejecutado (máquina apagada a las 3:00)."
+
+      # Solo Jobs de menos de 26 h: el CronJob guarda los fallidos días
+      # (failedJobsHistoryLimit) y el aviso no se resolvería nunca. Pasado ese
+      # plazo, si no se ha arreglado, sigue avisando NightlyScanNotSucceeded.
+      - alert: ScanJobFailed
+        expr: |
+          kube_job_status_failed{namespace="topology-scanner"} > 0
+          and on (namespace, job_name)
+          (time() - kube_job_created{namespace="topology-scanner"}) < 26 * 3600
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ha fallado un Job del escáner"
+          description: "El Job {{ $labels.job_name }} ha fallado. Logs: kubectl -n {{ $labels.namespace }} logs job/{{ $labels.job_name }} --all-containers"
+
+      # El escaneo funciona pero sus métricas no llegan (Pushgateway caído,
+      # metricas.enabled apagado...): el panel de Grafana se quedaría congelado.
+      - alert: ScanMetricsStale
+        expr: time() - topology_scanner_last_scan_timestamp_seconds > 26 * 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Las métricas del escaneo tienen más de 26 h"
+          description: "El último escaneo que llegó al Pushgateway es de hace {{ $value | humanizeDuration }}: el nocturno no corre o no consigue subir sus métricas."
+
+      # Si el push falla siempre o el Pushgateway se reinició (no guarda nada en
+      # disco), la serie no existe y la regla de arriba no dispararía nunca.
+      - alert: ScanMetricsMissing
+        expr: absent(topology_scanner_last_scan_timestamp_seconds)
+        for: 26h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No hay métricas del escaneo"
+          description: "Prometheus no tiene ninguna métrica del escáner desde hace más de 26 h: revisar metricas.enabled en el chart y el contenedor metricas del Job."

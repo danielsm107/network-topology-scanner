@@ -7,6 +7,8 @@ resto vaya a Telegram sin ruido y que ningún secreto acabe en el repo.
 """
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -158,3 +160,58 @@ def test_secretos_fuera_del_repo(archivo):
     assert not re.search(r"hc-ping\.com/[0-9a-f-]{36}", texto)
     assert not re.search(r"adminPassword:\s*\S", texto)
     assert not re.search(r"\b\d{6,}:[A-Za-z0-9_-]{30,}", texto)  # forma de un token de bot
+
+
+# --- Reglas propias (chart topology-monitoring) ---
+
+CHART_PROPIO = MONITORING / "topology-monitoring"
+PRUEBAS_REGLAS = MONITORING / "pruebas" / "reglas.test.yaml"
+
+
+def _reglas() -> list[dict]:
+    grupos = yaml.safe_load((CHART_PROPIO / "files" / "reglas.yaml").read_text(encoding="utf-8"))["groups"]
+    return [regla for grupo in grupos for regla in grupo["rules"]]
+
+
+def test_reglas_con_severidad_resumen_y_descripcion():
+    for regla in _reglas():
+        assert regla["labels"]["severity"] in {"warning", "critical", "info"}, regla["alert"]
+        assert regla["annotations"]["summary"], regla["alert"]
+        assert regla["annotations"]["description"], regla["alert"]
+
+
+def test_cada_alerta_tiene_test_de_promtool():
+    """Un aviso que nunca salta es tan inútil como uno que salta siempre:
+    cada alerta propia se prueba disparando con promtool."""
+    pruebas = yaml.safe_load(PRUEBAS_REGLAS.read_text(encoding="utf-8"))
+    probadas = {
+        caso["alertname"]
+        for prueba in pruebas["tests"]
+        for caso in prueba["alert_rule_test"]
+        if caso["exp_alerts"]
+    }
+
+    assert {regla["alert"] for regla in _reglas()} <= probadas
+
+
+def test_el_stack_no_duplica_las_reglas_propias():
+    """KubeJobFailed avisaría del mismo Job que ScanJobFailed, y sin resolverse."""
+    desactivadas = _valores()["defaultRules"]["disabled"]
+
+    assert desactivadas["KubeJobFailed"] is True
+    assert desactivadas["KubeCPUOvercommit"] is True
+    assert desactivadas["KubeMemoryOvercommit"] is True
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm no está instalado")
+def test_reglas_las_carga_el_operador():
+    """Otro release: sin la etiqueta release=monitoring, el Prometheus del stack
+    (ruleSelectorNilUsesHelmValues) ignoraría el PrometheusRule."""
+    salida = subprocess.run(
+        ["helm", "template", "t", str(CHART_PROPIO), "-n", "monitoring"], check=True, capture_output=True, text=True,
+    ).stdout
+    (regla,) = [doc for doc in yaml.safe_load_all(salida) if doc and doc["kind"] == "PrometheusRule"]
+
+    assert regla["metadata"]["labels"]["release"] == "monitoring"
+    assert regla["metadata"]["namespace"] == "monitoring"
+    assert regla["spec"]["groups"][0]["rules"] == _reglas()

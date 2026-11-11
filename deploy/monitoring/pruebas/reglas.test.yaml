@@ -1,0 +1,101 @@
+# Tests de unidad de las reglas de alerta propias, con promtool:
+#   promtool test rules deploy/monitoring/pruebas/reglas.test.yaml
+# (en la CI, con la imagen prom/prometheus por digest). Cada alerta tiene un
+# caso que dispara y otro que no: un aviso que nunca salta es tan inútil como
+# uno que salta siempre.
+
+rule_files:
+  - ../topology-monitoring/files/reglas.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # --- NightlyScanNotSucceeded -----------------------------------------------
+  # Último éxito del CronJob en t=0 (1970-01-01 00:00): a las 25 h todavía es
+  # normal (el nocturno es diario); a las 27 h ya falta uno.
+  - interval: 1m
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{namespace="topology-scanner", cronjob="topology-scanner-escaneo"}'
+        values: '0x1800'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: NightlyScanNotSucceeded
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: NightlyScanNotSucceeded
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: topology-scanner
+              cronjob: topology-scanner-escaneo
+            exp_annotations:
+              summary: "El escaneo nocturno no ha terminado bien en más de 26 h"
+              description: "Último éxito de topology-scanner-escaneo hace 1d 3h 0m 0s. Puede haber fallado o no haberse ejecutado (máquina apagada a las 3:00)."
+
+  # --- ScanJobFailed ---------------------------------------------------------
+  # Un Job fallido creado en t=0 avisa enseguida, y deja de avisar a las 26 h
+  # aunque el Job siga ahí (failedJobsHistoryLimit lo guarda días).
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_status_failed{namespace="topology-scanner", job_name="topology-scanner-escaneo-1"}'
+        values: '1x1800'
+      - series: 'kube_job_created{namespace="topology-scanner", job_name="topology-scanner-escaneo-1"}'
+        values: '0x1800'
+      # Un Job que terminó bien no avisa
+      - series: 'kube_job_status_failed{namespace="topology-scanner", job_name="topology-scanner-escaneo-2"}'
+        values: '0x1800'
+      - series: 'kube_job_created{namespace="topology-scanner", job_name="topology-scanner-escaneo-2"}'
+        values: '0x1800'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: ScanJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: topology-scanner
+              job_name: topology-scanner-escaneo-1
+            exp_annotations:
+              summary: "Ha fallado un Job del escáner"
+              description: "El Job topology-scanner-escaneo-1 ha fallado. Logs: kubectl -n topology-scanner logs job/topology-scanner-escaneo-1 --all-containers"
+      - eval_time: 27h
+        alertname: ScanJobFailed
+        exp_alerts: []
+
+  # --- ScanMetricsStale (métricas viejas) ------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'topology_scanner_last_scan_timestamp_seconds{job="topology_scanner"}'
+        values: '0x1800'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: ScanMetricsStale
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: ScanMetricsStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: topology_scanner
+            exp_annotations:
+              summary: "Las métricas del escaneo tienen más de 26 h"
+              description: "El último escaneo que llegó al Pushgateway es de hace 1d 3h 0m 0s: el nocturno no corre o no consigue subir sus métricas."
+
+  # --- ScanMetricsMissing (la métrica no existe) -----------------------------
+  # Si el push falla siempre, o el Pushgateway se reinició, no hay serie que
+  # comparar: avisa si sigue sin aparecer pasadas 26 h.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="otra-cosa"}'
+        values: '1x1800'
+    alert_rule_test:
+      - eval_time: 20h
+        alertname: ScanMetricsMissing
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: ScanMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "No hay métricas del escaneo"
+              description: "Prometheus no tiene ninguna métrica del escáner desde hace más de 26 h: revisar metricas.enabled en el chart y el contenedor metricas del Job."

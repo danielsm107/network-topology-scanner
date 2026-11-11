@@ -34,6 +34,14 @@ defaultRules:
     kubeSchedulerAlerting: false
     kubeSchedulerRecording: false
     windows: false
+  # Reglas del chart que en este clúster solo harían ruido (docs/decisiones.md):
+  disabled:
+    # La sustituye ScanJobFailed, que se resuelve sola: esta sigue disparada
+    # mientras exista el Job, y el CronJob guarda los fallidos días
+    KubeJobFailed: true
+    # "El clúster no tolera la caída de un nodo": con un solo nodo, siempre cierto
+    KubeCPUOvercommit: true
+    KubeMemoryOvercommit: true
 
 windowsMonitoring:
   enabled: false

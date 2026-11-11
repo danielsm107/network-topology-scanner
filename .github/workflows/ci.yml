@@ -102,6 +102,17 @@ jobs:
           helm template ci prometheus-community/kube-prometheus-stack --version 92.14.1 -n monitoring -f deploy/monitoring/values.yaml -f deploy/monitoring/values.example.yaml > /dev/null
           helm template ci prometheus-community/prometheus-pushgateway --version 3.10.0 -n monitoring -f deploy/monitoring/pushgateway.values.yaml > /dev/null
 
+      - name: helm lint del chart de reglas y panel
+        run: helm lint deploy/monitoring/topology-monitoring --strict
+
+      # promtool, de la imagen oficial por digest (misma versión que el
+      # Prometheus del stack): valida las reglas y ejecuta sus tests de unidad
+      - name: promtool (reglas de alerta)
+        run: |
+          PROMTOOL="docker run --rm -v $PWD/deploy/monitoring:/m --entrypoint promtool prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2"
+          $PROMTOOL check rules /m/topology-monitoring/files/reglas.yaml
+          $PROMTOOL test rules /m/pruebas/reglas.test.yaml
+
   # La imagen Docker: se construye, se prueba por fuera (como la usaría
   # alguien) y se escanea. Publicarla es cosa de release.yml.
   #
