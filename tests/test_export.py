@@ -19,7 +19,9 @@ from topology_scanner.export import (
     exportar_csv,
     exportar_diff_texto,
     exportar_html,
+    exportar_metricas,
     exportar_texto,
+    metricas_prometheus,
     posiciones_circulares,
     posiciones_jerarquicas,
     resumen_cambios_email,
@@ -753,3 +755,91 @@ def test_cuerpo_lista_caidos_y_puertos_cambiados():
     assert "SENSITIVE PORTS" not in cuerpo
     assert "DOWN HOSTS\n  192.0.2.30" in cuerpo
     assert "192.0.2.20  new: 443  closed: 80" in cuerpo
+
+
+# --- metricas_prometheus: formato de texto de Prometheus para el Pushgateway ---
+
+
+def _con_puertos(puertos):
+    return _resultado_fake(puertos=[{"puerto": p, "servicio": "x", "producto": ""} for p in puertos])
+
+
+def test_metricas_por_rango():
+    resultados = {
+        "192.0.2.0/24": {"192.0.2.10": _con_puertos([22, 3389]), "192.0.2.11": _con_puertos([])},
+        "198.51.100.0/24": {},
+    }
+
+    texto = metricas_prometheus(resultados, None, 98.5, None, 1_700_000_000)
+
+    assert 'topology_scanner_hosts_up{range="192.0.2.0/24"} 2' in texto
+    assert 'topology_scanner_hosts_up{range="198.51.100.0/24"} 0' in texto
+    assert 'topology_scanner_hosts_with_open_ports{range="192.0.2.0/24"} 1' in texto
+    assert 'topology_scanner_hosts_with_sensitive_ports{range="192.0.2.0/24"} 1' in texto
+    assert 'topology_scanner_open_ports{range="192.0.2.0/24"} 2' in texto
+    assert "topology_scanner_scan_duration_seconds 98.5" in texto
+    assert "topology_scanner_last_scan_timestamp_seconds 1700000000" in texto
+    assert "# TYPE topology_scanner_hosts_up gauge" in texto
+    assert texto.endswith("\n")
+
+
+def test_metricas_del_diff():
+    diffs = {"192.0.2.0/24": _diff(nuevos=["192.0.2.10", "192.0.2.12"], caidos=["192.0.2.30"],
+                                   nunca_vistos=["192.0.2.12"])}
+
+    texto = metricas_prometheus({"192.0.2.0/24": {}}, diffs, 1, None, 0)
+
+    assert 'topology_scanner_hosts_new{range="192.0.2.0/24"} 2' in texto
+    assert 'topology_scanner_hosts_never_seen{range="192.0.2.0/24"} 1' in texto
+    assert 'topology_scanner_hosts_down{range="192.0.2.0/24"} 1' in texto
+
+
+def test_metricas_sin_historial_no_trae_las_del_diff():
+    texto = metricas_prometheus({"192.0.2.0/24": {}}, None, 1, None, 0)
+
+    assert "hosts_new" not in texto
+    assert "hosts_down" not in texto
+
+
+def test_metricas_primera_vez_no_trae_las_del_diff():
+    """Un primer escaneo no tiene con qué compararse: todos serían "nuevos"."""
+    diffs = {"192.0.2.0/24": _diff(primera_vez=True, nuevos=["192.0.2.10"])}
+
+    texto = metricas_prometheus({"192.0.2.0/24": {}}, diffs, 1, None, 0)
+
+    assert "hosts_new" not in texto
+
+
+def test_metricas_sin_snmp_no_escribe_snmp_success():
+    assert "snmp_success" not in metricas_prometheus({"192.0.2.0/24": {}}, None, 1, None, 0)
+
+
+def test_metricas_snmp_fallido_es_cero():
+    texto = metricas_prometheus({"192.0.2.0/24": {}}, None, 1, False, 0)
+
+    assert "topology_scanner_snmp_success 0" in texto
+    assert "topology_scanner_snmp_success 1" in metricas_prometheus({"192.0.2.0/24": {}}, None, 1, True, 0)
+
+
+def test_metricas_escapa_las_etiquetas():
+    texto = metricas_prometheus({'a"b\\c\nd': {}}, None, 1, None, 0)
+
+    assert r'range="a\"b\\c\nd"' in texto
+
+
+def test_metricas_cada_metrica_con_help_y_type_una_vez():
+    diffs = {"192.0.2.0/24": _diff(), "198.51.100.0/24": _diff()}
+    texto = metricas_prometheus({"192.0.2.0/24": {}, "198.51.100.0/24": {}}, diffs, 1, True, 0)
+
+    tipos = [linea.split()[2] for linea in texto.splitlines() if linea.startswith("# TYPE")]
+    ayudas = [linea.split()[2] for linea in texto.splitlines() if linea.startswith("# HELP")]
+    muestras = {linea.split("{")[0].split()[0] for linea in texto.splitlines() if not linea.startswith("#")}
+    assert len(tipos) == len(set(tipos))
+    assert set(tipos) == set(ayudas) == muestras
+
+
+def test_exportar_metricas_si_no_puede_escribir_lanza_export_error(tmp_path):
+    destino = tmp_path / "no-existe" / "metricas.prom"
+
+    with pytest.raises(ExportError, match=r"Could not write .*metricas\.prom: "):
+        exportar_metricas(str(destino), {"192.0.2.0/24": {}}, None, 1, None, 0)

@@ -14,7 +14,7 @@ from datetime import datetime
 
 import networkx as nx
 
-from .classifier import ICONOS_POR_CATEGORIA, icono_para_categoria
+from .classifier import ICONOS_POR_CATEGORIA, icono_para_categoria, puertos_sensibles_abiertos
 from .history import combinar_diffs, hay_cambios
 
 
@@ -486,3 +486,90 @@ def resumen_cambios_email(diffs: dict[str, dict], resultados: dict) -> tuple[str
 
     cuerpo = "\n\n".join("\n".join(lineas) for lineas in secciones) + "\n"
     return asunto, cuerpo
+
+
+# --- Métricas para Prometheus (Pushgateway) ---
+
+# (nombre, ayuda) de cada métrica, en el orden en que salen. Las de un rango
+# llevan la etiqueta `range`; las del diff solo salen si hay historial.
+_METRICAS_RANGO = [
+    ("topology_scanner_hosts_up", "Live hosts found in the range"),
+    ("topology_scanner_hosts_with_open_ports", "Live hosts with at least one open port"),
+    ("topology_scanner_hosts_with_sensitive_ports", "Live hosts with at least one sensitive open port"),
+    ("topology_scanner_open_ports", "Open ports in the range, all hosts added up"),
+]
+_METRICAS_DIFF = [
+    ("topology_scanner_hosts_new", "Hosts that were not in the previous scan of the range"),
+    ("topology_scanner_hosts_never_seen", "New hosts never seen before in the range's history"),
+    ("topology_scanner_hosts_down", "Hosts from the previous scan that are gone"),
+]
+
+
+def _etiqueta(valor: str) -> str:
+    """Valor de etiqueta escapado según el formato de texto de Prometheus."""
+    return valor.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _numero(valor: float) -> str:
+    return str(int(valor)) if float(valor).is_integer() else str(valor)
+
+
+def _bloque(nombre: str, ayuda: str, muestras: list[tuple[str, float]]) -> list[str]:
+    """# HELP, # TYPE y las muestras de un gauge. `muestras` es [(etiquetas, valor)]."""
+    return [f"# HELP {nombre} {ayuda}", f"# TYPE {nombre} gauge"] + [
+        f"{nombre}{etiquetas} {_numero(valor)}" for etiquetas, valor in muestras
+    ]
+
+
+def metricas_prometheus(
+    resultados_por_rango: dict[str, dict], diffs: dict[str, dict] | None,
+    duracion: float, snmp_ok: bool | None, ahora: float,
+) -> str:
+    """Las métricas de una ejecución en el formato de texto de Prometheus,
+    para subirlas a un Pushgateway (el CronJob vive dos minutos: Prometheus no
+    llegaría a leerlas). La app no sabe nada de Prometheus: solo escribe texto.
+
+    `resultados_por_rango` es {rango: resultados} (rangos.repartir_por_rango);
+    `diffs`, lo que devuelve history.registrar_ejecucion, o None sin historial;
+    `snmp_ok`, None si no se pidió SNMP (y entonces la métrica no sale: no es
+    un fallo); `ahora`, el instante del escaneo en segundos de época."""
+    rangos = sorted(resultados_por_rango)
+    por_rango = {
+        rango: [
+            len(hosts),
+            sum(1 for host in hosts.values() if host.get("puertos")),
+            sum(1 for host in hosts.values() if puertos_sensibles_abiertos(host.get("puertos", []))),
+            sum(len(host.get("puertos", [])) for host in hosts.values()),
+        ]
+        for rango, hosts in ((r, resultados_por_rango[r]) for r in rangos)
+    }
+
+    lineas = []
+    for i, (nombre, ayuda) in enumerate(_METRICAS_RANGO):
+        lineas += _bloque(nombre, ayuda, [(f'{{range="{_etiqueta(r)}"}}', por_rango[r][i]) for r in rangos])
+
+    # Un primer escaneo no tiene con qué compararse: no aporta estas métricas
+    con_diff = [r for r in rangos if diffs and r in diffs and not diffs[r]["primera_vez"]]
+    if con_diff:
+        claves = ["hosts_nuevos", "hosts_nunca_vistos", "hosts_caidos"]
+        for (nombre, ayuda), clave in zip(_METRICAS_DIFF, claves, strict=True):
+            lineas += _bloque(
+                nombre, ayuda, [(f'{{range="{_etiqueta(r)}"}}', len(diffs[r].get(clave, []))) for r in con_diff]
+            )
+
+    lineas += _bloque("topology_scanner_scan_duration_seconds", "Duration of the whole run", [("", duracion)])
+    lineas += _bloque(
+        "topology_scanner_last_scan_timestamp_seconds", "When the run finished (Unix time)", [("", ahora)]
+    )
+    if snmp_ok is not None:
+        lineas += _bloque("topology_scanner_snmp_success", "1 if the SNMP topology was read", [("", int(snmp_ok))])
+    return "\n".join(lineas) + "\n"
+
+
+def exportar_metricas(
+    archivo_salida: str, resultados_por_rango: dict[str, dict], diffs: dict[str, dict] | None,
+    duracion: float, snmp_ok: bool | None, ahora: float,
+):
+    """Escribe metricas_prometheus en `archivo_salida` (ExportError si no puede)."""
+    _escribir_archivo(archivo_salida, metricas_prometheus(resultados_por_rango, diffs, duracion, snmp_ok, ahora))
+    log.info(f"Metrics exported to: {archivo_salida}")
