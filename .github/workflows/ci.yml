@@ -35,6 +35,10 @@ jobs:
         with:
           version: v4.3.1
 
+      # tests/test_monitoring.py renderiza los charts oficiales para comprobar los digests
+      - name: repo de Helm de la monitorización
+        run: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
       - name: pytest
         run: pytest tests/ -v
 

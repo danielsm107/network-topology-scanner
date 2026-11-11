@@ -13,6 +13,10 @@
 # Lo real que no es secreto (dominio de Grafana) va en values.local.yaml,
 # ignorado por git; ver values.example.yaml.
 
+# Imágenes: cada una fijada por digest (una tag se puede mover; ver el ataque a
+# trivy-action en docs/decisiones.md). Al subir la versión del chart, actualizar
+# las tags y los digests: tests/test_monitoring.py falla si alguna queda sin él.
+
 # --- k3s: lo que no expone por separado ---------------------------------------
 # controller-manager, scheduler y kube-proxy van dentro del binario de k3s, y
 # etcd no existe (usa SQLite). Sus ServiceMonitors no encontrarían nada y sus
@@ -49,6 +53,8 @@ windowsMonitoring:
 # --- Prometheus --------------------------------------------------------------
 prometheus:
   prometheusSpec:
+    image:
+      sha: "451a845bae1d51622b41af1780eb2ad911bbb79a9855bc8e9bb67fabbc03f934"  # v3.15.1-distroless
     # Retención corta: es un homelab, interesa el último par de semanas
     retention: 15d
     retentionSize: 4GB
@@ -67,6 +73,8 @@ prometheus:
 # --- Alertmanager ------------------------------------------------------------
 alertmanager:
   alertmanagerSpec:
+    image:
+      sha: "e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a"  # v0.34.1
     # Secret creado a mano: Alertmanager lee de él el token del bot, el chat y la
     # URL de ping (los *_file de abajo). El chat ID tampoco va al repo: el repo es
     # público y Helm no deja parchear un receptor de la lista desde otro archivo
@@ -149,6 +157,11 @@ alertmanager:
 
 # --- Grafana -----------------------------------------------------------------
 grafana:
+  image:
+    sha: "ae3d3add290adbe6a88412229f5d76fd7bb82743050881698642d3d62f277e35"  # 13.2.4-distroless
+  # Su `helm test` (imagen bats) no aporta nada aquí
+  testFramework:
+    enabled: false
   # Secret creado a mano (runbook 06): la contraseña no pasa por los values
   admin:
     existingSecret: grafana-admin
@@ -169,6 +182,8 @@ grafana:
     enabled: false
   defaultDashboardsTimezone: browser
   sidecar:
+    image:
+      sha: "092dbe0c335fba9af414a27630ca68f34df6185784fa847d9954187e69dbfdd7"  # k8s-sidecar 2.14.1
     dashboards:
       enabled: true
       label: grafana_dashboard
@@ -183,16 +198,30 @@ grafana:
 
 # --- Resto del stack ---------------------------------------------------------
 prometheusOperator:
+  image:
+    sha: "c7edf0379b7271ef1705dce258d2bb73820e299cc95559369e9f6fc3321639ec"  # v0.94.2
+  prometheusConfigReloader:
+    image:
+      sha: "a1897c67478bc23434534e91ad3855280771196b1daf17144db9dbcb655bef71"  # v0.94.2
+  # Job que genera los certificados del webhook de admisión al instalar
+  admissionWebhooks:
+    patch:
+      image:
+        sha: "778d97dc3986355625e14392419b3364c487a7c807d4d86ddad1df369129b082"  # kube-webhook-certgen 1.11.0
   resources:
     requests: {cpu: 20m, memory: 48Mi}
     limits: {cpu: 200m, memory: 96Mi}
 
 kube-state-metrics:
+  image:
+    sha: "sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b"  # v2.20.0 (este chart lo quiere con prefijo)
   resources:
     requests: {cpu: 10m, memory: 48Mi}
     limits: {cpu: 100m, memory: 96Mi}
 
 prometheus-node-exporter:
+  image:
+    digest: "sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106"  # v1.12.1-distroless
   resources:
     requests: {cpu: 10m, memory: 24Mi}
     limits: {cpu: 100m, memory: 48Mi}

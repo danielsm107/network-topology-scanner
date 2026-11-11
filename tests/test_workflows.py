@@ -169,6 +169,16 @@ def test_la_ci_prueba_las_reglas_de_alerta():
     assert "helm lint deploy/monitoring/topology-monitoring --strict" in ci
 
 
+def test_el_job_de_tests_tiene_el_repo_de_la_monitorizacion():
+    """test_monitoring.py renderiza los charts oficiales: sin el repo, helm
+    template fallaría (no se salta: helm sí está instalado)."""
+    ci = yaml.safe_load((CARPETA_WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+    pasos = " ".join(paso.get("run", "") for paso in ci["jobs"]["test"]["steps"])
+
+    assert "helm repo add prometheus-community" in pasos
+    assert pasos.index("helm repo add prometheus-community") < pasos.index("pytest")
+
+
 def test_la_ci_valida_el_chart_de_helm():
     """helm lint y helm template del chart con los values de ejemplo, y Helm
     también en el job de pytest: si no, tests/test_helm.py se saltaría en

@@ -270,3 +270,38 @@ def test_panel_lo_carga_el_sidecar():
 
     assert mapa["metadata"]["labels"]["grafana_dashboard"] == "1"
     assert mapa["data"]["panel-escaneo.json"].strip() == PANEL.read_text(encoding="utf-8").strip()
+
+
+# --- Imágenes por digest (como Trivy, aws-cli, curl y Jenkins) ---
+
+
+def _imagenes_renderizadas(chart: str, version: str, *valores: str) -> set[str]:
+    salida = subprocess.run(
+        ["helm", "template", "ci", f"prometheus-community/{chart}", "--version", version, "-n", "monitoring",
+         *[arg for v in valores for arg in ("-f", str(MONITORING / v))]],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    imagenes = set(re.findall(r"image: \"?([^\"\s]+)", salida))
+    # El operador recibe la imagen del config-reloader como argumento, no como image:
+    imagenes |= set(re.findall(r"--prometheus-config-reloader=(\S+)", salida))
+    return imagenes
+
+
+def _version_del_chart(valores: str) -> str:
+    return re.findall(r"versión\W+(\d+\.\d+\.\d+)", (MONITORING / valores).read_text(encoding="utf-8"))[0]
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm no está instalado")
+@pytest.mark.parametrize("chart, valores", [
+    ("kube-prometheus-stack", ("values.yaml", "values.example.yaml")),
+    ("prometheus-pushgateway", ("pushgateway.values.yaml",)),
+])
+def test_imagenes_de_la_monitorizacion_por_digest(chart, valores):
+    """Una tag se puede mover (ataque a trivy-action, marzo de 2026): cada
+    imagen que llega al clúster va fijada por digest. Necesita el repo de Helm
+    prometheus-community añadido (la CI lo añade en el job de tests)."""
+    imagenes = _imagenes_renderizadas(chart, _version_del_chart(valores[0]), *valores)
+
+    assert imagenes
+    sin_digest = sorted(imagen for imagen in imagenes if "@sha256:" not in imagen)
+    assert sin_digest == []
