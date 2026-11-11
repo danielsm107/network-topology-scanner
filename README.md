@@ -146,6 +146,7 @@ sudo python3 -m topology_scanner 192.168.1.0/24
 | `--no-history`    | Skips saving the scan to history / diffing against the previous one | disabled              |
 | `--changes-dir`   | Writes `cambios.json`, `asunto.txt` and `cuerpo.txt` (an email-ready summary) to the given folder, only for a never-seen host with open ports or a port change | disabled |
 | `--history-backup` | Writes a consistent copy of the history database to the given path after the run | disabled |
+| `--metrics-file`  | Writes scan metrics in the Prometheus text format (hosts up, sensitive ports, never-seen hosts, duration...) to the given file, for a Pushgateway. Written even when no host is found | disabled |
 | `--snmp`          | Routers/switches to query over SNMP v2c/v3 (comma-separated IPs)   | disabled (star layout) |
 
 The Spanish flags from v1.0 (`--rapido`, `--con-so`, `--sin-2-fases`,

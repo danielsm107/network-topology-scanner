@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import sys
+import time
 
 try:
     from . import __version__
@@ -18,6 +19,7 @@ try:
         exportar_csv,
         exportar_diff_texto,
         exportar_html,
+        exportar_metricas,
         exportar_texto,
         resumen_cambios_email,
     )
@@ -132,6 +134,11 @@ def construir_parser() -> argparse.ArgumentParser:
              "(safe even while another process is writing to it)"
     )
     parser.add_argument(
+        "--metrics-file", default=None, metavar="FILE",
+        help="Write scan metrics in the Prometheus text format to FILE (for a Pushgateway). "
+             "Written even when no host is found"
+    )
+    parser.add_argument(
         "--snmp", type=_lista_de_ips, default=None, metavar="IP[,IP...]",
         help="Routers/switches to query over SNMP to draw the real topology (a tree) instead of "
              f"the star. Credentials via environment variables: {VARIABLE_COMMUNITY} (v2c), or "
@@ -186,6 +193,7 @@ def main():
             parser.error(f"--snmp needs credentials: the community in {VARIABLE_COMMUNITY} (v2c), "
                          f"or {VARIABLE_USUARIO_V3} and {VARIABLE_CLAVE_AUTH_V3} (v3).")
 
+    inicio = time.monotonic()
     try:
         # nmap acepta varios objetivos separados por espacios en una sola pasada
         resultados = escanear_red(" ".join(rangos), args.ports, argumentos_nmap, dos_fases=not args.no_discovery)
@@ -194,6 +202,9 @@ def main():
 
     if not resultados:
         log.warning("No hosts found. Check the range and your permissions (try with sudo).")
+        # Cero hosts es justo lo que el panel tiene que enseñar
+        if args.metrics_file:
+            _escribir_metricas(args.metrics_file, repartir_por_rango({}, rangos), None, inicio, None)
         return
 
     exportar_texto(resultados)
@@ -208,6 +219,7 @@ def main():
     # que la web pueda reabrir la pasada con su árbol
     topologia = _obtener_topologia(args.snmp, credenciales) if args.snmp else None
 
+    diffs = None
     if not args.no_history:
         # Una ejecución con todos los rangos, pero cada rango se compara con
         # su propio escaneo anterior (rangos distintos no se mezclan), así
@@ -227,9 +239,21 @@ def main():
             # ha funcionado: se avisa y se sigue con el grafo/export normal.
             log.warning(str(e))
 
+    if args.metrics_file:
+        snmp_ok = topologia is not None if args.snmp else None
+        _escribir_metricas(args.metrics_file, repartir_por_rango(resultados, rangos), diffs, inicio, snmp_ok)
+
     grafo = construir_grafo(resultados, rangos, topologia=topologia)
     try:
         exportar_html(grafo, args.output)
+    except ExportError as e:
+        sys.exit(str(e))
+
+
+def _escribir_metricas(archivo: str, por_rango: dict, diffs: dict | None, inicio: float, snmp_ok: bool | None):
+    """export.exportar_metricas con la duración desde `inicio` (monotónico)."""
+    try:
+        exportar_metricas(archivo, por_rango, diffs, time.monotonic() - inicio, snmp_ok, time.time())
     except ExportError as e:
         sys.exit(str(e))
 

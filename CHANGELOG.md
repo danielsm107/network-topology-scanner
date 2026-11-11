@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `--metrics-file FILE`: writes the run's metrics in the Prometheus text format
+  (per range: hosts up, hosts with open ports, hosts with sensitive ports, open
+  ports, and new / never-seen / down hosts when there is history; plus duration,
+  SNMP success and the time of the scan), to push to a Pushgateway. The app still
+  doesn't depend on Prometheus: it only writes text.
+
 ## [1.5.1] - 2026-11-11
 
 ### Fixed
