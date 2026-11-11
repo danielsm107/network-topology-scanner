@@ -4,7 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
-## [1.5.0] - 2026-11-09
+## [1.5.1] - 2026-11-11
+
+### Fixed
+- The nightly email marks the new hosts that were never seen before in their
+  range with `[never seen before]`: those are the ones that trigger it, and they
+  were mixed with known hosts coming back.
+- Helm chart (0.4.1): the upload container no longer logs "no changes" when there
+  were changes but nothing worth an alert.
+
+## [1.5.0] - 2026-11-10
 
 ### Changed
 - `--changes-dir` (and so the nightly email alert) now only fires for a host

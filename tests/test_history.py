@@ -240,22 +240,23 @@ def test_sin_pasar_mantener_ultimos_usa_un_valor_por_defecto_razonable(tmp_path)
 
 # --- combinar_diffs (varios rangos en un mismo escaneo) ----------------------
 
-def _diff(primera_vez=False, nuevos=(), caidos=(), puertos=None):
+def _diff(primera_vez=False, nuevos=(), caidos=(), puertos=None, nunca_vistos=()):
     return {"primera_vez": primera_vez, "hosts_nuevos": list(nuevos), "hosts_caidos": list(caidos),
-            "puertos_cambiados": puertos or {}}
+            "hosts_nunca_vistos": list(nunca_vistos), "puertos_cambiados": puertos or {}}
 
 
 def test_combinar_diffs_une_los_cambios_de_cada_rango():
     combinado = combinar_diffs([
         _diff(nuevos=["192.168.1.20"], puertos={"192.168.1.1": {"nuevos": [23], "cerrados": [],
                                                                 "nuevos_sensibles": []}}),
-        _diff(nuevos=["10.0.10.5"], caidos=["10.0.10.9"]),
+        _diff(nuevos=["10.0.10.5"], caidos=["10.0.10.9"], nunca_vistos=["10.0.10.5"]),
     ])
 
     assert combinado == {
         "primera_vez": False,
         "hosts_nuevos": ["10.0.10.5", "192.168.1.20"],
         "hosts_caidos": ["10.0.10.9"],
+        "hosts_nunca_vistos": ["10.0.10.5"],
         "puertos_cambiados": {"192.168.1.1": {"nuevos": [23], "cerrados": [], "nuevos_sensibles": []}},
     }
 
