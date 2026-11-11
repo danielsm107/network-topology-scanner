@@ -153,7 +153,7 @@ def test_la_ci_valida_los_valores_de_monitorizacion():
     charts = (("kube-prometheus-stack", "values.yaml"), ("prometheus-pushgateway", "pushgateway.values.yaml"))
     for chart, valores in charts:
         # La cabecera de cada values dice "... (prometheus-community), versión X.Y.Z"
-        (version,) = re.findall(r"versión (\d+\.\d+\.\d+)", (monitoring / valores).read_text(encoding="utf-8"))[:1]
+        (version,) = re.findall(r"versión\W+(\d+\.\d+\.\d+)",(monitoring / valores).read_text(encoding="utf-8"))[:1]
         comando = rf"helm template ci prometheus-community/{chart} --version {re.escape(version)} .*{valores}"
         assert re.search(comando, ci), chart
 
