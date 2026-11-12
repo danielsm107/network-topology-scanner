@@ -122,6 +122,11 @@ alertmanager:
       - source_matchers: ['alertname = InfoInhibitor']
         target_matchers: ['severity = info']
         equal: [namespace]
+      # Si el nocturno no termina, tampoco sube métricas: es el mismo problema.
+      # Sin equal: las métricas vienen del Pushgateway (otro namespace) y
+      # absent() no tiene etiquetas
+      - source_matchers: ['alertname = NightlyScanNotSucceeded']
+        target_matchers: ['alertname =~ "ScanMetricsStale|ScanMetricsMissing"']
     receivers:
       - name: "null"
       - name: telegram

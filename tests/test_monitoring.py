@@ -144,6 +144,22 @@ def test_mensaje_de_telegram_en_espanol():
     assert any("Resuelto" in texto for texto in plantillas.values())
 
 
+def test_fallo_del_nocturno_no_avisa_tambien_de_metricas():
+    """Si el nocturno no termina, tampoco sube métricas: Stale/Missing serían el
+    mismo problema contado dos veces. Sin `equal`: las métricas vienen del
+    Pushgateway (otro namespace) y absent() no tiene etiquetas."""
+    reglas = [
+        r for r in _alertmanager()["inhibit_rules"] if r["source_matchers"] == ["alertname = NightlyScanNotSucceeded"]
+    ]
+
+    assert reglas == [
+        {
+            "source_matchers": ["alertname = NightlyScanNotSucceeded"],
+            "target_matchers": ['alertname =~ "ScanMetricsStale|ScanMetricsMissing"'],
+        }
+    ]
+
+
 def test_grafana_sin_anonimo_y_admin_por_secret():
     grafana = _valores()["grafana"]
 
