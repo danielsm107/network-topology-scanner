@@ -21,7 +21,9 @@ if [ ! -f "$ARCHIVO" ]; then
   exit 0
 fi
 
-if curl -sS --fail --max-time 30 --retry 3 -X PUT --data-binary "@$ARCHIVO" \
+# --retry-connrefused: sin él, curl no reintenta una conexión rechazada (el
+# Pushgateway reiniciándose), que es justo el fallo pasajero más probable.
+if curl -sS --fail --max-time 30 --retry 3 --retry-connrefused -X PUT --data-binary "@$ARCHIVO" \
     "$PUSHGATEWAY/metrics/job/topology_scanner"; then
   echo "Métricas subidas a $PUSHGATEWAY."
 else

@@ -549,6 +549,16 @@ def test_empujar_usa_put_al_grupo_del_job(tmp_path):
 
 
 @pytest.mark.skipif(SH is None, reason="sin sh")
+def test_empujar_reintenta_si_el_pushgateway_esta_arrancando(tmp_path):
+    """--retry solo reintenta errores "pasajeros"; una conexión rechazada (el
+    Pushgateway reiniciándose) no lo es para curl sin --retry-connrefused."""
+    _, llamadas = _ejecutar_empuje(tmp_path)
+
+    assert "--retry 3" in llamadas
+    assert "--retry-connrefused" in llamadas
+
+
+@pytest.mark.skipif(SH is None, reason="sin sh")
 def test_empujar_sin_pushgateway_no_tumba_el_job(tmp_path):
     resultado, _ = _ejecutar_empuje(tmp_path, curl_falla=True)
 
