@@ -24,3 +24,4 @@ lib/
 
 # Maquetas del brainstorming de Claude Code (servidor de maquetas en local)
 .superpowers/
+deploy/monitoring/values.local.yaml

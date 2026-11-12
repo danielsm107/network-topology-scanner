@@ -1,0 +1,35 @@
+# Valores del chart oficial prometheus-pushgateway (prometheus-community),
+# versión 3.10.0: la misma en ci.yml y en el runbook 06-observabilidad.md.
+#
+#   helm upgrade --install pushgateway prometheus-community/prometheus-pushgateway \
+#     --version 3.10.0 -n monitoring -f deploy/monitoring/pushgateway.values.yaml
+#
+# Recibe las métricas del escaneo nocturno: el Job vive dos minutos y Prometheus
+# no llegaría a leerlas. Lo sube el contenedor "metricas" del chart de la app.
+
+# Fijada por digest: el chart no tiene clave para él, pero forma la imagen como
+# repositorio:tag, así que el digest va dentro de la tag
+image:
+  tag: "v1.11.4@sha256:91a56b89b97dd8a5e1e4fa8b5bbbd86dd57a87a2a3cee3a3ce3368b40ef158ef"
+
+# Nombre fijo del Service: el chart de la app apunta a
+# http://prometheus-pushgateway.monitoring.svc:9091 (metricas.pushgateway)
+fullnameOverride: prometheus-pushgateway
+
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  # La etiqueta que selecciona el Prometheus del stack (otro release)
+  additionalLabels:
+    release: monitoring
+  # Que las etiquetas del push (range) no se pisen con las del scrape
+  honorLabels: true
+
+# Sin disco: si se reinicia, pierde las métricas hasta el siguiente nocturno, y
+# Prometheus ya las tiene guardadas
+persistentVolume:
+  enabled: false
+
+resources:
+  requests: {cpu: 10m, memory: 24Mi}
+  limits: {cpu: 100m, memory: 48Mi}

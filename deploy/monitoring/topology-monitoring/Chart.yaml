@@ -1,0 +1,5 @@
+apiVersion: v2
+name: topology-monitoring
+description: Reglas de alerta y panel de Grafana del escáner, para el kube-prometheus-stack del homelab
+type: application
+version: 0.1.0

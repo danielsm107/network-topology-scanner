@@ -662,3 +662,61 @@ def test_version_imprime_la_del_paquete(capsys):
 
     assert salida.value.code == 0
     assert capsys.readouterr().out.strip() == f"topology-scanner {__version__}"
+
+
+# --- --metrics-file (lo que el CronJob sube al Pushgateway) ---
+
+
+def test_metrics_file_escribe_las_metricas(cli_simulado, tmp_path):
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _SIN_CAMBIOS}
+    archivo = tmp_path / "metricas.prom"
+
+    _run_main_con_argv(["192.168.1.0/24", "--metrics-file", str(archivo)])
+
+    texto = archivo.read_text(encoding="utf-8")
+    assert 'topology_scanner_hosts_up{range="192.168.1.0/24"} 1' in texto
+    assert "topology_scanner_scan_duration_seconds" in texto
+    assert 'topology_scanner_hosts_new{range="192.168.1.0/24"} 0' in texto
+
+
+def test_metrics_file_sin_hosts_escribe_ceros(cli_simulado, tmp_path):
+    """Cero hosts vivos es justo lo que hay que ver en el panel: no puede
+    quedarse sin archivo porque main termine antes."""
+    cli_simulado["escanear"].return_value = {}
+    archivo = tmp_path / "metricas.prom"
+
+    _run_main_con_argv(["192.168.1.0/24", "--metrics-file", str(archivo)])
+
+    assert 'topology_scanner_hosts_up{range="192.168.1.0/24"} 0' in archivo.read_text(encoding="utf-8")
+
+
+def test_metrics_file_con_no_history(cli_simulado, tmp_path):
+    archivo = tmp_path / "metricas.prom"
+
+    _run_main_con_argv(["192.168.1.0/24", "--no-history", "--metrics-file", str(archivo)])
+
+    texto = archivo.read_text(encoding="utf-8")
+    assert "topology_scanner_hosts_up" in texto
+    assert "hosts_new" not in texto
+    cli_simulado["registrar"].assert_not_called()
+
+
+def test_metrics_file_con_snmp_fallido(cli_simulado, tmp_path, monkeypatch):
+    monkeypatch.setenv(VARIABLE_COMMUNITY, "community-de-prueba")
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _SIN_CAMBIOS}
+    archivo = tmp_path / "metricas.prom"
+
+    with patch("topology_scanner.cli._obtener_topologia", return_value=None):
+        _run_main_con_argv(["192.168.1.0/24", "--snmp", "192.168.1.1", "--metrics-file", str(archivo)])
+
+    assert "topology_scanner_snmp_success 0" in archivo.read_text(encoding="utf-8")
+
+
+def test_metrics_file_no_escribible_sale_con_error(cli_simulado, tmp_path):
+    cli_simulado["registrar"].return_value = {"192.168.1.0/24": _SIN_CAMBIOS}
+    archivo = tmp_path / "no-existe" / "metricas.prom"
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_main_con_argv(["192.168.1.0/24", "--metrics-file", str(archivo)])
+
+    assert "metricas.prom" in str(excinfo.value.code)

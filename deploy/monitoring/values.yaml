@@ -1,0 +1,236 @@
+# Valores del chart oficial kube-prometheus-stack (prometheus-community), versión
+# 92.14.1: la misma en ci.yml y en el runbook 06-observabilidad.md. Instalado y
+# actualizado desde el PC, nunca por Jenkins (Jenkins solo despliega la app):
+#
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     --version 92.14.1 -n monitoring -f deploy/monitoring/values.yaml \
+#     -f deploy/monitoring/values.local.yaml
+#
+# Secretos, creados a mano (runbook 06), nunca aquí:
+#   - alertas: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID y HEALTHCHECKS_URL, montado
+#     en Alertmanager en /etc/alertmanager/secrets/alertas/
+#   - grafana-admin: admin-user y admin-password
+# Lo real que no es secreto (dominio de Grafana) va en values.local.yaml,
+# ignorado por git; ver values.example.yaml.
+
+# Imágenes: cada una fijada por digest (una tag se puede mover; ver el ataque a
+# trivy-action en docs/decisiones.md). Al subir la versión del chart, actualizar
+# las tags y los digests: tests/test_monitoring.py falla si alguna queda sin él.
+
+# --- k3s: lo que no expone por separado ---------------------------------------
+# controller-manager, scheduler y kube-proxy van dentro del binario de k3s, y
+# etcd no existe (usa SQLite). Sus ServiceMonitors no encontrarían nada y sus
+# reglas darían alertas "target down" permanentes.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    windows: false
+  # Reglas del chart que en este clúster solo harían ruido (docs/decisiones.md):
+  disabled:
+    # La sustituye ScanJobFailed, que se resuelve sola: esta sigue disparada
+    # mientras exista el Job, y el CronJob guarda los fallidos días
+    KubeJobFailed: true
+    # "El clúster no tolera la caída de un nodo": con un solo nodo, siempre cierto
+    KubeCPUOvercommit: true
+    KubeMemoryOvercommit: true
+
+windowsMonitoring:
+  enabled: false
+
+# --- Prometheus --------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    image:
+      sha: "451a845bae1d51622b41af1780eb2ad911bbb79a9855bc8e9bb67fabbc03f934"  # v3.15.1-distroless
+    # Retención corta: es un homelab, interesa el último par de semanas
+    retention: 15d
+    retentionSize: 4GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+    resources:
+      requests: {cpu: 100m, memory: 384Mi}
+      limits: {cpu: "1", memory: 640Mi}
+
+# --- Alertmanager ------------------------------------------------------------
+alertmanager:
+  alertmanagerSpec:
+    image:
+      sha: "e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a"  # v0.34.1
+    # Secret creado a mano: Alertmanager lee de él el token del bot, el chat y la
+    # URL de ping (los *_file de abajo). El chat ID tampoco va al repo: el repo es
+    # público y Helm no deja parchear un receptor de la lista desde otro archivo
+    secrets: [alertas]
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {cpu: 100m, memory: 64Mi}
+
+  # Mapa completo: Helm fusiona mapas pero sustituye listas, así que route,
+  # receivers e inhibit_rules quedan exactamente como aquí
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      # Un mensaje por problema, no uno por pod
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      # Recordatorio mientras siga: cada pocas horas, no cada 5 minutos
+      repeat_interval: 4h
+      receiver: telegram
+      routes:
+        # Interruptor de hombre muerto: el Watchdog está siempre disparado. Se
+        # reenvía cada minuto a healthchecks.io; si deja de llegar (Prometheus o
+        # Alertmanager caídos, la VM colgada), healthchecks.io avisa por Telegram
+        - receiver: healthchecks
+          matchers:
+            - alertname = "Watchdog"
+          group_by: [alertname]
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 1m
+        # Existe para silenciar avisos "info"; no es un problema en sí
+        - receiver: "null"
+          matchers:
+            - alertname = "InfoInhibitor"
+    inhibit_rules:
+      # Si hay una crítica, no avisar también de la warning/info del mismo problema
+      - source_matchers: ['severity = critical']
+        target_matchers: ['severity =~ warning|info']
+        equal: [namespace, alertname]
+      - source_matchers: ['severity = warning']
+        target_matchers: ['severity = info']
+        equal: [namespace, alertname]
+      - source_matchers: ['alertname = InfoInhibitor']
+        target_matchers: ['severity = info']
+        equal: [namespace]
+      # Si el nocturno no termina, tampoco sube métricas: es el mismo problema.
+      # Sin equal: las métricas vienen del Pushgateway (otro namespace) y
+      # absent() no tiene etiquetas
+      - source_matchers: ['alertname = NightlyScanNotSucceeded']
+        target_matchers: ['alertname =~ "ScanMetricsStale|ScanMetricsMissing"']
+    receivers:
+      - name: "null"
+      - name: telegram
+        telegram_configs:
+          - bot_token_file: /etc/alertmanager/secrets/alertas/TELEGRAM_BOT_TOKEN
+            chat_id_file: /etc/alertmanager/secrets/alertas/TELEGRAM_CHAT_ID
+            parse_mode: HTML
+            send_resolved: true
+            message: '{{ template "telegram.mensaje" . }}'
+      - name: healthchecks
+        webhook_configs:
+          # La URL de ping es un secreto: quien la tenga puede "dar señales de vida"
+          - url_file: /etc/alertmanager/secrets/alertas/HEALTHCHECKS_URL
+            send_resolved: false
+    templates:
+      - /etc/alertmanager/config/*.tmpl
+
+  # Plantilla del mensaje de Telegram (HTML). El resumen y la descripción salen
+  # de las anotaciones de cada regla (las propias, en español, en
+  # topology-monitoring/files/reglas.yaml)
+  # Todo valor va por `html` (de text/template): con parse_mode HTML, un `<` o
+  # `&` en una etiqueta hace que Telegram rechace el mensaje y el aviso se pierda
+  templateFiles:
+    telegram.tmpl: |-
+      {{ define "telegram.mensaje" -}}
+      {{ if eq .Status "firing" }}🔥 <b>{{ .CommonLabels.alertname | html }}</b>{{ else }}✅ <b>Resuelto: {{ .CommonLabels.alertname | html }}</b>{{ end }}
+      {{ range .Alerts -}}
+      {{ if .Annotations.summary }}• {{ .Annotations.summary | html }}{{ else }}• {{ .Labels.alertname | html }}{{ end }}
+      {{ if .Annotations.description }}{{ .Annotations.description | html }}
+      {{ end -}}
+      {{ if .Labels.namespace }}<i>{{ .Labels.namespace | html }}{{ if .Labels.pod }}/{{ .Labels.pod | html }}{{ end }}{{ if .Labels.job_name }}/{{ .Labels.job_name | html }}{{ end }}</i>
+      {{ end -}}
+      {{ end -}}
+      {{- end }}
+
+# --- Grafana -----------------------------------------------------------------
+grafana:
+  image:
+    sha: "ae3d3add290adbe6a88412229f5d76fd7bb82743050881698642d3d62f277e35"  # 13.2.4-distroless
+  # Su `helm test` (imagen bats) no aporta nada aquí
+  testFramework:
+    enabled: false
+  # Secret creado a mano (runbook 06): la contraseña no pasa por los values
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  grafana.ini:
+    auth.anonymous:
+      enabled: false
+    analytics:
+      check_for_updates: false
+      reporting_enabled: false
+  # NPM hace de proxy a <IP del nodo>:30300, con HTTPS y solo desde la LAN
+  service:
+    type: NodePort
+    nodePort: 30300
+  # Sin PVC: paneles y datasource son código (ConfigMaps que lee el sidecar)
+  persistence:
+    enabled: false
+  defaultDashboardsTimezone: browser
+  sidecar:
+    image:
+      sha: "092dbe0c335fba9af414a27630ca68f34df6185784fa847d9954187e69dbfdd7"  # k8s-sidecar 2.14.1
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+    # Son dos (paneles y datasources). Con 64Mi los mataba el OOM al arrancar
+    resources:
+      requests: {cpu: 10m, memory: 64Mi}
+      limits: {cpu: 100m, memory: 128Mi}
+  # Con 256Mi lo mataba el OOM en el primer arranque (migraciones); en reposo ~230Mi
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+# --- Resto del stack ---------------------------------------------------------
+prometheusOperator:
+  image:
+    sha: "c7edf0379b7271ef1705dce258d2bb73820e299cc95559369e9f6fc3321639ec"  # v0.94.2
+  prometheusConfigReloader:
+    image:
+      sha: "a1897c67478bc23434534e91ad3855280771196b1daf17144db9dbcb655bef71"  # v0.94.2
+  # Job que genera los certificados del webhook de admisión al instalar
+  admissionWebhooks:
+    patch:
+      image:
+        sha: "778d97dc3986355625e14392419b3364c487a7c807d4d86ddad1df369129b082"  # kube-webhook-certgen 1.11.0
+  resources:
+    requests: {cpu: 20m, memory: 48Mi}
+    limits: {cpu: 200m, memory: 96Mi}
+
+kube-state-metrics:
+  image:
+    sha: "sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b"  # v2.20.0 (este chart lo quiere con prefijo)
+  resources:
+    requests: {cpu: 10m, memory: 48Mi}
+    limits: {cpu: 100m, memory: 96Mi}
+
+prometheus-node-exporter:
+  image:
+    digest: "sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106"  # v1.12.1-distroless
+  resources:
+    requests: {cpu: 10m, memory: 24Mi}
+    limits: {cpu: 100m, memory: 48Mi}

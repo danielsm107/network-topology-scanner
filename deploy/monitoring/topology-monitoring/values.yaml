@@ -1,0 +1,3 @@
+# Nombre del release de kube-prometheus-stack: su Prometheus solo carga las
+# PrometheusRule con la etiqueta release=<este nombre>
+releaseDelStack: monitoring

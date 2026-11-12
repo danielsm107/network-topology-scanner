@@ -452,3 +452,124 @@ def test_chart_e_imagen_coinciden_con_pyproject():
 
     assert chart["appVersion"] == version
     assert valores["image"]["tag"] == version
+
+
+# --- Métricas al Pushgateway (fase 6) ---
+
+CON_METRICAS = ("--set", "metricas.enabled=true")
+
+
+def test_metricas_desactivadas_por_defecto():
+    args = _contenedor(_renderizar(), "CronJob")["args"]
+
+    assert "--metrics-file" not in args
+
+
+def test_metricas_sin_aws():
+    manifiestos = _renderizar(*CON_METRICAS)
+    pod = _pod(manifiestos, "CronJob")
+    escaneo = _contenedores_del_job(manifiestos)["escaneo"]
+    args = escaneo["args"]
+
+    assert [c["name"] for c in pod["initContainers"]] == ["escaneo"]
+    assert [c["name"] for c in pod["containers"]] == ["metricas"]
+    assert args[args.index("--metrics-file") + 1] == "/salida/metricas.prom"
+    assert "--changes-dir" not in args
+    assert {"name": "salida", "emptyDir": {}} in pod["volumes"]
+    assert {"name": "salida", "mountPath": "/salida"} in escaneo["volumeMounts"]
+
+
+def test_metricas_con_aws():
+    manifiestos = _renderizar(*CON_AWS, *CON_METRICAS)
+    pod = _pod(manifiestos, "CronJob")
+
+    assert [c["name"] for c in pod["initContainers"]] == ["escaneo"]
+    assert sorted(c["name"] for c in pod["containers"]) == ["metricas", "subida"]
+    assert "--changes-dir" in _contenedores_del_job(manifiestos)["escaneo"]["args"]
+    assert [v["name"] for v in pod["volumes"]].count("salida") == 1
+
+
+def test_contenedor_metricas_endurecido():
+    metricas = _contenedores_del_job(_renderizar(*CON_METRICAS))["metricas"]
+    contexto = metricas["securityContext"]
+
+    assert metricas["image"].startswith("curlimages/curl:")
+    assert "@sha256:" in metricas["image"]
+    assert contexto["capabilities"] == {"drop": ["ALL"]}
+    assert contexto["allowPrivilegeEscalation"] is False
+    assert contexto["readOnlyRootFilesystem"] is True
+    assert _env(metricas)["PUSHGATEWAY"]["value"] == "http://prometheus-pushgateway.monitoring.svc:9091"
+    assert {"name": "salida", "mountPath": "/salida", "readOnly": True} in metricas["volumeMounts"]
+
+
+def test_script_de_metricas_siempre_con_lf():
+    salida = subprocess.run(
+        ["git", "check-attr", "eol", "--", "deploy/helm/topology-scanner/files/empujar_metricas.sh"],
+        cwd=RAIZ, check=True, capture_output=True, text=True,
+    ).stdout
+
+    assert salida.strip().endswith("eol: lf")
+
+
+def _ejecutar_empuje(tmp_path, curl_falla: bool = False, con_archivo: bool = True):
+    """Ejecuta files/empujar_metricas.sh con un `curl` falso que apunta sus argumentos."""
+    salida = tmp_path / "salida"
+    salida.mkdir()
+    if con_archivo:
+        (salida / "metricas.prom").write_text("topology_scanner_hosts_up 1", encoding="utf-8")
+    bin_falso = tmp_path / "bin"
+    bin_falso.mkdir()
+    log = tmp_path / "curl.log"
+    curl = bin_falso / "curl"
+    curl.write_text(
+        f'#!/bin/sh\necho "$*" >> "{log.as_posix()}"\nexit {1 if curl_falla else 0}\n', encoding="utf-8", newline="\n"
+    )
+    curl.chmod(0o755)
+    entorno = {
+        **os.environ,
+        "PATH": f"{bin_falso.as_posix()}:{os.environ['PATH']}",
+        "SALIDA": salida.as_posix(), "PUSHGATEWAY": "http://pushgateway.example:9091",
+    }
+    resultado = subprocess.run(
+        [SH, (CHART / "files" / "empujar_metricas.sh").as_posix()], env=entorno, capture_output=True, text=True,
+    )
+    return resultado, log.read_text(encoding="utf-8") if log.exists() else ""
+
+
+@pytest.mark.skipif(SH is None, reason="sin sh")
+def test_empujar_usa_put_al_grupo_del_job(tmp_path):
+    """PUT sustituye el grupo entero: un rango que se deja de escanear no
+    deja sus series congeladas en el Pushgateway."""
+    resultado, llamadas = _ejecutar_empuje(tmp_path)
+
+    assert resultado.returncode == 0, resultado.stderr
+    assert "-X PUT" in llamadas
+    assert "--data-binary @" in llamadas and "metricas.prom" in llamadas
+    assert llamadas.strip().endswith("http://pushgateway.example:9091/metrics/job/topology_scanner")
+
+
+@pytest.mark.skipif(SH is None, reason="sin sh")
+def test_empujar_reintenta_si_el_pushgateway_esta_arrancando(tmp_path):
+    """--retry solo reintenta errores "pasajeros"; una conexión rechazada (el
+    Pushgateway reiniciándose) no lo es para curl sin --retry-connrefused."""
+    _, llamadas = _ejecutar_empuje(tmp_path)
+
+    assert "--retry 3" in llamadas
+    assert "--retry-connrefused" in llamadas
+
+
+@pytest.mark.skipif(SH is None, reason="sin sh")
+def test_empujar_sin_pushgateway_no_tumba_el_job(tmp_path):
+    resultado, _ = _ejecutar_empuje(tmp_path, curl_falla=True)
+
+    assert resultado.returncode == 0
+    assert "AVISO" in resultado.stderr
+
+
+@pytest.mark.skipif(SH is None, reason="sin sh")
+def test_empujar_sin_archivo_avisa(tmp_path):
+    resultado, llamadas = _ejecutar_empuje(tmp_path, con_archivo=False)
+
+    assert resultado.returncode == 0
+    assert "AVISO" in resultado.stderr
+    assert llamadas == ""

@@ -144,6 +144,41 @@ def test_la_ci_valida_los_valores_de_jenkins():
     assert re.search(r"helm template ci jenkins/jenkins --version \d+\.\d+\.\d+ .*deploy/jenkins/values\.yaml", ci)
 
 
+def test_la_ci_valida_los_valores_de_monitorizacion():
+    """Los charts oficiales de la monitorización, con la misma versión que
+    apuntan sus values, renderizados con nuestros valores."""
+    ci = (CARPETA_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    monitoring = CARPETA_WORKFLOWS.parents[1] / "deploy" / "monitoring"
+
+    charts = (("kube-prometheus-stack", "values.yaml"), ("prometheus-pushgateway", "pushgateway.values.yaml"))
+    for chart, valores in charts:
+        # La cabecera de cada values dice "... (prometheus-community), versión X.Y.Z"
+        (version,) = re.findall(r"versión\W+(\d+\.\d+\.\d+)",(monitoring / valores).read_text(encoding="utf-8"))[:1]
+        comando = rf"helm template ci prometheus-community/{chart} --version {re.escape(version)} .*{valores}"
+        assert re.search(comando, ci), chart
+
+
+def test_la_ci_prueba_las_reglas_de_alerta():
+    """promtool (imagen oficial por digest, como Trivy) ejecuta los tests de
+    las reglas, y el chart que las carga pasa helm lint."""
+    ci = (CARPETA_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+
+    assert re.search(r"prom/prometheus:v[\d.]+@sha256:[0-9a-f]{64}", ci)
+    assert "test rules /m/pruebas/reglas.test.yaml" in ci
+    assert "check rules /m/topology-monitoring/files/reglas.yaml" in ci
+    assert "helm lint deploy/monitoring/topology-monitoring --strict" in ci
+
+
+def test_el_job_de_tests_tiene_el_repo_de_la_monitorizacion():
+    """test_monitoring.py renderiza los charts oficiales: sin el repo, helm
+    template fallaría (no se salta: helm sí está instalado)."""
+    ci = yaml.safe_load((CARPETA_WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+    pasos = " ".join(paso.get("run", "") for paso in ci["jobs"]["test"]["steps"])
+
+    assert "helm repo add prometheus-community" in pasos
+    assert pasos.index("helm repo add prometheus-community") < pasos.index("pytest")
+
+
 def test_la_ci_valida_el_chart_de_helm():
     """helm lint y helm template del chart con los values de ejemplo, y Helm
     también en el job de pytest: si no, tests/test_helm.py se saltaría en

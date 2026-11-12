@@ -1,0 +1,8 @@
+# Copiar a values.local.yaml (ignorado por git) con los datos reales.
+# Los secretos NO van aquí: van en los Secrets alertas y grafana-admin (runbook 06).
+
+grafana:
+  grafana.ini:
+    server:
+      # Nombre con el que NPM publica Grafana por HTTPS (enlaces de los avisos)
+      root_url: https://grafana.example.com

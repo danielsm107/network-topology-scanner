@@ -4,7 +4,7 @@
 image:
   repository: ghcr.io/danielsm107/topology-scanner
   # Tag fijo, nunca latest: el clúster tiene que correr una versión conocida
-  tag: "1.5.1"
+  tag: "1.6.0"
   pullPolicy: IfNotPresent
 
 escaneo:
@@ -64,6 +64,16 @@ aws:
   # Validez de los enlaces del email; 7 es el máximo con claves de usuario IAM
   diasEnlaces: 7
 
+# Fase 6: el nocturno escribe sus métricas (--metrics-file) y un contenedor
+# las sube al Pushgateway de la monitorización (deploy/monitoring/). Si el
+# Pushgateway no está, el Job no falla: lo avisa la alerta ScanMetricsStale.
+metricas:
+  enabled: false
+  # El pod usa ClusterFirstWithHostNet: resuelve los Services del clúster
+  pushgateway: http://prometheus-pushgateway.monitoring.svc:9091
+  # Imagen oficial de curl, fijada por digest
+  imagen: curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+
 persistencia:
   storageClass: local-path
   tamano: 1Gi
@@ -78,3 +88,6 @@ resources:
   subida:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {cpu: 500m, memory: 256Mi}
+  metricas:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {cpu: 100m, memory: 64Mi}

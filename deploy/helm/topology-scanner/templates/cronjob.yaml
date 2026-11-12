@@ -27,22 +27,48 @@ spec:
           {{- include "topology-scanner.podComun" . | nindent 10 }}
           volumes:
             {{- include "topology-scanner.volumenDatos" . | nindent 12 }}
-            {{- if .Values.aws.enabled }}
-            # Los archivos de esta noche, del escaneo a la subida
+            {{- if include "topology-scanner.conSalida" . }}
+            # Los archivos de esta noche, del escaneo a la subida y las métricas
             - name: salida
               emptyDir: {}
             - name: script
               configMap:
                 name: {{ include "topology-scanner.fullname" . }}-subida
+            {{- end }}
+            {{- if .Values.aws.enabled }}
             # HOME de aws-cli: el resto del sistema de archivos es de solo lectura
             - name: tmp
               emptyDir: {}
             {{- end }}
-          {{- if .Values.aws.enabled }}
-          # Primero el escaneo; la subida solo arranca si ha terminado bien
+          {{- if include "topology-scanner.conSalida" . }}
+          # Primero el escaneo; lo de después solo arranca si ha terminado bien
           initContainers:
             {{- include "topology-scanner.contenedorEscaneo" . | nindent 12 }}
           containers:
+            {{- if .Values.metricas.enabled }}
+            - name: metricas
+              image: {{ .Values.metricas.imagen }}
+              imagePullPolicy: IfNotPresent
+              command: [sh, /script/empujar_metricas.sh]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              env:
+                - name: PUSHGATEWAY
+                  value: {{ .Values.metricas.pushgateway | quote }}
+              volumeMounts:
+                - name: salida
+                  mountPath: /salida
+                  readOnly: true
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+              resources:
+                {{- toYaml .Values.resources.metricas | nindent 16 }}
+            {{- end }}
+            {{- if .Values.aws.enabled }}
             - name: subida
               image: {{ .Values.aws.imagen }}
               imagePullPolicy: IfNotPresent
@@ -90,6 +116,7 @@ spec:
                   mountPath: /tmp
               resources:
                 {{- toYaml .Values.resources.subida | nindent 16 }}
+            {{- end }}
           {{- else }}
           containers:
             {{- include "topology-scanner.contenedorEscaneo" . | nindent 12 }}

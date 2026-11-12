@@ -1,0 +1,14 @@
+# Las reglas de files/reglas.yaml (las mismas que prueba promtool). La etiqueta
+# release: monitoring es la que selecciona el Prometheus del stack: este chart es
+# otro release y, sin ella, el operador no las cargaría.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: topology-scanner
+  namespace: {{ .Release.Namespace }}
+  labels:
+    release: {{ .Values.releaseDelStack }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: topology-scanner
+spec:
+  {{- .Files.Get "files/reglas.yaml" | nindent 2 }}
