@@ -147,15 +147,17 @@ alertmanager:
   # Plantilla del mensaje de Telegram (HTML). El resumen y la descripción salen
   # de las anotaciones de cada regla (las propias, en español, en
   # topology-monitoring/files/reglas.yaml)
+  # Todo valor va por `html` (de text/template): con parse_mode HTML, un `<` o
+  # `&` en una etiqueta hace que Telegram rechace el mensaje y el aviso se pierda
   templateFiles:
     telegram.tmpl: |-
       {{ define "telegram.mensaje" -}}
-      {{ if eq .Status "firing" }}🔥 <b>{{ .CommonLabels.alertname }}</b>{{ else }}✅ <b>Resuelto: {{ .CommonLabels.alertname }}</b>{{ end }}
+      {{ if eq .Status "firing" }}🔥 <b>{{ .CommonLabels.alertname | html }}</b>{{ else }}✅ <b>Resuelto: {{ .CommonLabels.alertname | html }}</b>{{ end }}
       {{ range .Alerts -}}
-      {{ if .Annotations.summary }}• {{ .Annotations.summary }}{{ else }}• {{ .Labels.alertname }}{{ end }}
-      {{ if .Annotations.description }}{{ .Annotations.description }}
+      {{ if .Annotations.summary }}• {{ .Annotations.summary | html }}{{ else }}• {{ .Labels.alertname | html }}{{ end }}
+      {{ if .Annotations.description }}{{ .Annotations.description | html }}
       {{ end -}}
-      {{ if .Labels.namespace }}<i>{{ .Labels.namespace }}{{ if .Labels.pod }}/{{ .Labels.pod }}{{ end }}{{ if .Labels.job_name }}/{{ .Labels.job_name }}{{ end }}</i>
+      {{ if .Labels.namespace }}<i>{{ .Labels.namespace | html }}{{ if .Labels.pod }}/{{ .Labels.pod | html }}{{ end }}{{ if .Labels.job_name }}/{{ .Labels.job_name | html }}{{ end }}</i>
       {{ end -}}
       {{ end -}}
       {{- end }}

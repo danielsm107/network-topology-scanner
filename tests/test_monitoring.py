@@ -144,6 +144,18 @@ def test_mensaje_de_telegram_en_espanol():
     assert any("Resuelto" in texto for texto in plantillas.values())
 
 
+def test_mensaje_de_telegram_escapa_el_texto_externo():
+    """Con parse_mode HTML, un `<` o `&` en una etiqueta o anotación hace que
+    Telegram rechace el mensaje entero (400) y el aviso se pierde en silencio.
+    Todo valor que se imprime pasa por `html` (función de text/template)."""
+    (plantilla,) = _valores()["alertmanager"]["templateFiles"].values()
+    acciones = re.findall(r"{{-?\s*(.*?)\s*-?}}", plantilla)
+    impresas = [a for a in acciones if "." in a and not re.match(r"(if|range|define|template|end|else)\b", a)]
+
+    assert impresas
+    assert all(re.search(r"\|\s*html$", a) for a in impresas), impresas
+
+
 def test_fallo_del_nocturno_no_avisa_tambien_de_metricas():
     """Si el nocturno no termina, tampoco sube métricas: Stale/Missing serían el
     mismo problema contado dos veces. Sin `equal`: las métricas vienen del
