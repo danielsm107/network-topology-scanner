@@ -64,6 +64,10 @@ helm lint deploy/helm/topology-scanner -f deploy/helm/topology-scanner/values.ex
 # actualizar el Secret topology-scanner-values y lanzar `desplegar` a mano con VERSION vacía.
 # helm upgrade desde el PC solo como emergencia, con el chart del tag desplegado (runbook 03-kubernetes.md)
 # Jenkins (deploy/jenkins/): install/upgrade desde el PC, chart jenkins/jenkins 5.10.13 (runbook 05-jenkins.md)
+# Monitorización (deploy/monitoring/): 3 releases en ns monitoring, desde el PC (runbook 06-observabilidad.md):
+#   monitoring (kube-prometheus-stack 92.14.1), pushgateway (3.10.0) y topology-monitoring (reglas + panel)
+helm lint deploy/monitoring/topology-monitoring --strict
+promtool test rules deploy/monitoring/pruebas/reglas.test.yaml   # en CI, con la imagen prom/prometheus por digest
 ```
 
 El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
@@ -76,7 +80,8 @@ sin capacidades) y la escanea con Trivy (falla con críticas que tengan arreglo)
 El job `terraform` pasa `fmt`, `validate` en cada raíz de `infra/` (un test
 obliga a añadir las nuevas) y `terraform test` con el provider simulado; nunca
 `apply` (la API de Proxmox solo es accesible desde la LAN). El job `helm` pasa
-`helm lint` y `helm template`; el job de tests instala Helm para que
+`helm lint` y `helm template` (también de los charts de monitorización con nuestros
+values) y `promtool` sobre las reglas de alerta; el job de tests instala Helm para que
 `tests/test_helm.py` (que se salta sin `helm`) no pase en silencio. Toda action que no sea de GitHub (`actions/...`) va **fijada por SHA**, y Trivy
 por digest, no por tag (ataque a las tags de `trivy-action`, marzo de 2026); lo
 comprueba `tests/test_workflows.py`. Las de `actions/` van por tag. Los runners, por
@@ -122,6 +127,7 @@ infra/proxmox/         # Terraform: VM k3s en Proxmox (cloud-init + network-conf
 deploy/helm/topology-scanner/  # chart: CronJob nocturno (+ subida a S3 y aviso con aws.enabled) + web (hostNetwork) + PVC; Secrets SNMP y AWS a mano
 deploy/helm/values.local.yaml  # valores reales del homelab (redes, router, dominio de NPM): ignorado por git; en el clúster, Secret topology-scanner-values
 deploy/jenkins/        # Jenkins (JCasC, plugins fijados) + scripts sh del despliegue (elegir, esperar, upgrade, test, rollback, avisar); values.local.yaml ignorado
+deploy/monitoring/     # values de kube-prometheus-stack y Pushgateway (Telegram, Watchdog → healthchecks.io); chart topology-monitoring (reglas + panel); pruebas/ de promtool
 Jenkinsfile            # job desplegar: solo prepara el agente y llama a deploy/jenkins/desplegar.sh
 ```
 
@@ -165,6 +171,10 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
 - `export.resumen_cambios_email` (asunto ASCII ≤ 100, sensibles primero) y
   `history.copiar_historial` (API de backup de SQLite): los usan `--changes-dir` y
   `--history-backup`, que el chart lee en `files/subir.sh`. La app no sabe de AWS.
+- `export.metricas_prometheus` (`--metrics-file`): métricas del escaneo en texto de
+  Prometheus; el chart (`metricas.enabled`) las sube al Pushgateway con
+  `files/empujar_metricas.sh`. La app no sabe de Prometheus. El panel de Grafana solo
+  puede usar métricas que esta función produce (lo comprueba un test).
 - `history.merece_aviso(diff, resultados)`: decide el email nocturno (host **nunca
   visto** en el rango con puertos, o cambio de puertos; clave `hosts_nunca_vistos`
   del diff). `hay_cambios` sigue diciendo si hay *algo*: la web lo muestra todo.
@@ -262,9 +272,9 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
     también `cryptography`, que pysnmp necesita para cifrar).
 12. ~~**v1.0 en PyPI**~~ — hecho (`release.yml`, `CHANGELOG.md`, captura del
     árbol en el README con `scripts/demo_arbol.py`). Después, la fase DevOps
-    (`docs/devops/README.md`): fases 0-5 hechas (contenedor, VM de Proxmox,
-    k3s + Helm, AWS + avisos por email, Jenkins con prueba y rollback);
-    queda observabilidad (6).
+    (`docs/devops/README.md`): fases 0-6 hechas (contenedor, VM de Proxmox,
+    k3s + Helm, AWS + avisos por email, Jenkins con prueba y rollback,
+    observabilidad con Prometheus/Grafana, Telegram y healthchecks.io).
 
 **Ideas pendientes** (sin orden decidido):
 - Fabricante (por OUI, con la base de datos de nmap) para los hosts que solo
