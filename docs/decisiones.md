@@ -741,3 +741,56 @@ contexto completo.
     Filtrar por MAC no servía (detrás de un router nmap no la ve). `hay_cambios`
     no cambia: la web y el historial lo siguen mostrando todo. Se pierde a
     sabiendas que avise un equipo nuevo sin puertos o uno importante que cae.
+- Observabilidad (fase DevOps 6, runbook `docs/devops/runbooks/06-observabilidad.md`):
+  - **Un vigilante externo para la monitorización** (healthchecks.io, plan
+    gratuito): la alerta `Watchdog` del chart, siempre disparada, va por
+    Alertmanager a la URL de ping cada minuto. Si deja de llegar (Prometheus o
+    Alertmanager caídos, la VM colgada), avisa healthchecks.io por Telegram. Así
+    el ping prueba la cadena entera (Prometheus evalúa, Alertmanager envía), no
+    solo que la VM tenga red. Plazo 10 + 5 min: un reinicio normal no avisa. Sin
+    esto, una monitorización caída se parece a "todo va bien".
+  - **Telegram, no email**: el email nocturno ya existe y es para los cambios de
+    la red; los fallos del sistema van por otro canal. Token, chat ID y URL de
+    ping en el Secret `alertas` y leídos de archivos (`*_file`): el chat ID
+    tampoco va al repo, porque Helm sustituye las listas (`receivers`) y no hay
+    forma de parchear solo ese campo desde `values.local.yaml`.
+  - **La app no sabe de Prometheus**, igual que no sabe de AWS: `--metrics-file`
+    (`export.metricas_prometheus`) escribe texto en el formato de Prometheus y un
+    contenedor `curl` del Job (`files/empujar_metricas.sh`) lo sube. Sin
+    dependencias nuevas.
+  - **Pushgateway** para el nocturno: el Job vive dos minutos y Prometheus no
+    llegaría a leerlo. **PUT** al grupo del job, no POST: sustituye todas sus
+    series, así que un rango que se deja de escanear no se queda congelado. Si
+    el Pushgateway falla, el Job no falla (el escaneo ya está guardado): lo
+    avisan `ScanMetricsStale`/`ScanMetricsMissing`. Va como **release aparte**
+    (su chart oficial) y no dentro de `kube-prometheus-stack`, que no lo trae.
+  - **Reglas y panel en un chart propio** (`topology-monitoring`), no en los
+    values del stack: se prueban por separado (`helm lint`, promtool con un caso
+    que dispara y otro que no por regla) y se actualizan sin tocar el stack.
+  - **Fuera lo que k3s no expone** (controller-manager, scheduler, kube-proxy,
+    etcd) y sus reglas: darían "target down" para siempre. También
+    `KubeJobFailed` (la sustituye `ScanJobFailed`, que mira solo Jobs de menos de
+    26 h: la del chart sigue disparada mientras el CronJob guarde el Job fallido)
+    y `KubeCPUOvercommit`/`KubeMemoryOvercommit` (con un nodo, siempre ciertas).
+    Anti-objetivo de la fase: avisos que se acaban ignorando.
+  - **Si falla el nocturno, no avisar también de sus métricas**: una
+    `inhibit_rule` silencia `ScanMetricsStale`/`Missing` mientras
+    `NightlyScanNotSucceeded` esté activa. Sin `equal`: las métricas vienen del
+    Pushgateway (otro namespace) y `absent()` no tiene etiquetas.
+  - **`| html` en cada valor de la plantilla de Telegram** (`parse_mode: HTML`):
+    un `<` o `&` en una etiqueta hace que Telegram rechace el mensaje (400) y el
+    aviso se pierde sin que nadie lo vea. Comprobado con `amtool template render`.
+  - **`--retry-connrefused`** en el `curl` del Pushgateway: `--retry` no
+    reintenta una conexión rechazada, justo el fallo pasajero más probable (el
+    Pushgateway reiniciándose).
+  - **Imágenes por digest también aquí**, aunque vengan de charts oficiales
+    (`test_imagenes_de_la_monitorizacion_por_digest`). Lo encontró la revisión
+    final de la rama.
+  - **Memoria medida, no supuesta**: Grafana con 256 MiB y sus sidecars con 64 MiB
+    morían por OOM al arrancar (migraciones de la base). Ahora 512/128 MiB;
+    presupuesto total de límites ~1,8 GiB en un nodo de 8.
+  - **Grafana sin PVC**: paneles y datasource son código (ConfigMaps que lee el
+    sidecar); lo que se edite a mano en la interfaz se pierde al reiniciar, y es
+    a propósito: lo que vale va al repo.
+  - **Stack instalado desde el PC**, como Jenkins: Jenkins solo despliega la app.
+    Que Jenkins pudiera tocar `monitoring` le daría permisos sobre lo que lo vigila.

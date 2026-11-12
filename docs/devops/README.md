@@ -15,7 +15,7 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 | 3 | Despliegue en Kubernetes | Hecha | [03-kubernetes.md](runbooks/03-kubernetes.md) |
 | 4 | AWS como código + hallazgos | Hecha | [04-aws.md](runbooks/04-aws.md) |
 | 5 | Jenkins (CD) | Hecha | [05-jenkins.md](runbooks/05-jenkins.md) |
-| 6 | Observabilidad | Pendiente | |
+| 6 | Observabilidad | Hecha | [06-observabilidad.md](runbooks/06-observabilidad.md) |
 
 ## Piezas que ya existen
 
@@ -37,3 +37,8 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 - `deploy/jenkins/` + `Jenkinsfile`: Jenkins en k3s (JCasC, plugins fijados, sin anónimo) que sondea GitHub
   cada 5 min y despliega cada tag publicado: `helm upgrade`, `helm test`, rollback y email si falla. Values
   reales en el Secret `topology-scanner-values`; `helm upgrade` desde el PC solo como emergencia.
+- `deploy/monitoring/`: kube-prometheus-stack y Pushgateway (charts oficiales, instalados desde el PC) y el
+  chart `topology-monitoring` (reglas del escáner probadas con promtool y panel "Escaneo nocturno" de Grafana).
+  Avisos por Telegram; healthchecks.io como vigilante externo de la propia monitorización (`Watchdog`).
+- Chart con `metricas.enabled`: el Job nocturno escribe sus métricas (`--metrics-file`) y las sube al
+  Pushgateway (`files/empujar_metricas.sh`, contenedor `curl`).
