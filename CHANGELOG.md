@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
-## [1.6.0] - 2026-11-11
+## [1.6.0] - 2026-11-12
 
 ### Added
 - `--metrics-file FILE`: writes the run's metrics in the Prometheus text format
