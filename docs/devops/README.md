@@ -16,6 +16,7 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 | 4 | AWS como código + hallazgos | Hecha | [04-aws.md](runbooks/04-aws.md) |
 | 5 | Jenkins (CD) | Hecha | [05-jenkins.md](runbooks/05-jenkins.md) |
 | 6 | Observabilidad | Hecha | [06-observabilidad.md](runbooks/06-observabilidad.md) |
+| 7 | Logs (Loki + Alloy) | En curso | [07-logs.md](runbooks/07-logs.md) |
 
 ## Piezas que ya existen
 
@@ -40,5 +41,8 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 - `deploy/monitoring/`: kube-prometheus-stack y Pushgateway (charts oficiales, instalados desde el PC) y el
   chart `topology-monitoring` (reglas del escáner probadas con promtool y panel "Escaneo nocturno" de Grafana).
   Avisos por Telegram; healthchecks.io como vigilante externo de la propia monitorización (`Watchdog`).
+- `deploy/monitoring/loki.values.yaml` y `alloy.values.yaml`: logs de todos los pods y eventos del clúster en
+  Loki (15 días), recogidos por Alloy por la API (sin `hostPath`, sin acceso a Secrets); en Grafana como
+  datasource y en el panel "Escaneo nocturno", también cuando el Job ya no existe.
 - Chart con `metricas.enabled`: el Job nocturno escribe sus métricas (`--metrics-file`) y las sube al
   Pushgateway (`files/empujar_metricas.sh`, contenedor `curl`).

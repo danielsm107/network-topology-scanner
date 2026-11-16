@@ -65,7 +65,10 @@ tenían menos de una).
 ### Loki
 
 - Almacenamiento `filesystem` en un PVC `local-path` de 5 Gi; esquema `v13`
-  con índice `tsdb` (lo recomendado en Loki 3).
+  con índice `tsdb` (lo recomendado en Loki 3). **Corregido en la
+  instalación**: el primer esquema empieza en el pasado (`2024-01-01`), no el
+  día de la instalación; si no, Loki rechaza los logs que los pods ya tenían y
+  Alloy se atasca reintentándolos (`docs/decisiones.md`).
 - Retención **15 días**, como Prometheus, borrada por el compactor
   (`retention_enabled`).
 - Fuera todo lo que no hace falta con un solo binario: gateway (nginx),
@@ -98,8 +101,9 @@ tenían menos de una).
 - Datasource `Loki` en `grafana.additionalDataSources` del stack, `uid: loki`,
   hacia `http://loki.monitoring.svc:3100`.
 - Panel de logs en "Escaneo nocturno": `{namespace="topology-scanner",
-  pod=~"topology-scanner-escaneo-.*"}`, con los eventos del namespace al
-  lado.
+  container=~"escaneo|metricas|subida"}` (por contenedor y no por nombre de
+  pod, para incluir los Jobs lanzados a mano; corregido en la prueba real),
+  con los eventos del namespace al lado.
 
 ### Verificación (lo que demuestra que está hecha)
 
