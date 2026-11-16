@@ -397,6 +397,19 @@ def test_loki_guarda_lo_mismo_que_prometheus():
     assert (esquema["store"], esquema["schema"], esquema["object_store"]) == ("tsdb", "v13", "filesystem")
 
 
+def test_loki_acepta_los_logs_que_ya_existian():
+    """Al arrancar, Alloy manda los logs que los pods ya tenían (hasta 7 días,
+    reject_old_samples_max_age). Con el primer esquema empezando el día de la
+    instalación, Loki respondía 500 ("no schema config found") a todo lo
+    anterior, y Alloy reintentaba el lote entero: tampoco entraba lo nuevo
+    (instalación real del 2026-11-16)."""
+    from datetime import date, timedelta
+
+    primero = _loki()["loki"]["schemaConfig"]["configs"][0]
+
+    assert date.fromisoformat(primero["from"]) <= date(2026, 11, 16) - timedelta(days=7)
+
+
 def test_alloy_lee_por_la_api_sin_disco_del_nodo():
     """loki.source.kubernetes pide los logs a la API: ni hostPath ni root, y
     con una réplica basta. Un DaemonSet con varias réplicas los duplicaría."""

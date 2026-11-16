@@ -26,9 +26,12 @@ loki:
     type: filesystem
   schemaConfig:
     configs:
-      # Lo recomendado en Loki 3. `from` es el día de la instalación: un cambio
-      # de esquema futuro se añade como otra entrada, nunca editando esta
-      - from: "2026-11-16"
+      # Lo recomendado en Loki 3. El primer `from`, en el pasado: Loki no guarda
+      # nada anterior a él, y al arrancar Alloy manda los logs que los pods ya
+      # tenían. Con el día de la instalación, todo lo anterior daba 500 y
+      # bloqueaba también lo nuevo (docs/decisiones.md). Un cambio de esquema
+      # futuro se añade como otra entrada, con fecha futura, nunca editando esta
+      - from: "2024-01-01"
         store: tsdb
         object_store: filesystem
         schema: v13
