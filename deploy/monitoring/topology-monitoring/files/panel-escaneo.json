@@ -387,7 +387,7 @@
     {
       "id": 9,
       "title": "Logs del escaneo",
-      "description": "Todos los contenedores del Job nocturno (escaneo, metricas, subida), el más reciente arriba. Siguen aquí aunque el Job ya no exista.",
+      "description": "Los contenedores del escaneo (escaneo, metricas, subida), del nocturno y de los lanzados a mano, el más reciente arriba. Siguen aquí aunque el Job ya no exista.",
       "type": "logs",
       "datasource": {
         "type": "loki",
@@ -406,7 +406,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{namespace=\"topology-scanner\", pod=~\"topology-scanner-escaneo-.*\"}",
+          "expr": "{namespace=\"topology-scanner\", container=~\"escaneo|metricas|subida\"}",
           "queryType": "range"
         }
       ],

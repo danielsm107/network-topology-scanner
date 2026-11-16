@@ -326,8 +326,29 @@ def test_panel_con_los_logs_del_escaneo():
         for objetivo in panel["targets"]
     ]
 
-    assert any('namespace="topology-scanner"' in c and "topology-scanner-escaneo-" in c for c in consultas)
+    assert any('namespace="topology-scanner"' in c and 'container=~"escaneo|metricas|subida"' in c for c in consultas)
     assert any('job="eventos"' in c for c in consultas)
+
+
+def test_panel_de_logs_incluye_los_escaneos_lanzados_a_mano():
+    """Filtrar por el nombre del pod (topology-scanner-escaneo-…) dejaba fuera
+    los Jobs creados a mano con `kubectl create job --from=cronjob/…`, que se
+    llaman como se quiera (prueba real del 2026-11-16). Los contenedores se
+    llaman igual en los dos casos: son los del chart."""
+    plantillas = RAIZ / "deploy" / "helm" / "topology-scanner" / "templates"
+    ayudas = (plantillas / "_helpers.tpl").read_text(encoding="utf-8")
+    cronjob = (plantillas / "cronjob.yaml").read_text(encoding="utf-8")
+    nombres = set(re.findall(r"^\s*- name: (\w+)\s*$", ayudas, re.M))
+    nombres |= set(re.findall(r"^ {12}- name: (\w+)\s*$", cronjob, re.M))
+    (consulta,) = [
+        objetivo["expr"]
+        for panel in _panel()["panels"]
+        if panel["type"] == "logs" and "eventos" not in panel["targets"][0]["expr"]
+        for objetivo in panel["targets"]
+    ]
+
+    assert "pod=" not in consulta
+    assert {"escaneo", "metricas", "subida"} <= nombres
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm no está instalado")
