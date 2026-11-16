@@ -21,7 +21,8 @@ se parece a "todo va bien". Diseño:
       ninguna alerta `warning`/`critical` (2026-11-12).
 - [x] v1.6.0 desplegada por Jenkins con `metricas.enabled`; un escaneo lanzado a
       mano llega al Pushgateway, a Prometheus y al panel (2026-11-12).
-- [ ] El nocturno siguiente aparece en el panel sin intervención.
+- [x] Los nocturnos siguientes (13, 14, 15 y 16-11) llegan al Pushgateway, a
+      Prometheus y al panel sin intervención, sin alertas `warning`/`critical` (2026-11-16).
 
 ## Piezas
 
