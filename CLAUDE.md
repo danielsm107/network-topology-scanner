@@ -68,6 +68,8 @@ helm lint deploy/helm/topology-scanner -f deploy/helm/topology-scanner/values.ex
 #   monitoring (kube-prometheus-stack 92.14.1), pushgateway (3.10.0) y topology-monitoring (reglas + panel)
 helm lint deploy/monitoring/topology-monitoring --strict
 promtool test rules deploy/monitoring/pruebas/reglas.test.yaml   # en CI, con la imagen prom/prometheus por digest
+# Logs (deploy/monitoring/): 2 releases más en ns monitoring, desde el PC (runbook 07-logs.md):
+#   loki (grafana/loki 7.5.0, un solo binario) y alloy (grafana/alloy 1.15.0); config de Alloy: `alloy validate`
 ```
 
 El escaneo real necesita nmap instalado y, para MAC/`-O`, privilegios
@@ -127,7 +129,7 @@ infra/proxmox/         # Terraform: VM k3s en Proxmox (cloud-init + network-conf
 deploy/helm/topology-scanner/  # chart: CronJob nocturno (+ subida a S3 y aviso con aws.enabled) + web (hostNetwork) + PVC; Secrets SNMP y AWS a mano
 deploy/helm/values.local.yaml  # valores reales del homelab (redes, router, dominio de NPM): ignorado por git; en el clúster, Secret topology-scanner-values
 deploy/jenkins/        # Jenkins (JCasC, plugins fijados) + scripts sh del despliegue (elegir, esperar, upgrade, test, rollback, avisar); values.local.yaml ignorado
-deploy/monitoring/     # values de kube-prometheus-stack y Pushgateway (Telegram, Watchdog → healthchecks.io); chart topology-monitoring (reglas + panel); pruebas/ de promtool
+deploy/monitoring/     # values de kube-prometheus-stack y Pushgateway (Telegram, Watchdog → healthchecks.io); chart topology-monitoring (reglas + panel); pruebas/ de promtool; loki/alloy.values.yaml (logs)
 Jenkinsfile            # job desplegar: solo prepara el agente y llama a deploy/jenkins/desplegar.sh
 ```
 
@@ -274,7 +276,8 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
     árbol en el README con `scripts/demo_arbol.py`). Después, la fase DevOps
     (`docs/devops/README.md`): fases 0-6 hechas (contenedor, VM de Proxmox,
     k3s + Helm, AWS + avisos por email, Jenkins con prueba y rollback,
-    observabilidad con Prometheus/Grafana, Telegram y healthchecks.io).
+    observabilidad con Prometheus/Grafana, Telegram y healthchecks.io); fase 7,
+    logs con Loki + Alloy, en curso.
 
 **Ideas pendientes** (sin orden decidido):
 - Fabricante (por OUI, con la base de datos de nmap) para los hosts que solo

@@ -1,7 +1,7 @@
 {
   "uid": "topology-scanner-escaneo",
   "title": "Escaneo nocturno",
-  "description": "Métricas del escaneo nocturno de topology-scanner (Pushgateway).",
+  "description": "Métricas (Pushgateway) y logs (Loki) del escaneo nocturno de topology-scanner.",
   "tags": [
     "topology-scanner"
   ],
@@ -382,6 +382,78 @@
           }
         },
         "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "Logs del escaneo",
+      "description": "Los contenedores del escaneo (escaneo, metricas, subida), del nocturno y de los lanzados a mano, el más reciente arriba. Siguen aquí aunque el Job ya no exista.",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{namespace=\"topology-scanner\", container=~\"escaneo|metricas|subida\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false,
+        "showLabels": false
+      }
+    },
+    {
+      "id": 10,
+      "title": "Eventos de Kubernetes del escaneo",
+      "description": "Lo que Kubernetes cuenta del namespace (pods creados, OOMKilled, BackOff, imagen que no baja). Kubernetes los borra a la hora; Loki los guarda 15 días.",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{job=\"eventos\", namespace=\"topology-scanner\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "prettifyLogMessage": false,
+        "showLabels": false
       }
     }
   ],

@@ -1,0 +1,86 @@
+# Valores del chart oficial loki (grafana), versión 7.5.0 (Loki 3.6.16): la
+# misma en ci.yml y en el runbook 07-logs.md. Instalado desde el PC, como el
+# resto de la monitorización:
+#
+#   helm upgrade --install loki grafana/loki \
+#     --version 7.5.0 -n monitoring -f deploy/monitoring/loki.values.yaml
+#
+# Guarda los logs de los pods y los eventos del clúster que le manda Alloy
+# (alloy.values.yaml). Grafana lo lee como datasource (values.yaml del stack).
+
+# Un solo binario con disco local. El modo por defecto (SimpleScalable) son tres
+# componentes, cachés de memcached y almacenamiento de objetos: para un nodo,
+# sobra todo
+deploymentMode: SingleBinary
+
+loki:
+  image:
+    tag: 3.6.16
+    digest: "sha256:79f3fbf2a3eca97dd735e2aa0871a2fc15365a81c68dea67f639b092c301f454"
+  # Solo accesible dentro del clúster (Service ClusterIP); quien mira es
+  # Grafana, que sí tiene usuario y contraseña
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      # Lo recomendado en Loki 3. El primer `from`, en el pasado: Loki no guarda
+      # nada anterior a él, y al arrancar Alloy manda los logs que los pods ya
+      # tenían. Con el día de la instalación, todo lo anterior daba 500 y
+      # bloqueaba también lo nuevo (docs/decisiones.md). Un cambio de esquema
+      # futuro se añade como otra entrada, con fecha futura, nunca editando esta
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  # Lo mismo que Prometheus: logs y métricas del mismo par de semanas
+  limits_config:
+    retention_period: 15d
+  # Sin esto, el compactor no borra nada y el disco se llena
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+  pattern_ingester:
+    enabled: false
+
+singleBinary:
+  replicas: 1
+  # PVC de un StatefulSet: como el de Prometheus, sobrevive a helm uninstall
+  persistence:
+    storageClass: local-path
+    size: 5Gi
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
+
+# Los componentes del modo SimpleScalable, a cero
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+# nginx delante de Loki: con un solo pod, Grafana y Alloy van directos al Service
+gateway:
+  enabled: false
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+# Generador de logs de prueba y su test de Helm: ruido
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
+minio:
+  enabled: false
+# Carga reglas de alerta de Loki desde ConfigMaps; las alertas salen de Prometheus
+sidecar:
+  rules:
+    enabled: false

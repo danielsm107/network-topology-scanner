@@ -1,0 +1,90 @@
+# Valores del chart oficial alloy (grafana), versión 1.15.0 (Alloy 1.21.3): la
+# misma en ci.yml y en el runbook 07-logs.md. Instalado desde el PC:
+#
+#   helm upgrade --install alloy grafana/alloy \
+#     --version 1.15.0 -n monitoring -f deploy/monitoring/alloy.values.yaml
+#
+# Recoge los logs de todos los pods y los eventos del clúster y los manda a
+# Loki (loki.values.yaml).
+
+image:
+  tag: v1.21.3
+  digest: "sha256:8ab871206bd2d8f89277f53abffee5f452a293980788d52f85fa183a87a505a4"
+
+# Las CRDs (PodLogs) son para otra forma de configurarlo; no se usan
+crds:
+  create: false
+
+alloy:
+  # Telemetría de uso hacia Grafana Labs
+  enableReporting: false
+  # Validada con `alloy validate` de esta misma imagen. Los logs se piden a la
+  # API de Kubernetes (loki.source.kubernetes), no se leen de /var/log/pods del
+  # nodo: sin hostPath ni root, y con una réplica basta
+  configMap:
+    content: |
+      // Todos los pods del clúster, con tres etiquetas: cada etiqueta de más
+      // multiplica los streams de Loki
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.loki.receiver]
+      }
+
+      // Eventos (OOMKilled, BackOff, imagen que no baja...): Kubernetes los
+      // borra a la hora; en Loki se quedan 15 días
+      loki.source.kubernetes_events "eventos" {
+        job_name   = "eventos"
+        log_format = "logfmt"
+        forward_to = [loki.write.loki.receiver]
+      }
+
+      loki.write "loki" {
+        endpoint {
+          url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+        }
+      }
+  resources:
+    requests: {cpu: 20m, memory: 96Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+# Una réplica que lo lee todo por la API. Con un DaemonSet y varios nodos, cada
+# pod mandaría los logs de todos (duplicados) sin clustering
+controller:
+  type: deployment
+  replicas: 1
+
+# El chart ya lo trae fijado por digest (la misma versión que el stack)
+configReloader:
+  resources:
+    requests: {cpu: 5m, memory: 16Mi}
+    limits: {cpu: 50m, memory: 32Mi}
+
+# Lo justo. El RBAC por defecto incluye leer secrets y configmaps de todo el
+# clúster. Las clusterRules por defecto (lectura de nodos) se quedan: vaciarlas
+# rompe la plantilla del chart
+rbac:
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "pods/log", "namespaces", "events"]
+      verbs: ["get", "list", "watch"]

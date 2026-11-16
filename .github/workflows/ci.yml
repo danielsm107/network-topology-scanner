@@ -36,8 +36,10 @@ jobs:
           version: v4.3.1
 
       # tests/test_monitoring.py renderiza los charts oficiales para comprobar los digests
-      - name: repo de Helm de la monitorización
-        run: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      - name: repos de Helm de la monitorización
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
 
       - name: pytest
         run: pytest tests/ -v
@@ -105,6 +107,12 @@ jobs:
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm template ci prometheus-community/kube-prometheus-stack --version 92.14.1 -n monitoring -f deploy/monitoring/values.yaml -f deploy/monitoring/values.example.yaml > /dev/null
           helm template ci prometheus-community/prometheus-pushgateway --version 3.10.0 -n monitoring -f deploy/monitoring/pushgateway.values.yaml > /dev/null
+
+      - name: helm template de los logs (Loki y Alloy, charts oficiales con nuestros valores)
+        run: |
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm template loki grafana/loki --version 7.5.0 -n monitoring -f deploy/monitoring/loki.values.yaml > /dev/null
+          helm template alloy grafana/alloy --version 1.15.0 -n monitoring -f deploy/monitoring/alloy.values.yaml > /dev/null
 
       - name: helm lint del chart de reglas y panel
         run: helm lint deploy/monitoring/topology-monitoring --strict

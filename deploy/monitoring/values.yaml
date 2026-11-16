@@ -188,6 +188,14 @@ grafana:
   persistence:
     enabled: false
   defaultDashboardsTimezone: browser
+  # Loki (release aparte, loki.values.yaml). uid fijo: el panel "Escaneo
+  # nocturno" lo referencia; sin gateway, va directo al Service de Loki
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      url: http://loki.monitoring.svc:3100
+      access: proxy
   sidecar:
     image:
       sha: "092dbe0c335fba9af414a27630ca68f34df6185784fa847d9954187e69dbfdd7"  # k8s-sidecar 2.14.1

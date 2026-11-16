@@ -794,3 +794,34 @@ contexto completo.
     a propósito: lo que vale va al repo.
   - **Stack instalado desde el PC**, como Jenkins: Jenkins solo despliega la app.
     Que Jenkins pudiera tocar `monitoring` le daría permisos sobre lo que lo vigila.
+- Logs (fase DevOps 7, runbook `docs/devops/runbooks/07-logs.md`):
+  - **Loki en un solo binario** (`deploymentMode: SingleBinary`), disco local
+    (PVC `local-path` de 5 GiB) y **15 días** de retención, como Prometheus. El
+    modo por defecto del chart (SimpleScalable) son tres componentes, memcached
+    y almacenamiento de objetos: para un nodo sobra todo. Fuera también el
+    gateway (nginx), canary, minio y el sidecar de reglas.
+  - **El primer esquema de Loki empieza en el pasado** (`2024-01-01`), no el día
+    de la instalación. Al arrancar, Alloy manda los logs que los pods ya tenían
+    (hasta 7 días, `reject_old_samples_max_age`); con `from` el día de la
+    instalación, Loki respondía 500 ("no schema config found") a todo lo
+    anterior y Alloy reintentaba el lote entero, así que tampoco entraba lo
+    nuevo. Pasó en la instalación real (`test_loki_acepta_los_logs_que_ya_existian`).
+  - **Alloy lee por la API** (`loki.source.kubernetes`), no `/var/log/pods` del
+    nodo: sin `hostPath` ni root, y un **Deployment de una réplica** en vez de
+    un DaemonSet. A cambio, si Alloy está caído se pierden los logs de ese rato:
+    aceptado. También guarda los **eventos** del clúster (`job="eventos"`), que
+    Kubernetes borra a la hora: son los que dicen por qué murió un pod.
+  - **RBAC de Alloy recortado**: el del chart deja leer secrets y configmaps de
+    todo el clúster. Ahora solo pods, `pods/log`, namespaces y eventos
+    (`test_alloy_no_puede_leer_secrets`). Las `clusterRules` por defecto
+    (lectura de nodos) se quedan: vaciarlas rompe la plantilla del chart.
+  - **Tres etiquetas** (`namespace`, `pod`, `container`): cada etiqueta de más
+    multiplica los streams de Loki.
+  - **El panel de logs filtra por contenedor** (`escaneo|metricas|subida`), no
+    por nombre de pod: un Job lanzado a mano con `kubectl create job --from=…`
+    se llama como se quiera y quedaba fuera (prueba real).
+  - **Sin alertas sobre logs ni métricas de Loki/Alloy**: las alertas salen de
+    Prometheus; si Loki se cae, se ve al abrir Grafana. No es un sistema que
+    avise.
+  - **Versiones con más de dos semanas publicadas** (Loki 7.5.0, Alloy 1.15.0):
+    las últimas tenían menos de una.
