@@ -1,9 +1,11 @@
 """
 Tests de la monitorización (deploy/monitoring/): los valores de los charts
-oficiales (kube-prometheus-stack y prometheus-pushgateway) leídos como YAML,
-sin Helm ni clúster. Comprueban lo que no puede romperse al instalar: que k3s
-no dispare alertas permanentes, que el Watchdog llegue a healthchecks.io, que el
-resto vaya a Telegram sin ruido y que ningún secreto acabe en el repo.
+oficiales (kube-prometheus-stack, prometheus-pushgateway, loki y alloy) leídos
+como YAML, sin Helm ni clúster. Comprueban lo que no puede romperse al instalar:
+que k3s no dispare alertas permanentes, que el Watchdog llegue a healthchecks.io,
+que el resto vaya a Telegram sin ruido, que los logs lleguen de Alloy a Loki y
+de Loki a Grafana sin que Alloy pueda leer Secrets, y que ningún secreto acabe
+en el repo.
 """
 
 import re
@@ -289,7 +291,10 @@ def test_panel_con_uid_fijo():
 
 def test_panel_solo_usa_metricas_que_existen():
     consultas = [
-        objetivo["expr"] for panel in _panel()["panels"] for objetivo in panel.get("targets", [])
+        objetivo["expr"]
+        for panel in _panel()["panels"]
+        if panel.get("datasource", {}).get("type") == "prometheus"
+        for objetivo in panel["targets"]
     ]
     usadas = {nombre for expr in consultas for nombre in re.findall(r"topology_scanner_\w+", expr)}
 
@@ -298,10 +303,31 @@ def test_panel_solo_usa_metricas_que_existen():
     assert usadas <= _metricas_que_existen()
 
 
-def test_panel_usa_el_datasource_del_stack():
+def test_panel_usa_los_datasources_del_stack():
+    """Por uid fijo: el de Prometheus lo crea el stack, el de Loki está en
+    additionalDataSources. Un uid que no existe deja el panel en blanco."""
+    loki = _datasource_loki()
+
     for panel in _panel()["panels"]:
         if "targets" in panel:
-            assert panel["datasource"] == {"type": "prometheus", "uid": "prometheus"}, panel["title"]
+            assert panel["datasource"] in (
+                {"type": "prometheus", "uid": "prometheus"},
+                {"type": "loki", "uid": loki["uid"]},
+            ), panel["title"]
+
+
+def test_panel_con_los_logs_del_escaneo():
+    """Lo que la fase 7 quiere ver sin kubectl: los logs del nocturno, también
+    cuando el Job ya no existe."""
+    consultas = [
+        objetivo["expr"]
+        for panel in _panel()["panels"]
+        if panel["type"] == "logs"
+        for objetivo in panel["targets"]
+    ]
+
+    assert any('namespace="topology-scanner"' in c and "topology-scanner-escaneo-" in c for c in consultas)
+    assert any('job="eventos"' in c for c in consultas)
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm no está instalado")
@@ -315,15 +341,143 @@ def test_panel_lo_carga_el_sidecar():
     assert mapa["data"]["panel-escaneo.json"].strip() == PANEL.read_text(encoding="utf-8").strip()
 
 
+# --- Logs (fase 7): Loki y Alloy ---
+
+
+def _loki() -> dict:
+    return _valores("loki.values.yaml")
+
+
+def _alloy() -> dict:
+    return _valores("alloy.values.yaml")
+
+
+def _config_alloy() -> str:
+    return _alloy()["alloy"]["configMap"]["content"]
+
+
+def _datasource_loki() -> dict:
+    (datasource,) = [d for d in _valores()["grafana"]["additionalDataSources"] if d["type"] == "loki"]
+    return datasource
+
+
+def _renderizar(chart: str, version: str, *valores: str) -> str:
+    return subprocess.run(
+        ["helm", "template", chart.split("/")[1], chart, "--version", version, "-n", "monitoring",
+         *[arg for v in valores for arg in ("-f", str(MONITORING / v))]],
+        check=True, capture_output=True, text=True,
+    ).stdout
+
+
+def test_loki_en_un_solo_binario_y_disco_local():
+    """Un pod y un PVC: el modo por defecto (SimpleScalable) son tres
+    componentes, cachés de memcached y almacenamiento de objetos."""
+    loki = _loki()
+
+    assert loki["deploymentMode"] == "SingleBinary"
+    assert loki["singleBinary"]["replicas"] == 1
+    for componente in ("backend", "read", "write"):
+        assert loki[componente]["replicas"] == 0
+    for extra in ("gateway", "chunksCache", "resultsCache", "lokiCanary", "test", "minio"):
+        assert loki[extra]["enabled"] is False, extra
+    assert loki["sidecar"]["rules"]["enabled"] is False
+    assert loki["loki"]["storage"]["type"] == "filesystem"
+    assert loki["singleBinary"]["persistence"]["storageClass"] == "local-path"
+    assert loki["loki"]["commonConfig"]["replication_factor"] == 1
+
+
+def test_loki_guarda_lo_mismo_que_prometheus():
+    """Mismo horizonte en logs y métricas. Sin retention_enabled, el compactor
+    no borra nada y el disco se llena."""
+    loki = _loki()["loki"]
+
+    assert loki["limits_config"]["retention_period"] == _valores()["prometheus"]["prometheusSpec"]["retention"]
+    assert loki["compactor"]["retention_enabled"] is True
+    (esquema,) = loki["schemaConfig"]["configs"]
+    assert (esquema["store"], esquema["schema"], esquema["object_store"]) == ("tsdb", "v13", "filesystem")
+
+
+def test_alloy_lee_por_la_api_sin_disco_del_nodo():
+    """loki.source.kubernetes pide los logs a la API: ni hostPath ni root, y
+    con una réplica basta. Un DaemonSet con varias réplicas los duplicaría."""
+    alloy = _alloy()
+    config = _config_alloy()
+
+    assert alloy["controller"]["type"] == "deployment"
+    assert alloy["controller"]["replicas"] == 1
+    assert 'loki.source.kubernetes "' in config
+    assert 'loki.source.kubernetes_events "' in config
+    assert "loki.source.file" not in config
+    assert not alloy["alloy"].get("mounts", {}).get("varlog")
+    assert alloy["alloy"]["enableReporting"] is False
+
+
+def test_alloy_no_puede_leer_secrets():
+    """El RBAC por defecto del chart incluye secrets y configmaps de todo el
+    clúster. Alloy solo necesita pods, sus logs, namespaces y eventos."""
+    recursos = {recurso for regla in _alloy()["rbac"]["rules"] for recurso in regla["resources"]}
+    verbos = {verbo for regla in _alloy()["rbac"]["rules"] for verbo in regla["verbs"]}
+
+    assert recursos == {"pods", "pods/log", "namespaces", "events"}
+    assert verbos <= {"get", "list", "watch"}
+
+
+def test_eventos_con_su_etiqueta():
+    """El panel los busca por job="eventos"."""
+    bloque = re.search(r'loki\.source\.kubernetes_events "\w+" \{(.*?)\n\}', _config_alloy(), re.S).group(1)
+
+    assert re.search(r'job_name\s*=\s*"eventos"', bloque)
+
+
+def test_alloy_envia_a_loki_y_grafana_lee_de_loki():
+    """Los dos apuntan al Service que crea el release `loki` (sin gateway)."""
+    destino = re.search(r'url\s*=\s*"([^"]+)"', _config_alloy()).group(1)
+    datasource = _datasource_loki()
+
+    assert destino == "http://loki.monitoring.svc:3100/loki/api/v1/push"
+    assert datasource["url"] == "http://loki.monitoring.svc:3100"
+    assert datasource["uid"] == "loki"
+    assert datasource["access"] == "proxy"
+
+
+def test_logs_dentro_del_presupuesto():
+    """Loki + Alloy (con su config-reloader) en menos de 1 GiB: con lo de la
+    fase 6 y Jenkins, el nodo (8 GiB) sigue teniendo sitio para el nocturno."""
+    limites = [
+        _loki()["singleBinary"]["resources"]["limits"]["memory"],
+        _alloy()["alloy"]["resources"]["limits"]["memory"],
+        _alloy()["configReloader"]["resources"]["limits"]["memory"],
+    ]
+
+    assert sum(_a_mib(limite) for limite in limites) <= 1024
+
+
+@pytest.mark.parametrize("archivo", ["loki.values.yaml", "alloy.values.yaml"])
+def test_logs_sin_datos_reales(archivo):
+    """El repo es público: ni IPs de la LAN ni secretos en los values."""
+    texto = (MONITORING / archivo).read_text(encoding="utf-8")
+
+    assert not re.search(r"\b(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d+\.\d+", texto)
+    assert not re.search(r"(?i)(password|token|secret)\s*:\s*\S", texto)
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm no está instalado")
+def test_loki_crea_el_service_al_que_apuntan():
+    salida = _renderizar("grafana/loki", _version_del_chart("loki.values.yaml"), "loki.values.yaml")
+    servicios = {
+        doc["metadata"]["name"]: [puerto["port"] for puerto in doc["spec"]["ports"]]
+        for doc in yaml.safe_load_all(salida)
+        if doc and doc["kind"] == "Service"
+    }
+
+    assert 3100 in servicios["loki"]
+
+
 # --- Imágenes por digest (como Trivy, aws-cli, curl y Jenkins) ---
 
 
 def _imagenes_renderizadas(chart: str, version: str, *valores: str) -> set[str]:
-    salida = subprocess.run(
-        ["helm", "template", "ci", f"prometheus-community/{chart}", "--version", version, "-n", "monitoring",
-         *[arg for v in valores for arg in ("-f", str(MONITORING / v))]],
-        check=True, capture_output=True, text=True,
-    ).stdout
+    salida = _renderizar(chart, version, *valores)
     imagenes = set(re.findall(r"image: \"?([^\"\s]+)", salida))
     # El operador recibe la imagen del config-reloader como argumento, no como image:
     imagenes |= set(re.findall(r"--prometheus-config-reloader=(\S+)", salida))
@@ -334,15 +488,31 @@ def _version_del_chart(valores: str) -> str:
     return re.findall(r"versión\W+(\d+\.\d+\.\d+)", (MONITORING / valores).read_text(encoding="utf-8"))[0]
 
 
+@pytest.mark.parametrize("chart, valores", [
+    ("prometheus-community/kube-prometheus-stack", "values.yaml"),
+    ("prometheus-community/prometheus-pushgateway", "pushgateway.values.yaml"),
+    ("grafana/loki", "loki.values.yaml"),
+    ("grafana/alloy", "alloy.values.yaml"),
+])
+def test_ci_valida_la_version_que_se_instala(chart, valores):
+    """La versión va en la cabecera de los values (el comando de instalación) y
+    en ci.yml: si se sube una sin la otra, CI valida un chart que no se instala."""
+    ci = (RAIZ / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert f"{chart} --version {_version_del_chart(valores)} " in ci
+
+
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm no está instalado")
 @pytest.mark.parametrize("chart, valores", [
-    ("kube-prometheus-stack", ("values.yaml", "values.example.yaml")),
-    ("prometheus-pushgateway", ("pushgateway.values.yaml",)),
+    ("prometheus-community/kube-prometheus-stack", ("values.yaml", "values.example.yaml")),
+    ("prometheus-community/prometheus-pushgateway", ("pushgateway.values.yaml",)),
+    ("grafana/loki", ("loki.values.yaml",)),
+    ("grafana/alloy", ("alloy.values.yaml",)),
 ])
 def test_imagenes_de_la_monitorizacion_por_digest(chart, valores):
     """Una tag se puede mover (ataque a trivy-action, marzo de 2026): cada
-    imagen que llega al clúster va fijada por digest. Necesita el repo de Helm
-    prometheus-community añadido (la CI lo añade en el job de tests)."""
+    imagen que llega al clúster va fijada por digest. Necesita los repos de Helm
+    prometheus-community y grafana añadidos (la CI los añade en el job de tests)."""
     imagenes = _imagenes_renderizadas(chart, _version_del_chart(valores[0]), *valores)
 
     assert imagenes
