@@ -16,7 +16,11 @@ esta, se puede investigar en Grafana sin `kubectl logs`. Diseño:
       **borrado el Job, los logs siguen** (249 líneas) (2026-11-16).
 - [x] Memoria en reposo dentro de los límites: Loki ~100 MiB (512), Alloy
       ~55 MiB (256), config-reloader ~7 MiB (32) (2026-11-16).
-- [ ] El nocturno siguiente aparece en el panel sin intervención.
+- [x] El nocturno siguiente aparece en el panel sin intervención: los tres
+      contenedores en "Logs del escaneo" (2026-11-17). Esa noche la VM estaba
+      parada (`qmstop` a mano); al arrancarla, el CronJob lanzó solo el escaneo
+      perdido de las 3:00 (sin `startingDeadlineSeconds`), y Loki y Alloy
+      volvieron sin perder nada. Para apagar la VM, mejor Shutdown que Stop.
 
 ## Piezas
 

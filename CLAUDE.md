@@ -274,10 +274,10 @@ nueva.** Aquí solo va lo que hay que tener presente al editar:
     también `cryptography`, que pysnmp necesita para cifrar).
 12. ~~**v1.0 en PyPI**~~ — hecho (`release.yml`, `CHANGELOG.md`, captura del
     árbol en el README con `scripts/demo_arbol.py`). Después, la fase DevOps
-    (`docs/devops/README.md`): fases 0-6 hechas (contenedor, VM de Proxmox,
+    (`docs/devops/README.md`): fases 0-7 hechas (contenedor, VM de Proxmox,
     k3s + Helm, AWS + avisos por email, Jenkins con prueba y rollback,
-    observabilidad con Prometheus/Grafana, Telegram y healthchecks.io); fase 7,
-    logs con Loki + Alloy, en curso.
+    observabilidad con Prometheus/Grafana, Telegram y healthchecks.io, y
+    logs con Loki + Alloy).
 
 **Ideas pendientes** (sin orden decidido):
 - Fabricante (por OUI, con la base de datos de nmap) para los hosts que solo
