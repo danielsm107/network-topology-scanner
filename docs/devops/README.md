@@ -16,7 +16,7 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 | 4 | AWS como código + hallazgos | Hecha | [04-aws.md](runbooks/04-aws.md) |
 | 5 | Jenkins (CD) | Hecha | [05-jenkins.md](runbooks/05-jenkins.md) |
 | 6 | Observabilidad | Hecha | [06-observabilidad.md](runbooks/06-observabilidad.md) |
-| 7 | Logs (Loki + Alloy) | En curso | [07-logs.md](runbooks/07-logs.md) |
+| 7 | Logs (Loki + Alloy) | Hecha | [07-logs.md](runbooks/07-logs.md) |
 
 ## Piezas que ya existen
 
