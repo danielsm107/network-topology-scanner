@@ -1,8 +1,37 @@
 # Network Topology Scanner
 
 [![CI](https://github.com/danielsm107/network-topology-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/danielsm107/network-topology-scanner/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/topology-scanner)](https://pypi.org/project/topology-scanner/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/danielsm107/network-topology-scanner/blob/main/LICENSE)
 
-Scans a network range, discovers active hosts, their open ports/services,
+**A network topology scanner, and the small self-hosted platform that builds,
+deploys, monitors and backs it up**: Terraform, k3s, Helm, Jenkins, AWS through
+OIDC, Prometheus, Grafana and Loki, all defined in this repo; the scan runs every
+night in a homelab.
+
+```mermaid
+flowchart LR
+    gh["GitHub Actions: test, scan, publish"] --> reg["PyPI + GHCR"]
+    gh -->|"Terraform via OIDC"| aws["AWS: S3 backups, SNS email"]
+    subgraph home["Homelab (nothing exposed to the internet)"]
+        subgraph k3s["k3s on Proxmox (Terraform)"]
+            jenkins["Jenkins: deploy, test, roll back"]
+            scan["Nightly scan (CronJob)"]
+            obs["Prometheus, Grafana, Loki"]
+        end
+        lan["Home networks and routers"]
+    end
+    reg --> jenkins --> scan
+    scan -->|"nmap + SNMP"| lan
+    scan --> aws
+    scan --> obs -->|"alerts"| tg["Telegram"]
+    obs -->|"watchdog"| hc["healthchecks.io"]
+```
+
+How it runs and why: [How it runs](#how-it-runs) and
+[`docs/architecture.md`](https://github.com/danielsm107/network-topology-scanner/blob/main/docs/architecture.md).
+
+**The tool** scans a network range, discovers active hosts, their open ports/services,
 vendor (via MAC) and device type, and generates an interactive HTML topology
 graph with icons per category (router, PC, NAS, printer, etc). Flags hosts
 with sensitive open ports in red (Telnet, SMB, RDP, FTP, VNC), stores every
@@ -247,16 +276,42 @@ icon: router, firewall, VM, NAS, printer, camera, IoT, mobile, Apple, PC.
 **same L2 segment** as the target host (ARP doesn't cross routers/VLANs).
 Hosts on other subnets will show up as category "unknown".
 
-## Deployment (homelab + AWS)
+## How it runs
 
-The author runs it as a small self-hosted system, all of it defined in this repo:
-a k3s VM on Proxmox (Terraform), a Helm chart with a nightly scan and the web UI,
-and a few AWS resources (Terraform, applied by GitHub Actions through OIDC) for
-reports, a history backup and email alerts when the network changes. Releases
-are deployed by Jenkins inside the cluster: it polls GitHub for new tags, runs
-`helm upgrade` and `helm test`, and rolls back and emails on failure. Nothing in
-the homelab is exposed to the internet. The how and why, phase by phase, is in
-[`docs/devops/`](https://github.com/danielsm107/network-topology-scanner/blob/main/docs/devops/README.md) (in Spanish).
+The author runs it as a small self-hosted system: a k3s VM on Proxmox created
+with Terraform, a Helm chart with the nightly scan and the web UI, and a few AWS
+resources for off-site copies and email. A tagged release goes through CI,
+publishes to PyPI and GHCR, and is deployed by Jenkins inside the cluster. Every
+night the scan runs, stores its diff, uploads reports, pushes metrics and only
+emails when something worth a look changed. Nothing in the homelab is exposed to
+the internet. It is a one-node homelab, not a production system; the choices
+are sized for that.
+
+Some of the decisions behind it:
+
+- **No long-lived AWS keys in GitHub**: AWS Terraform runs from GitHub Actions through OIDC, with a
+  read-only role for pull-request plans and an apply role behind a manual
+  approval, trusted by the repo's immutable ID.
+- **Deploy, test, roll back**: Jenkins polls GitHub (so nothing has to reach
+  into the LAN), runs `helm upgrade` and `helm test`, and on failure rolls back
+  to the exact previous revision, emails, and won't retry that version on its
+  own. Rehearsed by forcing failures (an image that won't start, a failing test,
+  a version never published), without ever publishing a broken release.
+- **Pin what you run**: third-party Actions by commit SHA, Trivy and third-party
+  images by digest, our own image by an exact version tag (never `latest`), CI
+  runners by version. Tests enforce it.
+- **nmap without root**: file capabilities on the binary and only those
+  capabilities in the pod; a test fails if the Dockerfile and the chart disagree.
+- **Watching the watchers**: Alertmanager pings healthchecks.io every minute;
+  if the monitoring itself dies, the pings stop and an alert still arrives on
+  Telegram.
+- **Backups only count once restored**: the history volume was deleted and
+  restored from S3, and the monitoring stack and Jenkins were rebuilt from the
+  repo, on purpose.
+
+The full picture, with diagrams, every phase and the reasoning:
+[`docs/architecture.md`](https://github.com/danielsm107/network-topology-scanner/blob/main/docs/architecture.md). Step-by-step
+runbooks are in [`docs/devops/`](https://github.com/danielsm107/network-topology-scanner/blob/main/docs/devops/README.md) (in Spanish).
 
 ## Tests
 
@@ -286,5 +341,8 @@ run without a real network or the nmap binary installed.
 - [ ] Vendor lookup (nmap's OUI database) for hosts only seen over SNMP, which show up as "?" today
 - [ ] Tell access points, switches and routers apart using the capabilities LLDP advertises
 - [x] Scheduled scans with email alerts on changes (self-hosted on Kubernetes, reports and history backup on S3)
+- [x] Continuous deployment with Jenkins: `helm test` after every release, automatic rollback
+- [x] Monitoring with Prometheus and Grafana, alerts on Telegram, external watchdog (healthchecks.io)
+- [x] Centralised logs with Loki and Alloy
 
 See [CHANGELOG.md](https://github.com/danielsm107/network-topology-scanner/blob/main/CHANGELOG.md) for release notes.
