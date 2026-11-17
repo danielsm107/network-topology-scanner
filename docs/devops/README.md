@@ -18,6 +18,8 @@ LAN, AWS para lo que no. Diseño completo, con el porqué de cada decisión:
 | 6 | Observabilidad | Hecha | [06-observabilidad.md](runbooks/06-observabilidad.md) |
 | 7 | Logs (Loki + Alloy) | Hecha | [07-logs.md](runbooks/07-logs.md) |
 
+Operación aparte: [pausar y reanudar el homelab](runbooks/pausa.md) (en pausa desde el 2026-11-17).
+
 ## Piezas que ya existen
 
 - `Dockerfile` / `.dockerignore`: la imagen (nmap sin root, `/data`, web por `STREAMLIT_*`).
