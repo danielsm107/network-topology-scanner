@@ -35,3 +35,10 @@ def test_arquitectura_enlaza_los_8_runbooks():
     assert len(RUNBOOKS) == 8
     faltan = [r.name for r in RUNBOOKS if f"devops/runbooks/{r.name}" not in texto]
     assert faltan == []
+
+
+def test_readme_tiene_diagrama_antes_de_las_capturas_y_enlaza_arquitectura():
+    texto = _leer("README.md")
+    assert "```mermaid" in texto
+    assert texto.index("```mermaid") < texto.index("docs/screenshots/")
+    assert "docs/architecture.md" in texto
