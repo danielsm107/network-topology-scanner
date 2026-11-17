@@ -50,6 +50,7 @@ flowchart LR
     end
 
     subgraph aws["AWS"]
+        s3state["S3: Terraform state"]
         s3["S3: reports + history backup"]
         sns["SNS: email"]
     end
@@ -58,7 +59,7 @@ flowchart LR
     hc["healthchecks.io"]
 
     tf -->|"VM (cloud-init)"| px
-    tf -.->|"state"| s3
+    tf -.->|"state"| s3state
     helmpc --> prom
     rel --> pypi
     rel --> ghcr
@@ -152,10 +153,12 @@ Short versions; the full reasoning (and the bug that prompted many of them) is i
   creating a revision), an email, and a marker so a broken version isn't
   retried on every poll. All of it rehearsed with deliberately broken deploys.
 - **Pin what you run.** Third-party GitHub Actions by commit SHA, Trivy and
-  every image by digest, runners by version (`ubuntu-26.04`, never `-latest`),
+  every third-party image by digest, our own image by an exact version tag
+  (the chart rejects `latest`), runners by version (`ubuntu-26.04`, never `-latest`),
   Jenkins plugins as a full pinned list. Tests in [`tests/test_workflows.py`](../tests/test_workflows.py)
   enforce it. The trigger was the March 2026 attack that rewrote the tags of
-  `aquasecurity/trivy-action`; new releases also wait two weeks before adoption.
+  `aquasecurity/trivy-action`; new versions are adopted only after they've been
+  out a couple of weeks (Trivy, Loki, Alloy).
 - **nmap without root.** File capabilities on the binary (`setcap`), a fixed
   non-root UID, and the pod adds exactly those capabilities on top of
   `drop: [ALL]`. A test reads the Dockerfile and the chart and fails if they
@@ -184,7 +187,8 @@ Short versions; the full reasoning (and the bug that prompted many of them) is i
   off, the nightly scan doesn't run (Kubernetes catches up on the missed run
   when the node is back); power cuts are explicitly out of scope.
 - **No access from outside the LAN.** The web UI, Jenkins and Grafana sit
-  behind a reverse proxy restricted to the local network. The web UI has no
+  behind a reverse proxy restricted to the local network (their node ports also
+  answer over plain HTTP inside the LAN; accepted). The web UI has no
   authentication of its own; an allow-list of ranges limits what it will scan.
 - **No log-based alerting.** Alerts come from Prometheus; Loki is for reading
   what happened.

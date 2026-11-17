@@ -6,8 +6,8 @@
 
 **A network topology scanner, and the small self-hosted platform that builds,
 deploys, monitors and backs it up**: Terraform, k3s, Helm, Jenkins, AWS through
-OIDC, Prometheus, Grafana and Loki, all defined in this repo and running in a
-homelab every night.
+OIDC, Prometheus, Grafana and Loki, all defined in this repo; the scan runs every
+night in a homelab.
 
 ```mermaid
 flowchart LR
@@ -289,15 +289,17 @@ are sized for that.
 
 Some of the decisions behind it:
 
-- **No long-lived AWS keys in GitHub**: Terraform runs through OIDC, with a
+- **No long-lived AWS keys in GitHub**: AWS Terraform runs from GitHub Actions through OIDC, with a
   read-only role for pull-request plans and an apply role behind a manual
   approval, trusted by the repo's immutable ID.
 - **Deploy, test, roll back**: Jenkins polls GitHub (so nothing has to reach
   into the LAN), runs `helm upgrade` and `helm test`, and on failure rolls back
   to the exact previous revision, emails, and won't retry that version on its
-  own. Rehearsed with deliberately broken releases.
-- **Pin what you run**: third-party Actions by commit SHA, Trivy and every image
-  by digest, CI runners by version. Tests enforce it.
+  own. Rehearsed by forcing failures (an image that won't start, a failing test,
+  a version never published), without ever publishing a broken release.
+- **Pin what you run**: third-party Actions by commit SHA, Trivy and third-party
+  images by digest, our own image by an exact version tag (never `latest`), CI
+  runners by version. Tests enforce it.
 - **nmap without root**: file capabilities on the binary and only those
   capabilities in the pod; a test fails if the Dockerfile and the chart disagree.
 - **Watching the watchers**: Alertmanager pings healthchecks.io every minute;
